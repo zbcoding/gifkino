@@ -1,0 +1,1104 @@
+# German translation for gif-editor.
+# Copyright (C) 2026
+# This file is distributed under the same license as the gif-editor package.
+#
+# PO translation metadata:
+# Translations must include a descriptive translator note.
+# AI-generated translations are tagged with a `#, fuzzy` flag so review tools
+# treat them as needing editing (unfinished) until a human reviews them.
+# Required entry order:
+#   #. Translators: Describe what this string does for translators.
+#   #. AI-generated translation; human review requested.
+#   #, fuzzy
+#   msgid "..."
+#   msgstr "..."
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: gif-editor\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-08-29 11:57+0000\n"
+"PO-Revision-Date: 2026-08-29 11:57+0000\n"
+"Last-Translator: Claude (AI) <noreply@anthropic.com>\n"
+"Language-Team: German\n"
+"Language: de\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=n != 1;\n"
+
+#. Translators: Toast after an edit. {change} is a past-tense edit name such as "Frames deleted".
+#. AI-generated translation; human review requested.
+#: src/core/history.rs:30
+#, fuzzy
+msgid "{change} on {count} frames"
+msgstr "{change} bei {count} Bildern"
+
+#. AI-generated translation; human review requested.
+#: src/keymap.rs:89 src/ui/window.rs:463
+#, fuzzy
+msgid "Open"
+msgstr "Öffnen"
+
+#. AI-generated translation; human review requested.
+#: src/keymap.rs:90 src/ui/window.rs:513 src/ui/window.rs:1170 src/ui/window.rs:2472
+#, fuzzy
+msgid "Export GIF"
+msgstr "GIF exportieren"
+
+#. AI-generated translation; human review requested.
+#: src/keymap.rs:91 src/ui/window.rs:1084
+#, fuzzy
+msgid "Undo"
+msgstr "Rückgängig"
+
+#. AI-generated translation; human review requested.
+#: src/keymap.rs:92
+#, fuzzy
+msgid "Redo"
+msgstr "Wiederholen"
+
+#. AI-generated translation; human review requested.
+#: src/keymap.rs:93 src/ui/window.rs:1173
+#, fuzzy
+msgid "Play/pause"
+msgstr "Wiedergabe/Pause"
+
+#. AI-generated translation; human review requested.
+#: src/keymap.rs:94
+#, fuzzy
+msgid "Select all frames"
+msgstr "Alle Bilder auswählen"
+
+#. AI-generated translation; human review requested.
+#: src/keymap.rs:95
+#, fuzzy
+msgid "Delete selection"
+msgstr "Auswahl löschen"
+
+#. AI-generated translation; human review requested.
+#: src/keymap.rs:96 src/ui/window.rs:2178
+#, fuzzy
+msgid "Keyboard shortcuts"
+msgstr "Tastenkürzel"
+
+#. AI-generated translation; human review requested.
+#: src/keymap.rs:97
+#, fuzzy
+msgid "Text tool"
+msgstr "Textwerkzeug"
+
+#. AI-generated translation; human review requested.
+#: src/keymap.rs:98
+#, fuzzy
+msgid "Rectangle tool"
+msgstr "Rechteckwerkzeug"
+
+#. AI-generated translation; human review requested.
+#: src/keymap.rs:99
+#, fuzzy
+msgid "Ellipse tool"
+msgstr "Ellipsenwerkzeug"
+
+#. AI-generated translation; human review requested.
+#: src/keymap.rs:100
+#, fuzzy
+msgid "Arrow tool"
+msgstr "Pfeilwerkzeug"
+
+#. Translators: Draws a box on the canvas for cropping or zooming.
+#. AI-generated translation; human review requested.
+#: src/keymap.rs:102
+#, fuzzy
+msgid "Crop tool"
+msgstr "Zuschneidewerkzeug"
+
+#. AI-generated translation; human review requested.
+#: src/keymap.rs:103
+#, fuzzy
+msgid "Delete frames"
+msgstr "Bilder löschen"
+
+#. AI-generated translation; human review requested.
+#: src/keymap.rs:104
+#, fuzzy
+msgid "Duplicate frames"
+msgstr "Bilder duplizieren"
+
+#. AI-generated translation; human review requested.
+#: src/keymap.rs:105
+#, fuzzy
+msgid "Reverse frames"
+msgstr "Bilder umkehren"
+
+#. Translators: Fills the canvas from the crop box, on the frames in scope.
+#. AI-generated translation; human review requested.
+#: src/keymap.rs:107
+#, fuzzy
+msgid "Zoom to selection"
+msgstr "Auf Auswahl zoomen"
+
+#. AI-generated translation; human review requested.
+#: src/keymap.rs:113
+#, fuzzy
+msgid "File"
+msgstr "Datei"
+
+#. AI-generated translation; human review requested.
+#: src/keymap.rs:114
+#, fuzzy
+msgid "Edit"
+msgstr "Bearbeiten"
+
+#. AI-generated translation; human review requested.
+#: src/keymap.rs:115
+#, fuzzy
+msgid "Tools"
+msgstr "Werkzeuge"
+
+#. AI-generated translation; human review requested.
+#: src/keymap.rs:116
+#, fuzzy
+msgid "Frames"
+msgstr "Bilder"
+
+#. Translators: Held while dragging an overlay on the canvas.
+#. AI-generated translation; human review requested.
+#: src/keymap.rs:156
+#, fuzzy
+msgid "Rotate instead of move"
+msgstr "Drehen statt verschieben"
+
+#. AI-generated translation; human review requested.
+#: src/keymap.rs:157
+#, fuzzy
+msgid "Keep the aspect ratio"
+msgstr "Seitenverhältnis beibehalten"
+
+#. AI-generated translation; human review requested.
+#: src/keymap.rs:158
+#, fuzzy
+msgid "Resize from the center"
+msgstr "Aus der Mitte skalieren"
+
+#. AI-generated translation; human review requested.
+#: src/pipeline/caps.rs:38 src/pipeline/caps.rs:43
+#, fuzzy
+msgid "ffmpeg is not available in this runtime"
+msgstr "ffmpeg ist in dieser Laufzeitumgebung nicht verfügbar"
+
+#. AI-generated translation; human review requested.
+#: src/pipeline/caps.rs:45
+#, fuzzy
+msgid "this ffmpeg build has no screen capture source"
+msgstr "dieses ffmpeg hat keine Quelle für Bildschirmaufnahmen"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:413
+#, fuzzy
+msgid "GIF Editor"
+msgstr "GIF-Editor"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:465
+#, fuzzy
+msgid "Videos and GIFs"
+msgstr "Videos und GIFs"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:654
+#, fuzzy
+msgid "Text added"
+msgstr "Text hinzugefügt"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:655
+#, fuzzy
+msgid "Rectangle added"
+msgstr "Rechteck hinzugefügt"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:656
+#, fuzzy
+msgid "Ellipse added"
+msgstr "Ellipse hinzugefügt"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:657
+#, fuzzy
+msgid "Arrow added"
+msgstr "Pfeil hinzugefügt"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:682
+#, fuzzy
+msgid "Text edited"
+msgstr "Text bearbeitet"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:694
+#, fuzzy
+msgid "Overlay deleted"
+msgstr "Overlay gelöscht"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:702 src/ui/window.rs:1487
+#, fuzzy
+msgid "Frames deleted"
+msgstr "Bilder gelöscht"
+
+#. Translators: Past-tense edit name, used inside "{change} on {count} frames".
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:722
+#, fuzzy
+msgid "Delay set"
+msgstr "Anzeigedauer gesetzt"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:744
+#, fuzzy
+msgid "Overlay restyled"
+msgstr "Overlay umgestaltet"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:919
+#, fuzzy
+msgid "Overlay moved"
+msgstr "Overlay verschoben"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:920
+#, fuzzy
+msgid "Overlay rotated"
+msgstr "Overlay gedreht"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:921
+#, fuzzy
+msgid "Overlay resized"
+msgstr "Overlay skaliert"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:940
+#, fuzzy
+msgid "Cropped"
+msgstr "Zugeschnitten"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:956
+#, fuzzy
+msgid "Zoomed"
+msgstr "Gezoomt"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:975 src/ui/window.rs:987
+#, fuzzy
+msgid "Frames removed"
+msgstr "Bilder entfernt"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:997
+#, fuzzy
+msgid "Resized"
+msgstr "Größe geändert"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1058
+#, fuzzy
+msgid "Exported to {path} · {size} KB"
+msgstr "Exportiert nach {path} · {size} KB"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1111
+#, fuzzy
+msgid "Importing… {done} / {total} frames"
+msgstr "Import läuft… {done} / {total} Bilder"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1120
+#, fuzzy
+msgid "Importing… {done} frames"
+msgstr "Import läuft… {done} Bilder"
+
+#. Translators: Window title when no file has been opened.
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1134
+#, fuzzy
+msgid "Untitled"
+msgstr "Unbenannt"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1137
+#, fuzzy
+msgid "{count} frames · {seconds} s"
+msgstr "{count} Bilder · {seconds} s"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1178
+#, fuzzy
+msgid "Crop or zoom: drag a box on the canvas"
+msgstr "Zuschneiden oder zoomen: Rahmen auf der Leinwand aufziehen"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1185
+#, fuzzy
+msgid "Every frame in the document"
+msgstr "Jedes Bild im Dokument"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1186
+#, fuzzy
+msgid "Shift+click the strip for a run of frames, Ctrl+click to add to it"
+msgstr "Umschalt+Klick im Filmstreifen wählt eine Folge von Bildern, Strg+Klick erweitert die Auswahl"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1196
+#, fuzzy
+msgid "{elapsed} / {total} · {fps} fps"
+msgstr "{elapsed} / {total} · {fps} fps"
+
+#. Translators: Scope button. Frame numbers are 1-based and inclusive.
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1212
+#, fuzzy
+msgid "Range {first}–{last}"
+msgstr "Bereich {first}–{last}"
+
+#. Translators: Scope button when the picked frames do not form a run.
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1221
+#, fuzzy
+msgid "{count} frame"
+msgstr "{count} Bild"
+
+#. Translators: Scope button when the picked frames do not form a run.
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1221
+#, fuzzy
+msgid "{count} frames"
+msgstr "{count} Bilder"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1314
+#, fuzzy
+msgid "▾ {count} overlay rows"
+msgstr "▾ {count} Overlay-Zeilen"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1392
+#, fuzzy
+msgid "{width} × {height} at {x}, {y}"
+msgstr "{width} × {height} bei {x}, {y}"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1400
+#, fuzzy
+msgid "Crop resizes every frame; zoom fills the canvas from this box on the frames in scope."
+msgstr "Zuschneiden ändert die Größe jedes Bildes; Zoomen füllt die Leinwand aus diesem Rahmen auf den Bildern im Bereich."
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1405
+#, fuzzy
+msgid "Drag a box on the canvas."
+msgstr "Ziehen Sie einen Rahmen auf der Leinwand auf."
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1433
+#, fuzzy
+msgid "≈ {size} as a GIF"
+msgstr "≈ {size} als GIF"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1439
+#, fuzzy
+msgid "≈ {size} as a GIF (updating…)"
+msgstr "≈ {size} als GIF (wird aktualisiert…)"
+
+#. Translators: Shown while the exported GIF size is still being measured.
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1444
+#, fuzzy
+msgid "sizing…"
+msgstr "Größe wird ermittelt…"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1450
+#, fuzzy
+msgid "{width} × {height} · {frames} frames · {overlays} overlays"
+msgstr "{width} × {height} · {frames} Bilder · {overlays} Overlays"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1488
+#, fuzzy
+msgid "Frames duplicated"
+msgstr "Bilder dupliziert"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1489
+#, fuzzy
+msgid "Frames reversed"
+msgstr "Bilder umgekehrt"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1564
+#, fuzzy
+msgid "This video is large"
+msgstr "Dieses Video ist groß"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1579
+#, fuzzy
+msgid "{size} (recommended)"
+msgstr "{size} (empfohlen)"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1580
+#, fuzzy
+msgid "Custom…"
+msgstr "Benutzerdefiniert…"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1593 src/ui/window.rs:2797
+#, fuzzy
+msgid "Size"
+msgstr "Größe"
+
+#. Translators: Abbreviation for pixels, shown after a pair of size fields.
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1600 src/ui/window.rs:3640
+#, fuzzy
+msgid "px"
+msgstr "px"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1603
+#, fuzzy
+msgid "Frame rate"
+msgstr "Bildrate"
+
+#. Translators: Abbreviation for frames per second.
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1609
+#, fuzzy
+msgid "fps"
+msgstr "fps"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1612
+#, fuzzy
+msgid "Import at"
+msgstr "Importieren mit"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1666
+#, fuzzy
+msgid "Could not measure the size: {error}"
+msgstr "Größe konnte nicht ermittelt werden: {error}"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1708
+#, fuzzy
+msgid "Cancel"
+msgstr "Abbrechen"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1709
+#, fuzzy
+msgid "Import"
+msgstr "Importieren"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1755
+#, fuzzy
+msgid "runs {duration}"
+msgstr "läuft {duration}"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1756
+#, fuzzy
+msgid "has no duration the container will admit to"
+msgstr "hat keine Laufzeit, die der Container preisgibt"
+
+#. Translators: Pango markup: keep the <b> tags. {length} is "runs 1:30" or the no-duration phrase.
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1761
+#, fuzzy
+msgid "<b>{name}</b> {length} at {width}×{height}, {fps} fps — more than will fit in memory at full size."
+msgstr "<b>{name}</b> {length} bei {width}×{height}, {fps} fps — mehr, als in voller Größe in den Speicher passt."
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1775
+#, fuzzy
+msgid "Pick a smaller size below, or cancel and trim or crop the file first, which gives a better GIF and a much faster import."
+msgstr "Wählen Sie unten eine kleinere Größe, oder brechen Sie ab und kürzen oder beschneiden Sie die Datei zuerst; das ergibt ein besseres GIF und einen viel schnelleren Import."
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1795
+#, fuzzy
+msgid "{fps} fps, down from {source}"
+msgstr "{fps} fps, herunter von {source} "
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1802
+#, fuzzy
+msgid "{fps} fps"
+msgstr "{fps} fps"
+
+#. Translators: {rate} is a phrase such as "4 fps, down from 60"; it opens the sentence.
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1807
+#, fuzzy
+msgid "{rate}. The container gives no duration, so there is no count to preview."
+msgstr "{rate}. Der Container gibt keine Laufzeit an, daher lässt sich die Anzahl nicht vorab anzeigen."
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1813
+#, fuzzy
+msgid "{size} in memory"
+msgstr "{size} im Speicher"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1818
+#, fuzzy
+msgid "{size} as a GIF"
+msgstr "{size} als GIF"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1820
+#, fuzzy
+msgid "measuring the GIF size…"
+msgstr "GIF-Größe wird gemessen…"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1823
+#, fuzzy
+msgid "{frames} frames at {rate}"
+msgstr "{frames} Bilder mit {rate}"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1829
+#, fuzzy
+msgid "That is more memory than an import may use. Choose a smaller size or a lower frame rate."
+msgstr "Das ist mehr Speicher, als ein Import verwenden darf. Wählen Sie eine kleinere Größe oder eine niedrigere Bildrate."
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1841
+#, fuzzy
+msgid "{n} GB"
+msgstr "{n} GB"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1845
+#, fuzzy
+msgid "{n} MB"
+msgstr "{n} MB"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1848
+#, fuzzy
+msgid "{n} KB"
+msgstr "{n} KB"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1960
+#, fuzzy
+msgid "Delete this frame"
+msgstr "Dieses Bild löschen"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1961
+#, fuzzy
+msgid "Duplicate this frame"
+msgstr "Dieses Bild duplizieren"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:1962
+#, fuzzy
+msgid "Set delay…"
+msgstr "Anzeigedauer festlegen…"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2011
+#, fuzzy
+msgid "Edited outside; overlays skip this frame"
+msgstr "Extern bearbeitet; Overlays überspringen dieses Bild"
+
+#. Translators: "cs" is centiseconds, the unit GIF stores frame delays in.
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2016
+#, fuzzy
+msgid "Frame {number} · {delay} cs"
+msgstr "Bild {number} · {delay} cs"
+
+#. Translators: A canvas modifier row waiting for the user to hold a key.
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2202
+#, fuzzy
+msgid "Hold a modifier…"
+msgstr "Modifikatortaste halten…"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2204 src/ui/window.rs:2218
+#, fuzzy
+msgid "Unassigned"
+msgstr "Nicht belegt"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2216
+#, fuzzy
+msgid "Press a key…"
+msgstr "Taste drücken…"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2225
+#, fuzzy
+msgid "Already used by another action"
+msgstr "Bereits von einer anderen Aktion belegt"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2258 src/ui/window.rs:2297
+#, fuzzy
+msgid "Unbind"
+msgstr "Belegung aufheben"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2277
+#, fuzzy
+msgid "Canvas"
+msgstr "Leinwand"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2278
+#, fuzzy
+msgid "Held while dragging an overlay's grip."
+msgstr "Wird beim Ziehen an einem Overlay-Griff gehalten."
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2360
+#, fuzzy
+msgid "Keybindings file"
+msgstr "Datei mit Tastenbelegungen"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2361
+#, fuzzy
+msgid "Bindings are saved as you change them."
+msgstr "Belegungen werden beim Ändern gespeichert."
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2364
+#, fuzzy
+msgid "Import or export"
+msgstr "Importieren oder exportieren"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2368
+#, fuzzy
+msgid "no config directory"
+msgstr "kein Konfigurationsverzeichnis"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2371
+#, fuzzy
+msgid "Import…"
+msgstr "Importieren…"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2372
+#, fuzzy
+msgid "Export…"
+msgstr "Exportieren…"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2373
+#, fuzzy
+msgid "Reset"
+msgstr "Zurücksetzen"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2389
+#, fuzzy
+msgid "Import keybindings"
+msgstr "Tastenbelegungen importieren"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2402
+#, fuzzy
+msgid "Could not read {path}: {error}"
+msgstr "{path} konnte nicht gelesen werden: {error}"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2418
+#, fuzzy
+msgid "Export keybindings"
+msgstr "Tastenbelegungen exportieren"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2428
+#, fuzzy
+msgid "Saved {path}"
+msgstr "{path} gespeichert"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2432
+#, fuzzy
+msgid "Could not write: {error}"
+msgstr "Schreiben fehlgeschlagen: {error}"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2470
+#, fuzzy
+msgid "Export"
+msgstr "Exportieren"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2478 src/ui/window.rs:2521
+#, fuzzy
+msgid "Open…"
+msgstr "Öffnen…"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2479
+#, fuzzy
+msgid "Export GIF…"
+msgstr "GIF exportieren…"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2491
+#, fuzzy
+msgid "Insert"
+msgstr "Einfügen"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2497
+#, fuzzy
+msgid "Remove frames…"
+msgstr "Bilder entfernen…"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2498
+#, fuzzy
+msgid "Smart remove frames…"
+msgstr "Bilder intelligent entfernen…"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2499
+#, fuzzy
+msgid "Resize…"
+msgstr "Größe ändern…"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2500
+#, fuzzy
+msgid "Optimize"
+msgstr "Optimieren"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2503
+#, fuzzy
+msgid "Keyboard shortcuts…"
+msgstr "Tastenkürzel…"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2504
+#, fuzzy
+msgid "About"
+msgstr "Info"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2516
+#, fuzzy
+msgid "No document"
+msgstr "Kein Dokument"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2517
+#, fuzzy
+msgid "Open a video or GIF to start editing"
+msgstr "Öffnen Sie ein Video oder GIF, um mit dem Bearbeiten zu beginnen"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2531
+#, fuzzy
+msgid "Record"
+msgstr "Aufnehmen"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2538
+#, fuzzy
+msgid "Screen recording is not wired up yet"
+msgstr "Die Bildschirmaufnahme ist noch nicht angebunden"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2614
+#, fuzzy
+msgid "Delete"
+msgstr "Löschen"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2615
+#, fuzzy
+msgid "Duplicate"
+msgstr "Duplizieren"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2616
+#, fuzzy
+msgid "Reverse"
+msgstr "Umkehren"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2620
+#, fuzzy
+msgid "Frame operations"
+msgstr "Bildoperationen"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2637
+#, fuzzy
+msgid "This frame"
+msgstr "Dieses Bild"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2638
+#, fuzzy
+msgid "All frames"
+msgstr "Alle Bilder"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2639
+#, fuzzy
+msgid "Range"
+msgstr "Bereich"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2739
+#, fuzzy
+msgid "Properties"
+msgstr "Eigenschaften"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2745
+#, fuzzy
+msgid "Overlay text"
+msgstr "Overlay-Text"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2756 src/ui/window.rs:3722
+#, fuzzy
+msgid "Text"
+msgstr "Text"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2765
+#, fuzzy
+msgid "Overlay"
+msgstr "Overlay"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2782
+#, fuzzy
+msgid "Font"
+msgstr "Schrift"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2806
+#, fuzzy
+msgid "Left"
+msgstr "Linksbündig"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2810
+#, fuzzy
+msgid "Centered"
+msgstr "Zentriert"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2815
+#, fuzzy
+msgid "Right"
+msgstr "Rechtsbündig"
+
+#. Translators: Text alignment that stretches every line but the last to both margins.
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2821
+#, fuzzy
+msgid "Justified"
+msgstr "Blocksatz"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2842
+#, fuzzy
+msgid "Align"
+msgstr "Ausrichtung"
+
+#. Translators: Smoothing of glyph edges. Off gives hard pixel edges, for pixel-art captures.
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2856
+#, fuzzy
+msgid "Smooth edges"
+msgstr "Kanten glätten"
+
+#. Translators: The interior colour of a shape, or the colour of the glyphs for text.
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2866
+#, fuzzy
+msgid "Fill"
+msgstr "Füllung"
+
+#. Translators: The contrasting edge drawn behind text so it stays readable over any image.
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2875
+#, fuzzy
+msgid "Outline"
+msgstr "Kontur"
+
+#. Translators: The outline of a shape, as distinct from the outline behind text.
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2884
+#, fuzzy
+msgid "Stroke"
+msgstr "Strich"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2937
+#, fuzzy
+msgid "Crop / zoom"
+msgstr "Zuschneiden / Zoomen"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2945
+#, fuzzy
+msgid "Crop all frames"
+msgstr "Alle Bilder zuschneiden"
+
+#. Translators: Applies the zoom to the frames the scope control names, not the whole document.
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:2947
+#, fuzzy
+msgid "Zoom scope"
+msgstr "Geltungsbereich zoomen"
+
+#. Translators: Canvas tooltip over an overlay's resize grip. Keep the line breaks.
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:3320
+#, fuzzy
+msgid ""
+"Drag to resize\n"
+"{aspect}: keep the aspect ratio\n"
+"{center}+drag: resize from the center\n"
+"{rotate}+drag: rotate"
+msgstr ""
+"Ziehen zum Skalieren\n"
+"{aspect}: Seitenverhältnis beibehalten\n"
+"{center}+Ziehen: aus der Mitte skalieren\n"
+"{rotate}+Ziehen: drehen"
+
+#. Translators: Canvas tooltip over the body of an overlay. Keep the line break.
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:3336
+#, fuzzy
+msgid ""
+"Drag to move\n"
+"{rotate}+drag: rotate"
+msgstr ""
+"Ziehen zum Verschieben\n"
+"{rotate}+Ziehen: drehen"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:3587
+#, fuzzy
+msgid "Remove frames"
+msgstr "Bilder entfernen"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:3588
+#, fuzzy
+msgid "Delete one frame out of every N. Total duration is preserved, so the result plays at the same speed with fewer frames in it."
+msgstr "Löscht ein Bild von je N. Die Gesamtdauer bleibt erhalten, das Ergebnis läuft also mit weniger Bildern gleich schnell."
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:3594
+#, fuzzy
+msgid "Smart remove frames"
+msgstr "Bilder intelligent entfernen"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:3595
+#, fuzzy
+msgid "Drop the frames that change the least, so a still section thins out before a moving one does. Duration is preserved."
+msgstr "Verwirft die Bilder, die sich am wenigsten ändern, sodass ein ruhiger Abschnitt vor einem bewegten ausgedünnt wird. Die Dauer bleibt erhalten."
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:3601
+#, fuzzy
+msgid "Resize"
+msgstr "Größe ändern"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:3602
+#, fuzzy
+msgid "Scale every frame, and the overlays with them."
+msgstr "Skaliert jedes Bild und die Overlays mit."
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:3625
+#, fuzzy
+msgid "Remove 1 frame in every"
+msgstr "Ein Bild entfernen von je"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:3626
+#, fuzzy
+msgid "Remove this share of frames"
+msgstr "Diesen Anteil der Bilder entfernen"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:3627
+#, fuzzy
+msgid "New size"
+msgstr "Neue Größe"
+
+#. Translators: Unit after the "remove 1 frame in every N" field.
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:3635
+#, fuzzy
+msgid "frames"
+msgstr "Bildern"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:3675
+#, fuzzy
+msgid "Frame delay"
+msgstr "Anzeigedauer"
+
+#. Translators: GIF stores frame delays in centiseconds.
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:3677
+#, fuzzy
+msgid "How long this frame is held, in hundredths of a second."
+msgstr "Wie lange dieses Bild stehen bleibt, in Hundertstelsekunden."
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:3685
+#, fuzzy
+msgid "Frame {number}"
+msgstr "Bild {number}"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:3723
+#, fuzzy
+msgid "Rectangle"
+msgstr "Rechteck"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:3724
+#, fuzzy
+msgid "Ellipse"
+msgstr "Ellipse"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window.rs:3725
+#, fuzzy
+msgid "Arrow"
+msgstr "Pfeil"

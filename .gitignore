@@ -1,0 +1,10 @@
+# Third-party reference repos — read-only, never commit (different licenses)
+/references/
+
+# Rust build output
+/target/
+
+# developer documents and notes
+/docs-private/
+
+*.env

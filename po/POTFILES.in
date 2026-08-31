@@ -1,0 +1,6 @@
+# Files with translatable strings, one per line.
+# Regenerate with: scripts/i18n.py potfiles
+src/core/history.rs
+src/keymap.rs
+src/pipeline/caps.rs
+src/ui/window.rs
