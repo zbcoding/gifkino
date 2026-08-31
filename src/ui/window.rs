@@ -127,11 +127,43 @@ pub enum Msg {
     ToggleCropTool,
     ApplyCrop,
     ApplyZoom,
+    /// Open the crop-all dialog. The dialog needs the live canvas size, which
+    /// only the model knows — action closures do not.
+    CropAllDialog,
+    /// Crop every frame to this box, the four dialog fields in pixels.
+    CropAll(u32, u32, u32, u32),
     DropEveryNth(usize),
     SmartDrop(usize),
     Resize(u32, u32),
     SetKeymap(Box<Keymap>),
     Toast(String),
+}
+
+impl Msg {
+    /// Whether acting on this would reorder or remove frames. Frame work runs
+    /// against the snapshot taken when it started and lands its results by
+    /// frame index, so anything that moves an index has to wait until the
+    /// worker is done. One-frame field edits are in here too: a delay changed
+    /// mid-work would ride in the produced frame and be swapped back out.
+    fn changes_frames(&self) -> bool {
+        matches!(
+            self,
+            Msg::Load(_)
+                | Msg::LoadConfirmed(_, _)
+                | Msg::Undo
+                | Msg::Redo
+                | Msg::DeleteSelection
+                | Msg::FrameOp(_)
+                | Msg::FrameOpAt(_, _)
+                | Msg::SetFrameDelay(_, _)
+                | Msg::ApplyCrop
+                | Msg::CropAll(_, _, _, _)
+                | Msg::ApplyZoom
+                | Msg::DropEveryNth(_)
+                | Msg::SmartDrop(_)
+                | Msg::Resize(_, _)
+        )
+    }
 }
 
 /// One field of the selected overlay. Grouped so the update arm is one branch
@@ -210,6 +242,76 @@ struct Drag {
     moved: bool,
 }
 
+/// What the one progress bar is showing, whichever long job holds the app.
+/// The bar sits in the toolbar, so it is visible with a document open and not
+/// only on the welcome page.
+#[derive(Debug)]
+struct Busy {
+    kind: BusyKind,
+    done: usize,
+    /// Known when the job is countable; the import's is not until the
+    /// container says how long it is.
+    total: Option<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BusyKind {
+    Import,
+    Resize,
+    Zoom,
+}
+
+/// A frame-heavy operation the worker thread runs against the document as it
+/// stood when it was launched.
+#[derive(Debug)]
+enum FrameWork {
+    Resize(u32, u32),
+    Zoom {
+        frames: Vec<usize>,
+        rect: (u32, u32, u32, u32),
+    },
+}
+
+impl FrameWork {
+    /// The history label, marked: the toast translates it when it is shown.
+    fn label(&self) -> &'static str {
+        match self {
+            FrameWork::Resize(..) => n("Resized"),
+            FrameWork::Zoom { .. } => n("Zoomed"),
+        }
+    }
+
+    /// How many frames the edit will claim.
+    fn touched(&self, doc: &Document) -> usize {
+        match self {
+            FrameWork::Resize(..) => doc.frames.len(),
+            FrameWork::Zoom { frames, .. } => frames.len(),
+        }
+    }
+
+    /// How overlays scale when the work lands. A zoom keeps the canvas, so it
+    /// is `(1.0, 1.0)` and `scale_overlays` moves nothing.
+    fn scale(&self, doc: &Document) -> (f32, f32) {
+        match self {
+            FrameWork::Resize(w, h) => {
+                let (cw, ch) = doc.size();
+                (*w as f32 / cw.max(1) as f32, *h as f32 / ch.max(1) as f32)
+            }
+            FrameWork::Zoom { .. } => (1.0, 1.0),
+        }
+    }
+}
+
+/// What a finished frame job hands back: the produced frames as
+/// `(index, frame)` pairs, plus what the edit needs to say and to scale.
+#[derive(Debug)]
+pub struct WorkDone {
+    label: &'static str,
+    frames_touched: usize,
+    scale: (f32, f32),
+    frames: Vec<(usize, Frame)>,
+}
+
 #[derive(Debug)]
 pub enum Cmd {
     /// Frames decoded so far, and the estimate to expect.
@@ -218,6 +320,10 @@ pub enum Cmd {
     Planned(PathBuf, Box<Result<ImportPlan, String>>),
     /// Measured export size, and the revision it was measured at.
     Estimated(u64, Result<usize, String>),
+    /// Frame work done so far, and the total it is working through.
+    WorkProgress(usize, usize),
+    /// A finished resize or zoom: the frames to swap in by index.
+    Worked(Box<WorkDone>),
     Imported(Box<Result<(PathBuf, Vec<Frame>), String>>),
     Exported(Result<(PathBuf, u64), String>),
 }
@@ -236,9 +342,10 @@ pub struct App {
     /// Where the next Shift+click measures its run from.
     anchor: Option<usize>,
     selected_overlay: Option<OverlayId>,
-    busy: bool,
-    /// Decode progress while `busy`: frames done, frames expected.
-    import_progress: (usize, Option<usize>),
+    /// What the one progress bar is showing, if anything: an import, or frame
+    /// work (a resize, a zoom) running off the main thread. The work is keyed
+    /// to frame indices, so frame-moving messages wait while it runs.
+    busy: Option<Busy>,
     /// Measured export size and the revision it describes. Kept on show while a
     /// newer one is being measured, because a number that blinks out on every
     /// keystroke is worse than one that is a moment stale.
@@ -434,8 +541,7 @@ impl Component for App {
             selection: Vec::new(),
             anchor: None,
             selected_overlay: None,
-            busy: init.is_some(),
-            import_progress: (0, None),
+            busy: None,
             estimate: None,
             estimate_pending: None,
             keymap: Rc::new(RefCell::new(Keymap::load())),
@@ -458,6 +564,13 @@ impl Component for App {
     }
 
     fn update(&mut self, msg: Msg, sender: ComponentSender<Self>, root: &Self::Root) {
+        // Frame work runs against the snapshot taken when it started and lands
+        // its results by frame index, so anything that would move an index has
+        // to wait until the worker is done. Overlay-only edits stay live: the
+        // Worked handler scales the overlay list that exists when it lands.
+        if self.busy.is_some() && msg.changes_frames() {
+            return;
+        }
         match msg {
             Msg::Open => {
                 let dialog = gtk::FileDialog::builder().title(t("Open")).build();
@@ -477,13 +590,19 @@ impl Component for App {
                 });
             }
             Msg::Load(path) => {
-                self.busy = true;
-                self.import_progress = (0, None);
+                self.busy = Some(Busy {
+                    kind: BusyKind::Import,
+                    done: 0,
+                    total: None,
+                });
                 plan_import(path, self.import_options(), &sender);
             }
             Msg::LoadConfirmed(path, plan) => {
-                self.busy = true;
-                self.import_progress = (0, None);
+                self.busy = Some(Busy {
+                    kind: BusyKind::Import,
+                    done: 0,
+                    total: None,
+                });
                 load(path, Some(*plan), self.import_options(), &sender);
             }
             Msg::Estimate(rev) => {
@@ -935,13 +1054,8 @@ impl Component for App {
                 if w < 2.0 || h < 2.0 {
                     return;
                 }
-                let touched = self.frame_count();
                 self.crop_tool = false;
-                let (change, _) = self.editor.edit(n("Cropped"), touched, |d| {
-                    d.crop(x.max(0.0) as u32, y.max(0.0) as u32, w as u32, h as u32)
-                });
-                self.after_edit();
-                sender.input(Msg::Toast(change.message()));
+                sender.input(Msg::Toast(self.apply_crop(x, y, w, h)));
             }
             Msg::ApplyZoom => {
                 let Some((x, y, w, h)) = self.crop_rect.take() else {
@@ -950,20 +1064,29 @@ impl Component for App {
                 if w < 2.0 || h < 2.0 {
                     return;
                 }
-                let frames = self.scope_frames();
-                let touched = frames.len();
+                let work = FrameWork::Zoom {
+                    frames: self.scope_frames(),
+                    rect: (x.max(0.0) as u32, y.max(0.0) as u32, w as u32, h as u32),
+                };
                 self.crop_tool = false;
-                let (change, _) = self.editor.edit(n("Zoomed"), touched, |d| {
-                    d.zoom_frames(
-                        &frames,
-                        x.max(0.0) as u32,
-                        y.max(0.0) as u32,
-                        w as u32,
-                        h as u32,
-                    )
+                self.busy = Some(Busy {
+                    kind: BusyKind::Zoom,
+                    done: 0,
+                    total: Some(work.touched(&self.editor.doc)),
                 });
-                self.after_edit();
-                sender.input(Msg::Toast(change.message()));
+                run_frame_work(&self.editor.doc, work, &sender);
+            }
+            Msg::CropAllDialog => {
+                let (cw, ch) = self.editor.doc.size();
+                if cw == 0 || ch == 0 {
+                    return;
+                }
+                crop_dialog(root, cw, ch, &sender);
+            }
+            Msg::CropAll(x, y, w, h) => {
+                sender.input(Msg::Toast(
+                    self.apply_crop(x as f32, y as f32, w as f32, h as f32),
+                ));
             }
             Msg::DropEveryNth(every) => {
                 if self.frame_count() == 0 || every < 2 {
@@ -990,13 +1113,16 @@ impl Component for App {
                 sender.input(Msg::Toast(change.message()));
             }
             Msg::Resize(w, h) => {
-                if self.frame_count() == 0 {
+                if self.frame_count() == 0 || (w, h) == self.editor.doc.size() {
                     return;
                 }
-                let touched = self.frame_count();
-                let (change, _) = self.editor.edit(n("Resized"), touched, |d| d.resize(w, h));
-                self.after_edit();
-                sender.input(Msg::Toast(change.message()));
+                let work = FrameWork::Resize(w, h);
+                self.busy = Some(Busy {
+                    kind: BusyKind::Resize,
+                    done: 0,
+                    total: Some(self.frame_count()),
+                });
+                run_frame_work(&self.editor.doc, work, &sender);
             }
             Msg::SetKeymap(map) => {
                 map.save();
@@ -1008,7 +1134,38 @@ impl Component for App {
 
     fn update_cmd(&mut self, msg: Cmd, sender: ComponentSender<Self>, root: &Self::Root) {
         if let Cmd::ImportProgress(done, expected) = msg {
-            self.import_progress = (done, expected);
+            if let Some(busy) = &mut self.busy {
+                busy.done = done;
+                busy.total = expected;
+            }
+            return;
+        }
+        if let Cmd::WorkProgress(done, total) = msg {
+            // The worker keeps counting under whatever bar is up; only the
+            // numbers move, the bar never clears here.
+            if let Some(busy) = &mut self.busy {
+                busy.done = done;
+                busy.total = Some(total);
+            }
+            return;
+        }
+        if let Cmd::Worked(done) = msg {
+            let WorkDone {
+                label,
+                frames_touched,
+                scale,
+                frames,
+            } = *done;
+            let (fx, fy) = scale;
+            let (change, _) = self.editor.edit(label, frames_touched, |d| {
+                for (i, frame) in frames {
+                    d.frames[i] = frame;
+                }
+                d.scale_overlays(fx, fy);
+            });
+            self.busy = None;
+            self.after_edit();
+            sender.input(Msg::Toast(change.message()));
             return;
         }
         if let Cmd::Estimated(rev, result) = msg {
@@ -1024,34 +1181,42 @@ impl Component for App {
         if let Cmd::Planned(path, plan) = msg {
             match *plan {
                 Ok(plan) if plan.is_reduced() => {
-                    self.busy = false;
+                    self.busy = None;
                     confirm_oversize(root, &path, &plan, self.settings.max_import_bytes, &sender);
                 }
                 Ok(plan) => load(path, Some(plan), self.import_options(), &sender),
                 Err(e) => {
-                    self.busy = false;
+                    self.busy = None;
                     sender.input(Msg::Toast(e));
                 }
             }
             return;
         }
-        self.busy = false;
         match msg {
-            Cmd::ImportProgress(..) | Cmd::Planned(..) | Cmd::Estimated(..) => {
+            Cmd::ImportProgress(..)
+            | Cmd::WorkProgress(..)
+            | Cmd::Worked(..)
+            | Cmd::Planned(..)
+            | Cmd::Estimated(..) => {
                 unreachable!("handled above")
             }
-            Cmd::Imported(result) => match *result {
-                Ok((path, frames)) => {
-                    self.editor = Editor::new(Document::from_frames(frames));
-                    self.path = Some(path);
-                    self.playhead = 0;
-                    self.selection.clear();
-                    self.selected_overlay = None;
-                    self.scope = ScopeChoice::ThisFrame;
-                    self.after_edit();
+            Cmd::Imported(result) => {
+                // An import ends the bar it started; an export never owns the
+                // bar, so its result leaves whatever is running alone.
+                self.busy = None;
+                match *result {
+                    Ok((path, frames)) => {
+                        self.editor = Editor::new(Document::from_frames(frames));
+                        self.path = Some(path);
+                        self.playhead = 0;
+                        self.selection.clear();
+                        self.selected_overlay = None;
+                        self.scope = ScopeChoice::ThisFrame;
+                        self.after_edit();
+                    }
+                    Err(e) => sender.input(Msg::Toast(e)),
                 }
-                Err(e) => sender.input(Msg::Toast(e)),
-            },
+            }
             Cmd::Exported(Ok((path, size))) => {
                 let kb = size as f64 / 1024.0;
                 sender.input(Msg::Toast(fill(
@@ -1099,21 +1264,30 @@ impl Component for App {
             .stack
             .set_visible_child_name(if count == 0 { "empty" } else { "editor" });
 
-        widgets.import_bar.set_visible(self.busy);
-        if self.busy {
-            let (done, expected) = self.import_progress;
+        widgets.import_bar.set_visible(self.busy.is_some());
+        if let Some(busy) = &self.busy {
+            let (done, expected) = (busy.done, busy.total);
             match expected.filter(|e| *e > 0) {
                 Some(total) => {
                     widgets
                         .import_bar
                         .set_fraction((done as f64 / total as f64).min(1.0));
+                    // Each label marks its own literal: the extractor picks
+                    // msgids out of `t(...)` calls, not out of the match this
+                    // arms.
+                    let label = match &busy.kind {
+                        BusyKind::Import => t("Importing… {done} / {total} frames"),
+                        BusyKind::Resize => t("Resizing… {done} / {total} frames"),
+                        BusyKind::Zoom => t("Zooming… {done} / {total} frames"),
+                    };
                     widgets.import_bar.set_text(Some(&fill(
-                        t("Importing… {done} / {total} frames"),
+                        label,
                         &[("done", &done.to_string()), ("total", &total.to_string())],
                     )));
                 }
-                // No duration in the container, so there is nothing to be a
-                // fraction of.
+                // Only the import can lack a total: a container with no
+                // duration has nothing to be a fraction of. The frame works
+                // always know theirs.
                 None => {
                     widgets.import_bar.pulse();
                     widgets.import_bar.set_text(Some(&fill(
@@ -1147,8 +1321,14 @@ impl Component for App {
         // Tooltips are built from the keymap, never typed, so a rebind moves
         // every hint with it.
         let keys = self.keymap.borrow();
-        widgets.undo.set_sensitive(self.editor.can_undo());
-        widgets.redo.set_sensitive(self.editor.can_redo());
+        // Undo and redo would reorder frames, which the busy guard drops —
+        // grey the buttons instead of leaving clicks that do nothing.
+        widgets
+            .undo
+            .set_sensitive(self.busy.is_none() && self.editor.can_undo());
+        widgets
+            .redo
+            .set_sensitive(self.busy.is_none() && self.editor.can_redo());
         // Translators: {change} is the name of the edit, e.g. "Frames deleted".
         let named = |template: &'static str, label: Option<&str>| match label {
             Some(label) => fill(t(template), &[("change", &lookup(label))]),
@@ -1186,7 +1366,9 @@ impl Component for App {
             t("Shift+click the strip for a run of frames, Ctrl+click to add to it"),
         )));
         drop(keys);
-        widgets.export.set_sensitive(count > 0 && !self.busy);
+        widgets
+            .export
+            .set_sensitive(count > 0 && self.busy.is_none());
         widgets.play.set_icon_name(if self.playing {
             "media-playback-pause-symbolic"
         } else {
@@ -1527,6 +1709,18 @@ impl App {
             self.selected_overlay = None;
         }
     }
+    /// One crop, applied to every frame. Synchronous on purpose: cropping
+    /// copies the kept region rather than resampling it, so there is nothing
+    /// to move off the main thread. The canvas tool and the Optimize menu
+    /// share this.
+    fn apply_crop(&mut self, x: f32, y: f32, w: f32, h: f32) -> String {
+        let touched = self.frame_count();
+        let (change, _) = self.editor.edit(n("Cropped"), touched, |d| {
+            d.crop(x.max(0.0) as u32, y.max(0.0) as u32, w as u32, h as u32)
+        });
+        self.after_edit();
+        change.message()
+    }
 }
 
 /// Probe before decoding. ffprobe is cheap but it is still a subprocess, so it
@@ -1543,6 +1737,41 @@ fn plan_import(path: PathBuf, options: ImportOptions, sender: &ComponentSender<A
     sender.spawn_command(move |out| {
         let plan = video::plan(&path, &options).map_err(|e| e.to_string());
         out.emit(Cmd::Planned(path, Box::new(plan)));
+    });
+}
+
+/// The heavy half of a resize or zoom: a snapshot of the document goes to a
+/// worker thread, which produces the frames one at a time and reports
+/// progress; the finished set comes back as one `Cmd::Worked` and is applied
+/// as a single history step. `Document` clones as pointer copies, so the
+/// snapshot costs nothing but a couple of `Vec` headers.
+fn run_frame_work(doc: &Document, work: FrameWork, sender: &ComponentSender<App>) {
+    let doc = doc.clone();
+    sender.spawn_command(move |out| {
+        // Same throttle as the import decode: a fast job would otherwise post
+        // a message per frame, and the main loop has to drain every one.
+        let mut next = std::time::Instant::now();
+        let mut progress = |done, total| {
+            let now = std::time::Instant::now();
+            if now < next {
+                return;
+            }
+            next = now + std::time::Duration::from_millis(80);
+            let _ = out.send(Cmd::WorkProgress(done, total));
+        };
+        let frames = match &work {
+            FrameWork::Resize(w, h) => doc.resized_frames(*w, *h, &mut progress),
+            FrameWork::Zoom { frames, rect } => {
+                let (x, y, w, h) = *rect;
+                doc.zoomed_frames(frames, x, y, w, h, &mut progress)
+            }
+        };
+        out.emit(Cmd::Worked(Box::new(WorkDone {
+            label: work.label(),
+            frames_touched: frames.len(),
+            scale: work.scale(&doc),
+            frames,
+        })));
     });
 }
 
@@ -2497,6 +2726,9 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
     optimize.append(Some(t("Remove frames…")), Some("win.optimize-remove"));
     optimize.append(Some(t("Smart remove frames…")), Some("win.optimize-smart"));
     optimize.append(Some(t("Resize…")), Some("win.optimize-resize"));
+    // Translators: The same crop the canvas tool applies, offered
+    // document-wide from the Optimize menu.
+    optimize.append(Some(t("Crop all frames…")), Some("win.optimize-crop"));
     menu.append_submenu(Some(t("Optimize")), &optimize);
 
     let settings_menu = gio::Menu::new();
@@ -2539,8 +2771,10 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
     welcome_buttons.append(&record_button);
     welcome_buttons.append(&open_button);
 
-    // The decode runs off the main thread, so without a bar here a long import
-    // is indistinguishable from a hang.
+    // The decode and the frame work run off the main thread, so without a bar
+    // here a long job is indistinguishable from a hang. It lives in the
+    // toolbar so it is visible with a document open, not only on the welcome
+    // page.
     let import_bar = gtk::ProgressBar::builder()
         .show_text(true)
         .visible(false)
@@ -2549,7 +2783,6 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
     import_bar.set_halign(gtk::Align::Center);
     let welcome = gtk::Box::new(gtk::Orientation::Vertical, 18);
     welcome.append(&welcome_buttons);
-    welcome.append(&import_bar);
     status.set_child(Some(&welcome));
 
     // Left rail. These place a default-sized overlay under the current scope;
@@ -2983,6 +3216,7 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
 
     let toolbar = adw::ToolbarView::new();
     toolbar.add_top_bar(&header);
+    toolbar.add_top_bar(&import_bar);
     toolbar.set_content(Some(&stack));
 
     let toasts = adw::ToastOverlay::new();
@@ -3034,6 +3268,13 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
         action.connect_activate(move |_, _| optimize_dialog(&root, dialog, &sender));
         actions.add_action(&action);
     }
+    // The crop-all dialog needs the live canvas size, so the model opens it.
+    let crop_all = gio::SimpleAction::new("optimize-crop", None);
+    {
+        let sender = sender.clone();
+        crop_all.connect_activate(move |_, _| sender.input(Msg::CropAllDialog));
+    }
+    actions.add_action(&crop_all);
     root.insert_action_group("win", Some(&actions));
 
     Widgets {
@@ -3666,6 +3907,67 @@ fn optimize_dialog(
             OptimizeDialog::Smart => Msg::SmartDrop(value as usize),
             OptimizeDialog::Resize => Msg::Resize(value as u32, height.value() as u32),
         });
+    });
+}
+
+/// Crop every frame, from the Optimize menu. Four fields, in image pixels;
+/// `Document::crop` clamps whatever comes back. The canvas size is live when
+/// the dialog opens, which is why the model opens it and the action does not.
+fn crop_dialog(root: &adw::ApplicationWindow, cw: u32, ch: u32, sender: &ComponentSender<App>) {
+    let dialog = adw::AlertDialog::new(
+        Some(t("Crop all frames")),
+        Some(t(
+            "Keep this box in every frame. The canvas shrinks to fit it, and \
+             overlays move with the crop.",
+        )),
+    );
+    dialog.set_content_width(440);
+
+    // A one-pixel canvas has no room to crop into; both fields bottom out at
+    // two so the range below stays valid.
+    let (cw, ch) = (cw.max(2), ch.max(2));
+    let x = gtk::SpinButton::with_range(0.0, (cw - 1) as f64, 1.0);
+    let y = gtk::SpinButton::with_range(0.0, (ch - 1) as f64, 1.0);
+    let width = gtk::SpinButton::with_range(2.0, cw as f64, 1.0);
+    let height = gtk::SpinButton::with_range(2.0, ch as f64, 1.0);
+    for (spin, value) in [
+        (&x, 0.0),
+        (&y, 0.0),
+        (&width, cw as f64),
+        (&height, ch as f64),
+    ] {
+        spin.set_value(value);
+        spin.set_valign(gtk::Align::Center);
+    }
+    let group = adw::PreferencesGroup::new();
+    for (title, spin) in [
+        ("X", &x),
+        ("Y", &y),
+        (t("Width"), &width),
+        (t("Height"), &height),
+    ] {
+        let row = adw::ActionRow::builder().title(title).build();
+        row.add_suffix(spin);
+        group.add(&row);
+    }
+    dialog.set_extra_child(Some(&group));
+
+    dialog.add_response("cancel", "Cancel");
+    dialog.add_response("apply", "Apply");
+    dialog.set_response_appearance("apply", adw::ResponseAppearance::Suggested);
+    dialog.set_default_response(Some("apply"));
+    dialog.set_close_response("cancel");
+
+    let sender = sender.clone();
+    dialog.choose(Some(root), gio::Cancellable::NONE, move |response| {
+        if response == "apply" {
+            sender.input(Msg::CropAll(
+                x.value() as u32,
+                y.value() as u32,
+                width.value() as u32,
+                height.value() as u32,
+            ));
+        }
     });
 }
 

@@ -55,3 +55,18 @@
 - German and Japanese drafts for the new strings, flagged `#, fuzzy` for review.
 - `scripts/i18n.py` joins a marker call that rustfmt split from its literal.
   Seven msgids had dropped out of the template that way.
+
+### Optimize
+
+- "Crop all frames…" joins the other optimize dialogs: a box with X, Y, width
+  and height fields for the same document-wide crop the canvas tool applies.
+  German and Japanese drafts for the new strings are flagged `#, fuzzy`.
+
+### Long jobs
+
+- Resizing no longer freezes the app. The per-frame resample runs on a worker
+  thread, the progress bar (now in the toolbar, visible with a document open)
+  counts frames, and the result lands as one undoable step when it finishes.
+- Zooming a scope is threaded the same way. While either runs, the app stays
+  interactive: overlays keep drawing and can still be edited; frame-moving
+  edits wait and their buttons grey out until the work lands.

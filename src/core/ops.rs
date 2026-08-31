@@ -192,17 +192,46 @@ impl Document {
             return;
         }
         let (fx, fy) = (w as f32 / cw as f32, h as f32 / ch as f32);
-        for frame in &mut self.frames {
-            let pixels = image::imageops::resize(
-                frame.pixels.as_ref(),
-                w,
-                h,
-                image::imageops::FilterType::Triangle,
-            );
-            let detached = frame.detached;
-            *frame = Frame::new(pixels, frame.delay_cs);
-            frame.detached = detached;
+        for (i, frame) in self.resized_frames(w, h, |_, _| {}) {
+            self.frames[i] = frame;
         }
+        self.scale_overlays(fx, fy);
+    }
+
+    /// The frames a whole-document resize would produce, as `(index, frame)`
+    /// pairs so a caller can apply them by position. This is the slow half of
+    /// `resize`, the half a background worker runs; the mutator stays on the
+    /// main thread because swapping indexed frames is cheap. `progress`
+    /// reports `(done, total)` once per finished frame.
+    pub fn resized_frames(
+        &self,
+        w: u32,
+        h: u32,
+        mut progress: impl FnMut(usize, usize),
+    ) -> Vec<(usize, Frame)> {
+        let total = self.frames.len();
+        self.frames
+            .iter()
+            .enumerate()
+            .map(|(i, frame)| {
+                let pixels = image::imageops::resize(
+                    frame.pixels.as_ref(),
+                    w,
+                    h,
+                    image::imageops::FilterType::Triangle,
+                );
+                let mut produced = Frame::new(pixels, frame.delay_cs);
+                produced.detached = frame.detached;
+                progress(i + 1, total);
+                (i, produced)
+            })
+            .collect()
+    }
+
+    /// Scale every overlay's box by `(fx, fy)`, a text overlay's point size
+    /// following the height. `resize` passes the real factors; a zoom keeps
+    /// the canvas, so it passes `(1.0, 1.0)` and nothing moves.
+    pub fn scale_overlays(&mut self, fx: f32, fy: f32) {
         for o in &mut self.overlays {
             o.transform.x *= fx;
             o.transform.y *= fy;
@@ -218,25 +247,56 @@ impl Document {
     /// canvas size never changes, which is what makes this safe per frame in a
     /// way `crop` is not.
     pub fn zoom_frames(&mut self, frames: &[usize], x: u32, y: u32, w: u32, h: u32) {
+        for (i, frame) in self.zoomed_frames(frames, x, y, w, h, |_, _| {}) {
+            self.frames[i] = frame;
+        }
+    }
+
+    /// The frames a zoom would produce, as `(index, frame)` pairs, the way
+    /// `resized_frames` does for a resize. Indices past the end of the frame
+    /// list are skipped, and an empty document makes an empty answer — the
+    /// canvas size must not reach the `cw - 1` below. `progress` reports
+    /// `(done, total)` over the frames that will actually be produced.
+    pub fn zoomed_frames(
+        &self,
+        indices: &[usize],
+        x: u32,
+        y: u32,
+        w: u32,
+        h: u32,
+        mut progress: impl FnMut(usize, usize),
+    ) -> Vec<(usize, Frame)> {
         let (cw, ch) = self.size();
         if cw == 0 || ch == 0 {
-            return;
+            return Vec::new();
         }
-        let x = x.min(cw - 1);
-        let y = y.min(ch - 1);
-        let w = w.min(cw - x).max(1);
-        let h = h.min(ch - y).max(1);
-        for i in frames.iter().copied() {
-            let Some(frame) = self.frames.get_mut(i) else {
-                continue;
-            };
-            let cropped = image::imageops::crop_imm(frame.pixels.as_ref(), x, y, w, h).to_image();
-            let pixels =
-                image::imageops::resize(&cropped, cw, ch, image::imageops::FilterType::Triangle);
-            let detached = frame.detached;
-            *frame = Frame::new(pixels, frame.delay_cs);
-            frame.detached = detached;
-        }
+        let (x, y) = (x.min(cw - 1), y.min(ch - 1));
+        let (w, h) = (w.min(cw - x).max(1), h.min(ch - y).max(1));
+        let wanted: Vec<usize> = indices
+            .iter()
+            .copied()
+            .filter(|i| *i < self.frames.len())
+            .collect();
+        let total = wanted.len();
+        wanted
+            .into_iter()
+            .enumerate()
+            .map(|(done, i)| {
+                let frame = &self.frames[i];
+                let cropped =
+                    image::imageops::crop_imm(frame.pixels.as_ref(), x, y, w, h).to_image();
+                let pixels = image::imageops::resize(
+                    &cropped,
+                    cw,
+                    ch,
+                    image::imageops::FilterType::Triangle,
+                );
+                let mut produced = Frame::new(pixels, frame.delay_cs);
+                produced.detached = frame.detached;
+                progress(done + 1, total);
+                (i, produced)
+            })
+            .collect()
     }
 
     /// Rescale every delay, the export dialog's speed setting.
@@ -573,6 +633,50 @@ mod tests {
         assert!(
             delays_for_fps(200.0, 10).iter().all(|x| *x == 1),
             "delays never hit zero"
+        );
+    }
+
+    /// The producer the async resize runs must agree with the mutator the sync
+    /// path uses, down to what a wholesale frame swap would otherwise lose:
+    /// the delay and the detached flag ride along.
+    #[test]
+    fn resized_frames_match_resize_and_carry_delay_and_detached() {
+        let mut d = Document::from_frames(
+            (0..3)
+                .map(|i| {
+                    let mut img = RgbaImage::new(40, 40);
+                    img.put_pixel(4, 4, image::Rgba([i as u8 * 60, 0, 0, 255]));
+                    let mut frame = Frame::new(img, 3 + i as u16);
+                    frame.detached = i == 1;
+                    frame
+                })
+                .collect(),
+        );
+        let id = d.add_overlay("a", shape(), Transform::at(10.0, 20.0, 40.0, 40.0), 0..3);
+        let mut other = d.clone();
+
+        d.resize(20, 20);
+
+        let mut seen = Vec::new();
+        let produced = other.resized_frames(20, 20, |done, total| seen.push((done, total)));
+        for (i, frame) in produced {
+            other.frames[i] = frame;
+        }
+        other.scale_overlays(0.5, 0.5);
+
+        assert_eq!(other, d, "the producer must match what resize() does");
+        assert_eq!(
+            d.frames.iter().map(|f| f.delay_cs).collect::<Vec<_>>(),
+            vec![3, 4, 5],
+            "delays survive the resample"
+        );
+        assert!(d.frames[1].detached, "detached survives the resample");
+        let t = d.overlay(id).unwrap().transform;
+        assert_eq!((t.x, t.y, t.w, t.h), (5.0, 10.0, 20.0, 20.0));
+        assert_eq!(
+            seen,
+            vec![(1, 3), (2, 3), (3, 3)],
+            "progress is reported once per frame"
         );
     }
 }
