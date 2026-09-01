@@ -172,7 +172,7 @@ impl Document {
             return;
         }
         for frame in &mut self.frames {
-            let pixels = image::imageops::crop_imm(frame.pixels.as_ref(), x, y, w, h).to_image();
+            let pixels = crop_with_padding(frame.pixels.as_ref(), x, y, w, h);
             let detached = frame.detached;
             *frame = Frame::new(pixels, frame.delay_cs);
             frame.detached = detached;
@@ -209,6 +209,7 @@ impl Document {
         h: u32,
         mut progress: impl FnMut(usize, usize),
     ) -> Vec<(usize, Frame)> {
+        let (w, h) = (w.max(1), h.max(1));
         let total = self.frames.len();
         self.frames
             .iter()
@@ -283,8 +284,7 @@ impl Document {
             .enumerate()
             .map(|(done, i)| {
                 let frame = &self.frames[i];
-                let cropped =
-                    image::imageops::crop_imm(frame.pixels.as_ref(), x, y, w, h).to_image();
+                let cropped = crop_with_padding(frame.pixels.as_ref(), x, y, w, h);
                 let pixels = image::imageops::resize(
                     &cropped,
                     cw,
@@ -306,6 +306,21 @@ impl Document {
                 ((f.delay_cs as f32 / factor).round() as u32).clamp(1, u16::MAX as u32) as u16;
         }
     }
+}
+
+/// Crop against the document canvas even if a frame imported from an external
+/// editor is smaller. Pixels outside that frame are transparent; every result
+/// still has the document crop's dimensions.
+fn crop_with_padding(image: &RgbaImage, x: u32, y: u32, w: u32, h: u32) -> RgbaImage {
+    let mut output = RgbaImage::new(w, h);
+    let copy_w = w.min(image.width().saturating_sub(x));
+    let copy_h = h.min(image.height().saturating_sub(y));
+    if copy_w == 0 || copy_h == 0 {
+        return output;
+    }
+    let cropped = image::imageops::crop_imm(image, x, y, copy_w, copy_h).to_image();
+    image::imageops::replace(&mut output, &cropped, 0, 0);
+    output
 }
 
 /// Per-frame delays for `count` frames at `fps`, distributing the centisecond
@@ -585,6 +600,31 @@ mod tests {
     }
 
     #[test]
+    fn crop_and_zoom_pad_frames_smaller_than_the_document_canvas() {
+        let mut cropped = Document::from_frames(vec![
+            Frame::new(
+                RgbaImage::from_pixel(20, 20, image::Rgba([1, 2, 3, 255])),
+                5,
+            ),
+            Frame::new(RgbaImage::from_pixel(8, 8, image::Rgba([4, 5, 6, 255])), 5),
+        ]);
+        let mut zoomed = cropped.clone();
+
+        cropped.crop(5, 5, 10, 10);
+        assert!(
+            cropped
+                .frames
+                .iter()
+                .all(|frame| frame.pixels.dimensions() == (10, 10))
+        );
+        assert_eq!(cropped.frames[1].pixels.get_pixel(9, 9).0[3], 0);
+
+        zoomed.zoom_frames(&[1], 5, 5, 10, 10);
+        assert_eq!(zoomed.frames[1].pixels.dimensions(), (20, 20));
+        assert_eq!(zoomed.frames[1].pixels.get_pixel(19, 19).0[3], 0);
+    }
+
+    #[test]
     fn resize_scales_the_overlays_too() {
         let mut d = Document::from_frames(vec![Frame::new(RgbaImage::new(100, 100), 5)]);
         let id = d.add_overlay("a", shape(), Transform::at(10.0, 20.0, 40.0, 40.0), 0..1);
@@ -678,5 +718,71 @@ mod tests {
             vec![(1, 3), (2, 3), (3, 3)],
             "progress is reported once per frame"
         );
+    }
+
+    #[test]
+    fn resized_frames_clamp_zero_dimensions_like_resize() {
+        let mut resized = doc(1, 5);
+        let mut produced = resized.clone();
+
+        resized.resize(0, 0);
+        for (i, frame) in produced.resized_frames(0, 0, |_, _| {}) {
+            produced.frames[i] = frame;
+        }
+
+        assert_eq!(produced, resized);
+        assert_eq!(produced.size(), (1, 1));
+    }
+
+    /// The producer the async zoom runs must agree with the mutator: delay and
+    /// detached ride along, progress counts only the frames it will produce,
+    /// and indices past the end are skipped rather than misaligning the pairs.
+    #[test]
+    fn zoomed_frames_match_zoom_frames_and_skip_out_of_range() {
+        let mut d = Document::from_frames(
+            (0..4)
+                .map(|i| {
+                    let mut img = RgbaImage::new(40, 40);
+                    img.put_pixel(4, 4, image::Rgba([i as u8 * 60, 0, 0, 255]));
+                    let mut frame = Frame::new(img, 3 + i as u16);
+                    frame.detached = i == 2;
+                    frame
+                })
+                .collect(),
+        );
+        let mut other = d.clone();
+
+        d.zoom_frames(&[1, 2], 0, 0, 20, 20);
+
+        let mut seen = Vec::new();
+        // Index 9 is past the end: it must not appear as a pair.
+        let produced = other.zoomed_frames(&[1, 9, 2], 0, 0, 20, 20, |done, total| {
+            seen.push((done, total))
+        });
+        for (i, frame) in produced {
+            other.frames[i] = frame;
+        }
+
+        assert_eq!(other, d, "the producer must match what zoom_frames() does");
+        assert_eq!(
+            seen,
+            vec![(1, 2), (2, 2)],
+            "progress counts only the frames actually produced"
+        );
+        assert_eq!(
+            d.frames.iter().map(|f| f.delay_cs).collect::<Vec<_>>(),
+            vec![3, 4, 5, 6],
+            "delays survive the refill"
+        );
+        assert!(d.frames[2].detached, "detached survives the refill");
+        // Keys are per-build identity, so independently rebuilt frames never
+        // share one — but frames outside the zoom must keep theirs.
+        assert_eq!(d.frames[0].key, other.frames[0].key);
+        assert_eq!(d.frames[3].key, other.frames[3].key);
+
+        // An empty document makes an empty answer, not a panic.
+        let empty = Document::default();
+        let produced = empty.zoomed_frames(&[0], 0, 0, 10, 10, |_, _| {});
+        assert!(produced.is_empty());
     }
 }

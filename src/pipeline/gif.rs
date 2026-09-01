@@ -211,12 +211,14 @@ pub fn encode(out: impl Write, enc: &Encodable, settings: &ExportSettings) -> Re
     })?;
 
     for (img, delay) in &enc.frames {
-        let mut frame = gif::Frame::default();
-        frame.width = w as u16;
-        frame.height = h as u16;
-        frame.delay = *delay;
-        frame.transparent = transparent_index;
-        frame.buffer = index_frame(img, &quant, transparent_index, settings.dither).into();
+        let frame = gif::Frame {
+            width: w as u16,
+            height: h as u16,
+            delay: *delay,
+            transparent: transparent_index,
+            buffer: index_frame(img, &quant, transparent_index, settings.dither).into(),
+            ..Default::default()
+        };
         encoder.write_frame(&frame).context("writing GIF frame")?;
     }
     Ok(())
@@ -259,11 +261,11 @@ fn index_frame(
         for x in 0..w {
             let px = img.get_pixel(x, y).0;
             let i = (y * w + x) as usize;
-            if px[3] < 128 {
-                if let Some(t) = transparent {
-                    out[i] = t;
-                    continue;
-                }
+            if px[3] < 128
+                && let Some(t) = transparent
+            {
+                out[i] = t;
+                continue;
             }
             let e = if dither {
                 error[x as usize + 1]

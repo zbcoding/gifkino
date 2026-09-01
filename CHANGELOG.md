@@ -68,5 +68,14 @@
   thread, the progress bar (now in the toolbar, visible with a document open)
   counts frames, and the result lands as one undoable step when it finishes.
 - Zooming a scope is threaded the same way. While either runs, the app stays
-  interactive: overlays keep drawing and can still be edited; frame-moving
-  edits wait and their buttons grey out until the work lands.
+  interactive: overlays keep drawing and can still be edited (deleting a
+  selected overlay included); frame-moving edits and the actions that open
+  dialogs on top of them grey out until the work lands.
+- Frame work guards against the edge cases: a resize is refused when its RGBA
+  output would exceed the configured memory limit, a worker failure reports a
+  toast instead of leaving the progress bar up, crop and zoom pad frames that
+  are smaller than the canvas instead of panicking, and a crop box that starts
+  in the canvas margin now selects only the pixels inside the image.
+- Applying the crop-all dialog unchanged (full canvas) is a no-op rather than
+  an empty "Cropped" undo step, and its width/height fields stay consistent
+  with X/Y as the box is edited. Dialog response buttons are translated.

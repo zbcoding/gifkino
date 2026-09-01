@@ -164,6 +164,37 @@ impl Msg {
                 | Msg::Resize(_, _)
         )
     }
+
+    /// Operations whose result would be stale or whose follow-up message would
+    /// be discarded while an import, resize, or zoom owns the document.
+    fn requires_idle(&self) -> bool {
+        self.changes_frames() || matches!(self, Msg::Open | Msg::Export | Msg::CropAllDialog)
+    }
+
+    fn edits_document(&self) -> bool {
+        matches!(
+            self,
+            Msg::Undo
+                | Msg::Redo
+                | Msg::AddOverlay(_)
+                | Msg::FrameOp(_)
+                | Msg::FrameOpAt(_, _)
+                | Msg::SetFrameDelay(_, _)
+                | Msg::EditText(_)
+                | Msg::SetOverlayProp(_)
+                | Msg::DeleteSelection
+                | Msg::CanvasPress { .. }
+                | Msg::CanvasDrag { .. }
+                | Msg::CanvasRelease
+                | Msg::ToggleCropTool
+                | Msg::ApplyCrop
+                | Msg::ApplyZoom
+                | Msg::CropAll(_, _, _, _)
+                | Msg::DropEveryNth(_)
+                | Msg::SmartDrop(_)
+                | Msg::Resize(_, _)
+        )
+    }
 }
 
 /// One field of the selected overlay. Grouped so the update arm is one branch
@@ -242,6 +273,31 @@ struct Drag {
     moved: bool,
 }
 
+/// Keep canvas gestures and a pending crop in the same image coordinate space
+/// when an asynchronous resize lands in the middle of an interaction.
+fn scale_in_flight_canvas(
+    drag: &mut Option<Drag>,
+    crop_rect: &mut Option<(f32, f32, f32, f32)>,
+    fx: f32,
+    fy: f32,
+) {
+    if (fx, fy) == (1.0, 1.0) {
+        return;
+    }
+    if let Some((x, y, w, h)) = crop_rect {
+        (*x, *y, *w, *h) = (*x * fx, *y * fy, *w * fx, *h * fy);
+    }
+    if let Some(drag) = drag {
+        drag.from = (drag.from.0 * fx, drag.from.1 * fy);
+        for transform in [&mut drag.origin, &mut drag.current] {
+            transform.x *= fx;
+            transform.y *= fy;
+            transform.w *= fx;
+            transform.h *= fy;
+        }
+    }
+}
+
 /// What the one progress bar is showing, whichever long job holds the app.
 /// The bar sits in the toolbar, so it is visible with a document open and not
 /// only on the welcome page.
@@ -318,12 +374,12 @@ pub enum Cmd {
     ImportProgress(usize, Option<usize>),
     /// Pre-flight probe: what importing this file would cost.
     Planned(PathBuf, Box<Result<ImportPlan, String>>),
-    /// Measured export size, and the revision it was measured at.
-    Estimated(u64, Result<usize, String>),
     /// Frame work done so far, and the total it is working through.
     WorkProgress(usize, usize),
-    /// A finished resize or zoom: the frames to swap in by index.
-    Worked(Box<WorkDone>),
+    /// Measured export size, and the revision it was measured at.
+    Estimated(u64, Result<usize, String>),
+    /// A finished resize or zoom, or a worker panic reported back to the UI.
+    Worked(Result<Box<WorkDone>, &'static str>),
     Imported(Box<Result<(PathBuf, Vec<Frame>), String>>),
     Exported(Result<(PathBuf, u64), String>),
 }
@@ -411,6 +467,7 @@ pub struct Widgets {
     undo: gtk::Button,
     redo: gtk::Button,
     export: gtk::Button,
+    actions: gio::SimpleActionGroup,
     scope_buttons: [gtk::ToggleButton; 3],
     properties: gtk::Box,
     text_entry: gtk::Entry,
@@ -431,6 +488,8 @@ pub struct Widgets {
     crop_group: adw::PreferencesGroup,
     crop_label: gtk::Label,
     crop_button: gtk::ToggleButton,
+    crop_apply: gtk::Button,
+    zoom_apply: gtk::Button,
     tool_buttons: Vec<(Tool, gtk::Button)>,
     bands_scroll: gtk::ScrolledWindow,
     bands_expander: gtk::Button,
@@ -564,11 +623,14 @@ impl Component for App {
     }
 
     fn update(&mut self, msg: Msg, sender: ComponentSender<Self>, root: &Self::Root) {
-        // Frame work runs against the snapshot taken when it started and lands
-        // its results by frame index, so anything that would move an index has
-        // to wait until the worker is done. Overlay-only edits stay live: the
-        // Worked handler scales the overlay list that exists when it lands.
-        if self.busy.is_some() && msg.changes_frames() {
+        let blocked = self.busy.as_ref().is_some_and(|busy| match busy.kind {
+            BusyKind::Import => msg.requires_idle() || msg.edits_document(),
+            BusyKind::Resize | BusyKind::Zoom => {
+                msg.requires_idle()
+                    && !(matches!(msg, Msg::DeleteSelection) && self.selected_overlay.is_some())
+            }
+        });
+        if blocked {
             return;
         }
         match msg {
@@ -1051,22 +1113,24 @@ impl Component for App {
                 let Some((x, y, w, h)) = self.crop_rect.take() else {
                     return;
                 };
-                if w < 2.0 || h < 2.0 {
-                    return;
-                }
-                self.crop_tool = false;
-                sender.input(Msg::Toast(self.apply_crop(x, y, w, h)));
-            }
-            Msg::ApplyZoom => {
-                let Some((x, y, w, h)) = self.crop_rect.take() else {
+                let Some(rect) = normalize_canvas_rect(self.editor.doc.size(), (x, y, w, h)) else {
                     return;
                 };
-                if w < 2.0 || h < 2.0 {
-                    return;
+                self.crop_tool = false;
+                if let Some(message) = self.apply_crop_rect(rect) {
+                    sender.input(Msg::Toast(message));
                 }
+            }
+            Msg::ApplyZoom => {
+                let Some(rect) = self.crop_rect.take() else {
+                    return;
+                };
+                let Some(rect) = normalize_canvas_rect(self.editor.doc.size(), rect) else {
+                    return;
+                };
                 let work = FrameWork::Zoom {
                     frames: self.scope_frames(),
-                    rect: (x.max(0.0) as u32, y.max(0.0) as u32, w as u32, h as u32),
+                    rect,
                 };
                 self.crop_tool = false;
                 self.busy = Some(Busy {
@@ -1084,9 +1148,9 @@ impl Component for App {
                 crop_dialog(root, cw, ch, &sender);
             }
             Msg::CropAll(x, y, w, h) => {
-                sender.input(Msg::Toast(
-                    self.apply_crop(x as f32, y as f32, w as f32, h as f32),
-                ));
+                if let Some(message) = self.apply_crop(x as f32, y as f32, w as f32, h as f32) {
+                    sender.input(Msg::Toast(message));
+                }
             }
             Msg::DropEveryNth(every) => {
                 if self.frame_count() == 0 || every < 2 {
@@ -1113,7 +1177,18 @@ impl Component for App {
                 sender.input(Msg::Toast(change.message()));
             }
             Msg::Resize(w, h) => {
+                let (w, h) = (w.max(1), h.max(1));
                 if self.frame_count() == 0 || (w, h) == self.editor.doc.size() {
+                    return;
+                }
+                // The import budget doubles as the resize-output budget: the
+                // old frames stay resident in undo history either way, so the
+                // peak equals the post-landing steady state.
+                if !resize_fits_budget(w, h, self.frame_count(), self.settings.max_import_bytes) {
+                    // Translators: Shown when resized RGBA frames would exceed the configured memory limit.
+                    sender.input(Msg::Toast(
+                        t("That resize would use more memory than the configured limit.").into(),
+                    ));
                     return;
                 }
                 let work = FrameWork::Resize(w, h);
@@ -1149,7 +1224,15 @@ impl Component for App {
             }
             return;
         }
-        if let Cmd::Worked(done) = msg {
+        if let Cmd::Worked(result) = msg {
+            self.busy = None;
+            let done = match result {
+                Ok(done) => done,
+                Err(error) => {
+                    sender.input(Msg::Toast(t(error).to_string()));
+                    return;
+                }
+            };
             let WorkDone {
                 label,
                 frames_touched,
@@ -1163,7 +1246,7 @@ impl Component for App {
                 }
                 d.scale_overlays(fx, fy);
             });
-            self.busy = None;
+            scale_in_flight_canvas(&mut self.drag, &mut self.crop_rect, fx, fy);
             self.after_edit();
             sender.input(Msg::Toast(change.message()));
             return;
@@ -1277,7 +1360,9 @@ impl Component for App {
                     // arms.
                     let label = match &busy.kind {
                         BusyKind::Import => t("Importing… {done} / {total} frames"),
+                        // Translators: Progress while every frame is being resized; both values are frame counts.
                         BusyKind::Resize => t("Resizing… {done} / {total} frames"),
+                        // Translators: Progress while selected frames are being zoomed; both values are frame counts.
                         BusyKind::Zoom => t("Zooming… {done} / {total} frames"),
                     };
                     widgets.import_bar.set_text(Some(&fill(
@@ -1369,6 +1454,62 @@ impl Component for App {
         widgets
             .export
             .set_sensitive(count > 0 && self.busy.is_none());
+        let idle = self.busy.is_none();
+        for name in [
+            "frame-delete",
+            "frame-duplicate",
+            "frame-reverse",
+            "optimize-remove",
+            "optimize-smart",
+            "optimize-resize",
+            "optimize-crop",
+        ] {
+            if let Some(action) = widgets
+                .actions
+                .lookup_action(name)
+                .and_downcast::<gio::SimpleAction>()
+            {
+                action.set_enabled(idle && count > 0);
+            }
+        }
+        if let Some(action) = widgets
+            .actions
+            .lookup_action("open")
+            .and_downcast::<gio::SimpleAction>()
+        {
+            action.set_enabled(idle);
+        }
+        if let Some(action) = widgets
+            .actions
+            .lookup_action("export")
+            .and_downcast::<gio::SimpleAction>()
+        {
+            action.set_enabled(idle && count > 0);
+        }
+        widgets.crop_apply.set_sensitive(idle);
+        widgets.zoom_apply.set_sensitive(idle);
+        let document_editing = !matches!(
+            self.busy.as_ref().map(|busy| busy.kind),
+            Some(BusyKind::Import)
+        );
+        widgets.properties.set_sensitive(document_editing);
+        for name in [
+            "insert-text",
+            "insert-rect",
+            "insert-ellipse",
+            "insert-arrow",
+        ] {
+            if let Some(action) = widgets
+                .actions
+                .lookup_action(name)
+                .and_downcast::<gio::SimpleAction>()
+            {
+                action.set_enabled(document_editing && count > 0);
+            }
+        }
+        for (_, button) in &widgets.tool_buttons {
+            button.set_sensitive(document_editing && count > 0);
+        }
         widgets.play.set_icon_name(if self.playing {
             "media-playback-pause-symbolic"
         } else {
@@ -1710,17 +1851,48 @@ impl App {
         }
     }
     /// One crop, applied to every frame. Synchronous on purpose: cropping
-    /// copies the kept region rather than resampling it, so there is nothing
-    /// to move off the main thread. The canvas tool and the Optimize menu
-    /// share this.
-    fn apply_crop(&mut self, x: f32, y: f32, w: f32, h: f32) -> String {
+    /// copies the kept region rather than resampling it. A full-canvas crop is
+    /// ignored so the dialog's defaults do not create an empty undo step.
+    fn apply_crop(&mut self, x: f32, y: f32, w: f32, h: f32) -> Option<String> {
+        let rect = normalize_canvas_rect(self.editor.doc.size(), (x, y, w, h))?;
+        self.apply_crop_rect(rect)
+    }
+
+    /// A crop whose rectangle is already normalized to the canvas.
+    fn apply_crop_rect(&mut self, rect: (u32, u32, u32, u32)) -> Option<String> {
+        if !crop_changes_canvas(self.editor.doc.size(), rect) {
+            return None;
+        }
         let touched = self.frame_count();
         let (change, _) = self.editor.edit(n("Cropped"), touched, |d| {
-            d.crop(x.max(0.0) as u32, y.max(0.0) as u32, w as u32, h as u32)
+            d.crop(rect.0, rect.1, rect.2, rect.3)
         });
         self.after_edit();
-        change.message()
+        Some(change.message())
     }
+}
+
+fn normalize_canvas_rect(
+    (cw, ch): (u32, u32),
+    (x, y, w, h): (f32, f32, f32, f32),
+) -> Option<(u32, u32, u32, u32)> {
+    let left = x.floor().clamp(0.0, cw as f32) as u32;
+    let top = y.floor().clamp(0.0, ch as f32) as u32;
+    let right = (x + w).ceil().clamp(0.0, cw as f32) as u32;
+    let bottom = (y + h).ceil().clamp(0.0, ch as f32) as u32;
+    (right > left && bottom > top).then_some((left, top, right - left, bottom - top))
+}
+
+fn resize_fits_budget(w: u32, h: u32, frames: usize, limit: usize) -> bool {
+    (w as usize)
+        .checked_mul(h as usize)
+        .and_then(|pixels| pixels.checked_mul(4))
+        .and_then(|bytes| bytes.checked_mul(frames))
+        .is_some_and(|bytes| bytes <= limit)
+}
+
+fn crop_changes_canvas((cw, ch): (u32, u32), (x, y, w, h): (u32, u32, u32, u32)) -> bool {
+    cw > 0 && ch > 0 && !(x == 0 && y == 0 && w >= cw && h >= ch)
 }
 
 /// Probe before decoding. ffprobe is cheap but it is still a subprocess, so it
@@ -1748,33 +1920,36 @@ fn plan_import(path: PathBuf, options: ImportOptions, sender: &ComponentSender<A
 fn run_frame_work(doc: &Document, work: FrameWork, sender: &ComponentSender<App>) {
     let doc = doc.clone();
     sender.spawn_command(move |out| {
-        // Same throttle as the import decode: a fast job would otherwise post
-        // a message per frame, and the main loop has to drain every one.
-        let mut next = std::time::Instant::now();
-        let mut progress = |done, total| {
-            let now = std::time::Instant::now();
-            if now < next {
-                return;
-            }
-            next = now + std::time::Duration::from_millis(80);
-            let _ = out.send(Cmd::WorkProgress(done, total));
-        };
-        let frames = match &work {
-            FrameWork::Resize(w, h) => doc.resized_frames(*w, *h, &mut progress),
-            FrameWork::Zoom { frames, rect } => {
-                let (x, y, w, h) = *rect;
-                doc.zoomed_frames(frames, x, y, w, h, &mut progress)
-            }
-        };
-        out.emit(Cmd::Worked(Box::new(WorkDone {
-            label: work.label(),
-            frames_touched: frames.len(),
-            scale: work.scale(&doc),
-            frames,
-        })));
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            // Same throttle as the import decode: a fast job would otherwise
+            // post a message per frame, and the main loop has to drain each one.
+            let mut next = std::time::Instant::now();
+            let mut progress = |done, total| {
+                let now = std::time::Instant::now();
+                if now < next {
+                    return;
+                }
+                next = now + std::time::Duration::from_millis(80);
+                let _ = out.send(Cmd::WorkProgress(done, total));
+            };
+            let frames = match &work {
+                FrameWork::Resize(w, h) => doc.resized_frames(*w, *h, &mut progress),
+                FrameWork::Zoom { frames, rect } => {
+                    let (x, y, w, h) = *rect;
+                    doc.zoomed_frames(frames, x, y, w, h, &mut progress)
+                }
+            };
+            Box::new(WorkDone {
+                label: work.label(),
+                frames_touched: frames.len(),
+                scale: work.scale(&doc),
+                frames,
+            })
+        }))
+        .map_err(|_| n("The frame operation failed."));
+        out.emit(Cmd::Worked(result));
     });
 }
-
 /// The file cannot come in whole, so let the user pick the size it comes in at
 /// rather than only telling them what we decided. Memory is exact; the GIF
 /// figure is a range, because the content decides that one.
@@ -3290,6 +3465,7 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
         time,
         undo,
         redo,
+        actions,
         export,
         scope_buttons: [this_frame, all_frames, range],
         properties,
@@ -3317,6 +3493,8 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
         crop_group,
         crop_label,
         crop_button,
+        crop_apply,
+        zoom_apply,
         tool_buttons,
         bands_scroll,
         bands_expander,
@@ -3890,8 +4068,8 @@ fn optimize_dialog(
     group.add(&row);
     dialog.set_extra_child(Some(&group));
 
-    dialog.add_response("cancel", "Cancel");
-    dialog.add_response("apply", "Apply");
+    dialog.add_response("cancel", t("Cancel"));
+    dialog.add_response("apply", t("Apply"));
     dialog.set_response_appearance("apply", adw::ResponseAppearance::Suggested);
     dialog.set_default_response(Some("apply"));
     dialog.set_close_response("cancel");
@@ -3916,20 +4094,17 @@ fn optimize_dialog(
 fn crop_dialog(root: &adw::ApplicationWindow, cw: u32, ch: u32, sender: &ComponentSender<App>) {
     let dialog = adw::AlertDialog::new(
         Some(t("Crop all frames")),
+        // Translators: Explains that this crop changes the shared GIF canvas and moves overlays with it.
         Some(t(
             "Keep this box in every frame. The canvas shrinks to fit it, and \
              overlays move with the crop.",
         )),
     );
     dialog.set_content_width(440);
-
-    // A one-pixel canvas has no room to crop into; both fields bottom out at
-    // two so the range below stays valid.
-    let (cw, ch) = (cw.max(2), ch.max(2));
     let x = gtk::SpinButton::with_range(0.0, (cw - 1) as f64, 1.0);
     let y = gtk::SpinButton::with_range(0.0, (ch - 1) as f64, 1.0);
-    let width = gtk::SpinButton::with_range(2.0, cw as f64, 1.0);
-    let height = gtk::SpinButton::with_range(2.0, ch as f64, 1.0);
+    let width = gtk::SpinButton::with_range(1.0, cw as f64, 1.0);
+    let height = gtk::SpinButton::with_range(1.0, ch as f64, 1.0);
     for (spin, value) in [
         (&x, 0.0),
         (&y, 0.0),
@@ -3939,11 +4114,21 @@ fn crop_dialog(root: &adw::ApplicationWindow, cw: u32, ch: u32, sender: &Compone
         spin.set_value(value);
         spin.set_valign(gtk::Align::Center);
     }
+    {
+        let adjustment = width.adjustment();
+        x.connect_value_changed(move |x| adjustment.set_upper((cw as f64 - x.value()).max(1.0)));
+    }
+    {
+        let adjustment = height.adjustment();
+        y.connect_value_changed(move |y| adjustment.set_upper((ch as f64 - y.value()).max(1.0)));
+    }
     let group = adw::PreferencesGroup::new();
     for (title, spin) in [
         ("X", &x),
         ("Y", &y),
+        // Translators: Horizontal size of the crop box, in image pixels.
         (t("Width"), &width),
+        // Translators: Vertical size of the crop box, in image pixels.
         (t("Height"), &height),
     ] {
         let row = adw::ActionRow::builder().title(title).build();
@@ -3952,8 +4137,8 @@ fn crop_dialog(root: &adw::ApplicationWindow, cw: u32, ch: u32, sender: &Compone
     }
     dialog.set_extra_child(Some(&group));
 
-    dialog.add_response("cancel", "Cancel");
-    dialog.add_response("apply", "Apply");
+    dialog.add_response("cancel", t("Cancel"));
+    dialog.add_response("apply", t("Apply"));
     dialog.set_response_appearance("apply", adw::ResponseAppearance::Suggested);
     dialog.set_default_response(Some("apply"));
     dialog.set_close_response("cancel");
@@ -3996,8 +4181,8 @@ fn delay_dialog(
     row.add_suffix(&spin);
     group.add(&row);
     dialog.set_extra_child(Some(&group));
-    dialog.add_response("cancel", "Cancel");
-    dialog.add_response("apply", "Apply");
+    dialog.add_response("cancel", t("Cancel"));
+    dialog.add_response("apply", t("Apply"));
     dialog.set_response_appearance("apply", adw::ResponseAppearance::Suggested);
     dialog.set_close_response("cancel");
 
@@ -4427,6 +4612,83 @@ mod tests {
         }
     }
 
+    /// The busy gates are the one thing standing between a running worker and
+    /// a corrupted frame-index landing, so the classification is spelled out
+    /// rather than trusted to the matches! arms staying in sync by eye.
+    #[test]
+    fn busy_gate_classification_covers_every_variant() {
+        let press = || Msg::CanvasPress {
+            x: 0.0,
+            y: 0.0,
+            scale: 1.0,
+            state: gdk::ModifierType::empty(),
+        };
+
+        // Frame-moving edits: blocked in every kind of work.
+        for msg in [
+            Msg::Load(PathBuf::new()),
+            Msg::Undo,
+            Msg::Redo,
+            Msg::DeleteSelection,
+            Msg::FrameOp(FrameOp::Delete),
+            Msg::FrameOpAt(0, FrameOp::Delete),
+            Msg::SetFrameDelay(0, 5),
+            Msg::ApplyCrop,
+            Msg::CropAll(0, 0, 1, 1),
+            Msg::ApplyZoom,
+            Msg::DropEveryNth(2),
+            Msg::SmartDrop(30),
+            Msg::Resize(10, 10),
+        ] {
+            assert!(msg.changes_frames(), "{msg:?} must wait");
+            assert!(msg.requires_idle(), "{msg:?} must wait");
+        }
+
+        // Snapshot/dialog openers: blocked too, or the follow-up edit lands
+        // against a stale canvas.
+        for msg in [Msg::Open, Msg::Export, Msg::CropAllDialog] {
+            assert!(!msg.changes_frames(), "{msg:?} does not move frames itself");
+            assert!(msg.requires_idle(), "{msg:?} must wait");
+        }
+
+        // Overlay-only edits: live during resize/zoom (the Worked handler
+        // scales them in), blocked only while an import would discard them.
+        for msg in [
+            Msg::AddOverlay(Tool::Text),
+            Msg::EditText("hi".into()),
+            Msg::SetOverlayProp(OverlayProp::TextSize(12.0)),
+            Msg::ToggleCropTool,
+            press(),
+            Msg::CanvasDrag {
+                x: 0.0,
+                y: 0.0,
+                state: gdk::ModifierType::empty(),
+            },
+            Msg::CanvasRelease,
+        ] {
+            assert!(
+                !msg.changes_frames(),
+                "{msg:?} stays live during frame work"
+            );
+            assert!(msg.edits_document(), "{msg:?} must wait during import");
+        }
+
+        // Pure view/transport messages: never blocked.
+        for msg in [
+            Msg::Tick,
+            Msg::Seek(0),
+            Msg::TogglePlay,
+            Msg::Toast(String::new()),
+            Msg::SetScope(ScopeChoice::AllFrames),
+            Msg::SelectOverlay(None),
+        ] {
+            assert!(
+                !msg.changes_frames() && !msg.requires_idle() && !msg.edits_document(),
+                "{msg:?} passes through"
+            );
+        }
+    }
+
     /// Ctrl picks frames one at a time and Shift picks the run between the
     /// anchor and here, in either direction. Both were previously a single
     /// growing range, so Ctrl could not skip a frame and Shift could not shrink.
@@ -4458,6 +4720,63 @@ mod tests {
         let scope = Scope::Frames(vec![2, 7]);
         assert_eq!(scope.resolve(0, 10), vec![2, 7]);
         assert_eq!(scope.span(0, 10), 2..8);
+    }
+
+    #[test]
+    fn resize_completion_keeps_active_canvas_work_in_image_coordinates() {
+        let mut drag = Some(Drag {
+            mode: DragMode::Move,
+            from: (10.0, 20.0),
+            origin: Transform::at(5.0, 10.0, 20.0, 30.0),
+            current: Transform::at(7.0, 12.0, 20.0, 30.0),
+            moved: true,
+        });
+        let mut crop = Some((10.0, 20.0, 30.0, 40.0));
+
+        scale_in_flight_canvas(&mut drag, &mut crop, 0.5, 2.0);
+
+        let drag = drag.unwrap();
+        assert_eq!(drag.from, (5.0, 40.0));
+        assert_eq!(drag.origin, Transform::at(2.5, 20.0, 10.0, 60.0));
+        assert_eq!(drag.current, Transform::at(3.5, 24.0, 10.0, 60.0));
+        assert_eq!(crop, Some((5.0, 40.0, 15.0, 80.0)));
+    }
+
+    #[test]
+    fn full_canvas_crop_is_not_an_edit() {
+        assert!(!crop_changes_canvas((100, 80), (0, 0, 100, 80)));
+        assert!(!crop_changes_canvas((100, 80), (0, 0, 500, 500)));
+        assert!(crop_changes_canvas((100, 80), (1, 0, 99, 80)));
+        assert!(crop_changes_canvas((100, 80), (0, 0, 99, 80)));
+        assert!(!crop_changes_canvas((0, 0), (0, 0, 1, 1)));
+    }
+
+    #[test]
+    fn canvas_rects_intersect_the_image_before_rounding() {
+        assert_eq!(
+            normalize_canvas_rect((100, 80), (-20.0, -10.0, 50.0, 30.0)),
+            Some((0, 0, 30, 20))
+        );
+        assert_eq!(
+            normalize_canvas_rect((100, 80), (10.2, 20.2, 5.2, 4.2)),
+            Some((10, 20, 6, 5))
+        );
+        assert_eq!(
+            normalize_canvas_rect((100, 80), (-20.0, 0.0, 10.0, 10.0)),
+            None
+        );
+    }
+
+    #[test]
+    fn resize_budget_uses_checked_rgba_size() {
+        assert!(resize_fits_budget(100, 100, 10, 400_000));
+        assert!(!resize_fits_budget(100, 100, 11, 400_000));
+        assert!(!resize_fits_budget(
+            u32::MAX,
+            u32::MAX,
+            usize::MAX,
+            usize::MAX
+        ));
     }
 
     /// Regression: the sidebar sets its widgets from the model, and each setter
