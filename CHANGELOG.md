@@ -26,6 +26,17 @@
   time to five rows and scrolls behind the expander after that. The canvas keeps
   whatever is left instead of a fixed split.
 
+### Scope
+
+- Overlay edits now follow the scope control. Dragging, resizing or restyling a
+  caption with `This frame` active touches only that frame: the overlay splits
+  there, the edited frames becoming their own overlay with its own transform
+  while the rest keeps what it had. An `All frames` drag still moves the whole
+  thing, and the toast names which it was.
+- Clicking a thumbnail seeks and drops the scope back to `This frame`. Sticky
+  `All frames` past a click is how a one-frame drag turned into a hundred-frame
+  edit; the chip and the strip tint make the revert visible.
+
 ### Fixes
 
 - Space toggles playback rather than adding an overlay. The window's key

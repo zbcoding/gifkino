@@ -87,6 +87,11 @@ One toolbar control gates every operation: `This frame`, `All frames`, or
 frame strip has a selection to bind to.
 
 - Overlay tools take their `range` from it at creation.
+- Overlay edits — a drag, a restyle, a text change — land inside the scope
+  too. When the scope covers only part of an overlay's range, the overlay
+  splits: the edited frames become their own overlay with its own transform,
+  and the rest keeps what it had. One transform per contiguous range is the
+  price of the model, and the split is how a one-frame edit stays one frame.
 - Frame-list and raster operations apply to the selected frames, wrapped in a
   single compound history item.
 - Crop, resize, and flatten default to All frames, because anything else
@@ -333,9 +338,10 @@ takes focus at that moment, and disappears when the selection clears. A
 permanently disabled segment that can only be reached sideways teaches nobody
 anything.
 
-When the selection clears and Range collapses, scope reverts to `This frame` —
-the least destructive default for the most scope-sensitive operation, overlay
-creation — and the accent tint makes the revert visible rather than silent.
+When the selection clears and Range collapses, or a seek lands on one frame,
+scope reverts to `This frame` — the least destructive default for the most
+scope-sensitive operation, overlay creation — and the accent tint makes the
+revert visible rather than silent.
 
 Sticky scope is where this app can hurt someone. Creating a caption under
 `All frames` while thinking `This frame` is the mistake people will actually

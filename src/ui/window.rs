@@ -559,6 +559,18 @@ impl App {
         self.scope().span(self.playhead, self.frame_count())
     }
 
+    /// The canvas only shows the playhead frame, so an overlay being edited
+    /// must sit on it: seek to its first frame rather than edit something
+    /// unseen. Unlike a strip seek this is bookkeeping for the panel, not
+    /// navigation — the selection and the scope stay as they are.
+    fn seek_to_overlay(&mut self, id: OverlayId) {
+        if let Some(o) = self.editor.doc.overlay(id)
+            && !o.range.contains(&self.playhead)
+        {
+            self.playhead = o.range.start.min(self.frame_count().saturating_sub(1));
+        }
+    }
+
     fn composite_playhead(&self) -> Option<gdk::Texture> {
         let img = render::composite(&self.editor.doc, self.playhead, self.text_fn())?;
         Some(texture_from(&img))
@@ -776,9 +788,11 @@ impl Component for App {
                 self.playhead = i.min(self.frame_count().saturating_sub(1));
                 self.selection.clear();
                 self.anchor = Some(self.playhead);
-                if self.scope == ScopeChoice::Range {
-                    self.scope = ScopeChoice::ThisFrame;
-                }
+                // A seek is navigation to one frame, which is also choosing
+                // one frame to work on: the scope follows it whatever it was.
+                // Sticky All frames past a click is how a one-frame drag
+                // became a hundred-frame edit.
+                self.scope = ScopeChoice::ThisFrame;
             }
             Msg::ExtendSelection(i) => {
                 // Shift picks a run between the anchor and here, in either
@@ -876,27 +890,36 @@ impl Component for App {
             }
             Msg::SelectOverlay(id) => {
                 self.selected_overlay = id;
-                // The canvas only shows the playhead frame, so seek to the
-                // overlay's first frame rather than editing something unseen.
-                if let Some(o) = id.and_then(|id| self.editor.doc.overlay(id)) {
-                    let start = o.range.start;
-                    if !o.range.contains(&self.playhead) {
-                        self.playhead = start.min(self.frame_count().saturating_sub(1));
-                    }
+                if let Some(id) = id {
+                    self.seek_to_overlay(id);
                 }
             }
             Msg::EditText(text) => {
                 let Some(id) = self.selected_overlay else {
                     return;
                 };
-                let touched = self.editor.doc.overlay(id).map_or(0, |o| o.range.len());
-                self.editor.edit(n("Text edited"), touched, |d| {
-                    if let Some(o) = d.overlay_mut(id)
-                        && let OverlayKind::Text(t) = &mut o.kind
-                    {
-                        t.text = text;
-                    }
+                // The scope decides which frames the text change lands on; a
+                // narrow scope splits the overlay so the rest keeps its text.
+                let span = overlay_edit_span(
+                    self.editor
+                        .doc
+                        .overlay(id)
+                        .map_or(0..0, |o| o.range.clone()),
+                    self.scope_span(),
+                    self.playhead,
+                );
+                if span.is_empty() {
+                    return;
+                }
+                let touched = span.len();
+                let (_, (edited, _)) = self.editor.edit(n("Text edited"), touched, |d| {
+                    d.edit_on_frames(id, span, |o| {
+                        if let OverlayKind::Text(t) = &mut o.kind {
+                            t.text = text;
+                        }
+                    })
                 });
+                self.selected_overlay = Some(edited);
                 self.after_edit();
             }
             Msg::DeleteSelection => {
@@ -951,10 +974,23 @@ impl Component for App {
                 if !prop.changes(&overlay.kind) {
                     return;
                 }
-                let touched = overlay.range.len();
-                self.editor.edit(n("Overlay restyled"), touched, |d| {
-                    let Some(o) = d.overlay_mut(id) else { return };
-                    match (&mut o.kind, prop) {
+                self.seek_to_overlay(id);
+                // The scope decides which frames the restyle lands on; a
+                // narrow scope splits the overlay so the rest keeps its style.
+                let span = overlay_edit_span(
+                    self.editor
+                        .doc
+                        .overlay(id)
+                        .map_or(0..0, |o| o.range.clone()),
+                    self.scope_span(),
+                    self.playhead,
+                );
+                if span.is_empty() {
+                    return;
+                }
+                let touched = span.len();
+                let (_, (edited, _)) = self.editor.edit(n("Overlay restyled"), touched, |d| {
+                    d.edit_on_frames(id, span, |o| match (&mut o.kind, prop) {
                         (OverlayKind::Text(t), OverlayProp::Font(f)) => t.font = f,
                         (OverlayKind::Text(t), OverlayProp::TextSize(px)) => t.size_px = px,
                         (OverlayKind::Text(t), OverlayProp::Fill(Some(c))) => t.color = c,
@@ -964,8 +1000,9 @@ impl Component for App {
                         (OverlayKind::Shape(s), OverlayProp::Fill(c)) => s.fill = c,
                         (OverlayKind::Shape(s), OverlayProp::Stroke(v)) => s.stroke = v,
                         _ => {}
-                    }
+                    })
                 });
+                self.selected_overlay = Some(edited);
                 self.after_edit();
             }
             Msg::ToggleCropTool => {
@@ -1120,22 +1157,34 @@ impl Component for App {
                     return;
                 };
                 let (origin, final_t) = (drag.origin, drag.current);
-                let touched = self.editor.doc.overlay(id).map_or(0, |o| o.range.len());
                 // Put the transform back before recording, so undo returns to
                 // where the drag started rather than to one frame before it.
                 if let Some(o) = self.editor.doc.overlay_mut(id) {
                     o.transform = origin;
+                }
+                // The scope decides which frames the drag commits to; a scope
+                // narrower than the overlay's range splits it, so the rest of
+                // the frames keep where it was.
+                let span = overlay_edit_span(
+                    self.editor
+                        .doc
+                        .overlay(id)
+                        .map_or(0..0, |o| o.range.clone()),
+                    self.scope_span(),
+                    self.playhead,
+                );
+                if span.is_empty() {
+                    return;
                 }
                 let label = match drag.mode {
                     DragMode::Move => n("Overlay moved"),
                     DragMode::Rotate => n("Overlay rotated"),
                     _ => n("Overlay resized"),
                 };
-                let (change, _) = self.editor.edit(label, touched, |d| {
-                    if let Some(o) = d.overlay_mut(id) {
-                        o.transform = final_t;
-                    }
+                let (change, (edited, _)) = self.editor.edit(label, span.len(), |d| {
+                    d.edit_on_frames(id, span, |o| o.transform = final_t)
                 });
+                self.selected_overlay = Some(edited);
                 self.after_edit();
                 sender.input(Msg::Toast(change.message()));
             }
@@ -2381,6 +2430,21 @@ fn toggle_frame(selection: &mut Vec<usize>, frame: usize) {
 /// Shift+click: the run between the anchor and here, in either direction.
 fn run_between(anchor: usize, frame: usize) -> Vec<usize> {
     (anchor.min(frame)..=anchor.max(frame)).collect()
+}
+
+/// The frames an overlay edit lands on: where the scope reaches into the
+/// overlay's own range. When the scope does not reach the frame on screen, the
+/// frame on screen wins — an edit must land where the user is looking, never
+/// somewhere they cannot see. An empty result is the caller's no-op.
+fn overlay_edit_span(overlay: Range<usize>, scope: Range<usize>, playhead: usize) -> Range<usize> {
+    let span = overlay.start.max(scope.start)..overlay.end.min(scope.end);
+    if span.is_empty() {
+        return 0..0;
+    }
+    if !span.contains(&playhead) && overlay.contains(&playhead) {
+        return playhead..playhead + 1;
+    }
+    span
 }
 
 fn strip_width(count: usize) -> i32 {
@@ -4461,6 +4525,23 @@ mod tests {
         // Touching ranges are not overlapping ranges: 0..5 ends where 5..10 starts.
         assert_eq!(pack_rows(&[0..5, 3..9, 5..7, 9..12]), vec![0, 1, 0, 0]);
         assert!(pack_rows(&[]).is_empty());
+    }
+
+    /// An overlay edit lands where the scope reaches into the overlay's own
+    /// range; when the scope does not reach the frame on screen, that frame
+    /// wins. This is what makes a one-frame drag stay a one-frame drag.
+    #[test]
+    fn an_overlay_edit_lands_where_the_scope_reaches() {
+        // All-frames scope over a full-range overlay: everything, in place.
+        assert_eq!(overlay_edit_span(0..10, 0..10, 3), 0..10);
+        // This-frame scope inside the overlay: the one frame.
+        assert_eq!(overlay_edit_span(0..10, 4..5, 4), 4..5);
+        // A range scope reaching partway: the overlap.
+        assert_eq!(overlay_edit_span(0..10, 5..20, 6), 5..10);
+        // Scope elsewhere, playhead still on the overlay: the frame on screen.
+        assert_eq!(overlay_edit_span(0..10, 7..9, 2), 2..3);
+        // Scope elsewhere and the overlay nowhere near: nothing to edit.
+        assert_eq!(overlay_edit_span(7..9, 0..2, 5), 0..0);
     }
 
     /// The canvas maps widget pixels to image pixels; every gesture and every

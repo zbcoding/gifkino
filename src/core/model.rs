@@ -348,6 +348,63 @@ impl Document {
             self.overlays.swap(i, j);
         }
     }
+
+    /// Apply `f` to the overlay on `frames` alone, splitting it around the
+    /// rest of its range. An overlay carries one transform for its whole
+    /// range, so an edit that covers only part of it has to cut it in two:
+    /// the edited frames become their own overlay with its own transform, and
+    /// the original keeps the rest. All pieces take the original's place in
+    /// the z-order, so nothing under or over the overlay moves relative to
+    /// them.
+    ///
+    /// Returns the id of the overlay the edit landed on — the original's when
+    /// it covered everything, a new one otherwise — and how many frames the
+    /// edit touched. An empty intersection changes nothing.
+    pub fn edit_on_frames(
+        &mut self,
+        id: OverlayId,
+        frames: Range<usize>,
+        f: impl FnOnce(&mut Overlay),
+    ) -> (OverlayId, usize) {
+        let Some(i) = self.overlays.iter().position(|o| o.id == id) else {
+            return (id, 0);
+        };
+        let full = self.overlays[i].range.clone();
+        let edit = full.start.max(frames.start)..full.end.min(frames.end);
+        if edit.is_empty() {
+            return (id, 0);
+        }
+        if edit == full {
+            f(&mut self.overlays[i]);
+            return (id, edit.len());
+        }
+        let (before, after) = (full.start..edit.start, edit.end..full.end);
+        let mut piece = self.overlays[i].clone();
+        piece.id = OverlayId(self.next_id);
+        self.next_id += 1;
+        piece.range = edit.clone();
+        f(&mut piece);
+        let edited = piece.id;
+        if before.is_empty() {
+            // The edit starts the range: the original keeps only the tail.
+            self.overlays[i].range = after;
+            self.overlays.insert(i, piece);
+        } else {
+            self.overlays[i].range = before;
+            if after.is_empty() {
+                self.overlays.insert(i + 1, piece);
+            } else {
+                // The edit sits in the middle: the right half is its own too.
+                let mut rest = self.overlays[i].clone();
+                rest.id = OverlayId(self.next_id);
+                self.next_id += 1;
+                rest.range = after;
+                self.overlays.insert(i + 1, piece);
+                self.overlays.insert(i + 2, rest);
+            }
+        }
+        (edited, edit.len())
+    }
 }
 
 #[cfg(test)]
@@ -482,11 +539,100 @@ mod tests {
         );
     }
 
+    /// One overlay carries one transform for its whole range, so an edit
+    /// scoped to part of that range must split it: the edited frames become
+    /// their own overlay, the rest keeps the old transform, and the pieces
+    /// take the original's z-order slot.
+    #[test]
+    fn editing_part_of_a_range_splits_the_overlay() {
+        let mut doc = blank(4, 4, 10);
+        doc.add_overlay("under", shape(), Transform::at(0.0, 0.0, 1.0, 1.0), 0..10);
+        let id = doc.add_overlay("a", shape(), Transform::at(1.0, 1.0, 2.0, 2.0), 0..10);
+        doc.add_overlay("over", shape(), Transform::at(0.0, 0.0, 1.0, 1.0), 0..10);
+        let moved = Transform::at(9.0, 9.0, 2.0, 2.0);
+
+        let (edited, touched) = doc.edit_on_frames(id, 4..6, |o| o.transform = moved);
+        assert_eq!(touched, 2);
+        assert_ne!(edited, id, "the edited frames are their own overlay now");
+
+        let shapes: Vec<_> = doc
+            .overlays
+            .iter()
+            .map(|o| (o.name.as_str(), o.range.clone(), o.transform))
+            .collect();
+        assert_eq!(
+            shapes,
+            vec![
+                ("under", 0..10, Transform::at(0.0, 0.0, 1.0, 1.0)),
+                ("a", 0..4, Transform::at(1.0, 1.0, 2.0, 2.0)),
+                ("a", 4..6, moved),
+                ("a", 6..10, Transform::at(1.0, 1.0, 2.0, 2.0)),
+                ("over", 0..10, Transform::at(0.0, 0.0, 1.0, 1.0)),
+            ]
+        );
+        assert_eq!(doc.overlay(edited).map(|o| o.range.clone()), Some(4..6));
+    }
+
+    /// An edit at either end of the range leaves one neighbour, not a hole.
+    #[test]
+    fn editing_the_range_edges_leaves_two_pieces() {
+        let moved = Transform::at(9.0, 9.0, 2.0, 2.0);
+        let kept = Transform::at(1.0, 1.0, 2.0, 2.0);
+
+        let mut doc = blank(4, 4, 10);
+        let id = doc.add_overlay("a", shape(), kept, 2..8);
+        let (edited, touched) = doc.edit_on_frames(id, 0..3, |o| o.transform = moved);
+        assert_ne!(edited, id);
+        assert_eq!((touched, doc.overlays.len()), (1, 2));
+        assert_eq!(shapes(&doc), vec![("a", 2..3, moved), ("a", 3..8, kept)]);
+
+        let mut doc = blank(4, 4, 10);
+        let id = doc.add_overlay("a", shape(), kept, 2..8);
+        let (edited, touched) = doc.edit_on_frames(id, 6..9, |o| o.transform = moved);
+        assert_ne!(edited, id);
+        assert_eq!((touched, doc.overlays.len()), (2, 2));
+        assert_eq!(shapes(&doc), vec![("a", 2..6, kept), ("a", 6..8, moved)]);
+    }
+
+    /// The scope covering everything the overlay covers is an in-place edit.
+    #[test]
+    fn an_edit_over_the_whole_range_stays_in_place() {
+        let mut doc = blank(4, 4, 10);
+        let id = doc.add_overlay("a", shape(), Transform::at(1.0, 1.0, 2.0, 2.0), 2..8);
+        let moved = Transform::at(9.0, 9.0, 2.0, 2.0);
+
+        let (edited, touched) = doc.edit_on_frames(id, 0..10, |o| o.transform = moved);
+        assert_eq!((edited, touched), (id, 6));
+        assert_eq!(doc.overlays.len(), 1);
+        assert_eq!(doc.overlay(id).map(|o| o.transform), Some(moved));
+    }
+
+    /// Frames outside the overlay are not the overlay's business.
+    #[test]
+    fn an_edit_outside_the_range_changes_nothing() {
+        let mut doc = blank(4, 4, 10);
+        let id = doc.add_overlay("a", shape(), Transform::at(1.0, 1.0, 2.0, 2.0), 2..8);
+        let before = doc.clone();
+
+        let (edited, touched) = doc.edit_on_frames(id, 9..11, |o| {
+            o.transform = Transform::at(9.0, 9.0, 2.0, 2.0)
+        });
+        assert_eq!((edited, touched), (id, 0));
+        assert_eq!(doc, before, "no intersection, no edit");
+    }
+
     fn shape() -> OverlayKind {
         OverlayKind::Shape(ShapeOverlay {
             shape: Shape::Rect,
             fill: Some([255, 0, 0, 255]),
             stroke: None,
         })
+    }
+
+    fn shapes(doc: &Document) -> Vec<(&str, Range<usize>, Transform)> {
+        doc.overlays
+            .iter()
+            .map(|o| (o.name.as_str(), o.range.clone(), o.transform))
+            .collect()
     }
 }
