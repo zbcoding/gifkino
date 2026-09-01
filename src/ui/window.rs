@@ -7,6 +7,8 @@ use std::cell::{Cell, RefCell};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use adw::prelude::*;
 use gtk::gdk;
@@ -83,6 +85,8 @@ pub enum Msg {
     Load(PathBuf),
     /// Import at the settings the dialog came back with.
     LoadConfirmed(PathBuf, Box<ImportPlan>),
+    /// The user pressed the X beside the import progress bar.
+    CancelImport,
     /// Debounced: measure the export size for this document revision, unless
     /// the document has moved on since.
     Estimate(u64),
@@ -308,6 +312,9 @@ struct Busy {
     /// Known when the job is countable; the import's is not until the
     /// container says how long it is.
     total: Option<usize>,
+    /// Stop flag shared with the import worker, so the X next to the bar can
+    /// end a decode between progress ticks. Only an import can be cancelled.
+    cancel: Option<Arc<AtomicBool>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -368,6 +375,15 @@ pub struct WorkDone {
     frames: Vec<(usize, Frame)>,
 }
 
+/// How an import ended. A cancelled one is not a failure: the user asked for
+/// it, so nothing is toasted and whatever decoded is dropped.
+#[derive(Debug)]
+pub enum ImportOutcome {
+    Loaded(PathBuf, Vec<Frame>),
+    Cancelled,
+    Failed(String),
+}
+
 #[derive(Debug)]
 pub enum Cmd {
     /// Frames decoded so far, and the estimate to expect.
@@ -380,7 +396,7 @@ pub enum Cmd {
     Estimated(u64, Result<usize, String>),
     /// A finished resize or zoom, or a worker panic reported back to the UI.
     Worked(Result<Box<WorkDone>, &'static str>),
-    Imported(Box<Result<(PathBuf, Vec<Frame>), String>>),
+    Imported(Box<ImportOutcome>),
     Exported(Result<(PathBuf, u64), String>),
 }
 
@@ -457,6 +473,9 @@ pub struct Widgets {
     title: adw::WindowTitle,
     stack: gtk::Stack,
     import_bar: gtk::ProgressBar,
+    /// The circle X beside the bar; visible while an import runs, because a
+    /// resize or zoom cannot be stopped part-way.
+    import_cancel: gtk::Button,
     toasts: adw::ToastOverlay,
     canvas: gtk::Picture,
     canvas_frame: gtk::Frame,
@@ -652,20 +671,31 @@ impl Component for App {
                 });
             }
             Msg::Load(path) => {
+                let cancel = Arc::new(AtomicBool::new(false));
                 self.busy = Some(Busy {
                     kind: BusyKind::Import,
                     done: 0,
                     total: None,
+                    cancel: Some(cancel.clone()),
                 });
-                plan_import(path, self.import_options(), &sender);
+                plan_import(path, self.import_options(), cancel, &sender);
             }
             Msg::LoadConfirmed(path, plan) => {
+                let cancel = Arc::new(AtomicBool::new(false));
                 self.busy = Some(Busy {
                     kind: BusyKind::Import,
                     done: 0,
                     total: None,
+                    cancel: Some(cancel.clone()),
                 });
-                load(path, Some(*plan), self.import_options(), &sender);
+                load(path, Some(*plan), self.import_options(), cancel, &sender);
+            }
+            Msg::CancelImport => {
+                // The flag is all the UI does; the worker reports back through
+                // `Cmd::Imported` and is the only thing that clears the bar.
+                if let Some(cancel) = self.busy.as_ref().and_then(|busy| busy.cancel.as_ref()) {
+                    cancel.store(true, Ordering::Relaxed);
+                }
             }
             Msg::Estimate(rev) => {
                 if rev != self.rev || self.frame_count() == 0 {
@@ -1137,6 +1167,7 @@ impl Component for App {
                     kind: BusyKind::Zoom,
                     done: 0,
                     total: Some(work.touched(&self.editor.doc)),
+                    cancel: None,
                 });
                 run_frame_work(&self.editor.doc, work, &sender);
             }
@@ -1196,6 +1227,7 @@ impl Component for App {
                     kind: BusyKind::Resize,
                     done: 0,
                     total: Some(self.frame_count()),
+                    cancel: None,
                 });
                 run_frame_work(&self.editor.doc, work, &sender);
             }
@@ -1267,7 +1299,16 @@ impl Component for App {
                     self.busy = None;
                     confirm_oversize(root, &path, &plan, self.settings.max_import_bytes, &sender);
                 }
-                Ok(plan) => load(path, Some(plan), self.import_options(), &sender),
+                // The probe never checks the flag, so a click during the probe
+                // still stands: this is the same flag the load was seeded with.
+                Ok(plan) => {
+                    let cancel = self
+                        .busy
+                        .as_ref()
+                        .and_then(|busy| busy.cancel.clone())
+                        .expect("import in flight");
+                    load(path, Some(plan), self.import_options(), cancel, &sender);
+                }
                 Err(e) => {
                     self.busy = None;
                     sender.input(Msg::Toast(e));
@@ -1283,12 +1324,12 @@ impl Component for App {
             | Cmd::Estimated(..) => {
                 unreachable!("handled above")
             }
-            Cmd::Imported(result) => {
+            Cmd::Imported(outcome) => {
                 // An import ends the bar it started; an export never owns the
                 // bar, so its result leaves whatever is running alone.
                 self.busy = None;
-                match *result {
-                    Ok((path, frames)) => {
+                match *outcome {
+                    ImportOutcome::Loaded(path, frames) => {
                         self.editor = Editor::new(Document::from_frames(frames));
                         self.path = Some(path);
                         self.playhead = 0;
@@ -1297,7 +1338,8 @@ impl Component for App {
                         self.scope = ScopeChoice::ThisFrame;
                         self.after_edit();
                     }
-                    Err(e) => sender.input(Msg::Toast(e)),
+                    ImportOutcome::Cancelled => {}
+                    ImportOutcome::Failed(e) => sender.input(Msg::Toast(e)),
                 }
             }
             Cmd::Exported(Ok((path, size))) => {
@@ -1348,6 +1390,9 @@ impl Component for App {
             .set_visible_child_name(if count == 0 { "empty" } else { "editor" });
 
         widgets.import_bar.set_visible(self.busy.is_some());
+        widgets
+            .import_cancel
+            .set_visible(self.busy.as_ref().map(|busy| busy.kind) == Some(BusyKind::Import));
         if let Some(busy) = &self.busy {
             let (done, expected) = (busy.done, busy.total);
             match expected.filter(|e| *e > 0) {
@@ -1897,13 +1942,18 @@ fn crop_changes_canvas((cw, ch): (u32, u32), (x, y, w, h): (u32, u32, u32, u32))
 
 /// Probe before decoding. ffprobe is cheap but it is still a subprocess, so it
 /// runs off the main thread like the decode does.
-fn plan_import(path: PathBuf, options: ImportOptions, sender: &ComponentSender<App>) {
+fn plan_import(
+    path: PathBuf,
+    options: ImportOptions,
+    cancel: Arc<AtomicBool>,
+    sender: &ComponentSender<App>,
+) {
     // GIFs arrive frame-exact and small; there is nothing to warn about.
     if path
         .extension()
         .is_some_and(|e| e.eq_ignore_ascii_case("gif"))
     {
-        load(path, None, options, sender);
+        load(path, None, options, cancel, sender);
         return;
     }
     sender.spawn_command(move |out| {
@@ -2262,6 +2312,7 @@ fn load(
     path: PathBuf,
     plan: Option<ImportPlan>,
     options: ImportOptions,
+    cancel: Arc<AtomicBool>,
     sender: &ComponentSender<App>,
 ) {
     sender.spawn_command(move |out| {
@@ -2269,6 +2320,9 @@ fn load(
         // the main loop has to drain before it can draw any of them.
         let mut next = std::time::Instant::now();
         let mut progress = |done, expected| {
+            if cancel.load(Ordering::Relaxed) {
+                return false;
+            }
             let now = std::time::Instant::now();
             if now < next {
                 return true;
@@ -2280,10 +2334,17 @@ fn load(
             Some(plan) => video::import_planned(&path, plan, &mut progress),
             None => import_any(&path, &options, &mut progress),
         };
-        let result = decoded
-            .map(|frames| (path, frames))
-            .map_err(|e| e.to_string());
-        out.emit(Cmd::Imported(Box::new(result)));
+        // The pipelines come back with whatever decoded before the stop, so
+        // the flag, not the result shape, is what says the user cancelled.
+        let outcome = if cancel.load(Ordering::Relaxed) {
+            ImportOutcome::Cancelled
+        } else {
+            match decoded {
+                Ok(frames) => ImportOutcome::Loaded(path, frames),
+                Err(e) => ImportOutcome::Failed(e.to_string()),
+            }
+        };
+        out.emit(Cmd::Imported(Box::new(outcome)));
     });
 }
 
@@ -2955,7 +3016,20 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
         .visible(false)
         .build();
     import_bar.set_size_request(320, -1);
-    import_bar.set_halign(gtk::Align::Center);
+    let import_cancel = gtk::Button::from_icon_name("process-stop-symbolic");
+    import_cancel.add_css_class("circular");
+    import_cancel.add_css_class("flat");
+    import_cancel.set_valign(gtk::Align::Center);
+    import_cancel.set_visible(false);
+    // Translators: Tooltip on the X beside the import progress bar; it cancels the running decode.
+    import_cancel.set_tooltip_text(Some(t("Cancel import")));
+    connect(&import_cancel, sender, || Msg::CancelImport);
+    // The X sits to the right of the bar, which carries the message; one row
+    // so the toolbar takes or drops them together.
+    let import_row = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    import_row.set_halign(gtk::Align::Center);
+    import_row.append(&import_bar);
+    import_row.append(&import_cancel);
     let welcome = gtk::Box::new(gtk::Orientation::Vertical, 18);
     welcome.append(&welcome_buttons);
     status.set_child(Some(&welcome));
@@ -3391,7 +3465,7 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
 
     let toolbar = adw::ToolbarView::new();
     toolbar.add_top_bar(&header);
-    toolbar.add_top_bar(&import_bar);
+    toolbar.add_top_bar(&import_row);
     toolbar.set_content(Some(&stack));
 
     let toasts = adw::ToastOverlay::new();
@@ -3456,6 +3530,7 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
         title,
         stack,
         import_bar,
+        import_cancel,
         toasts,
         canvas,
         canvas_frame,

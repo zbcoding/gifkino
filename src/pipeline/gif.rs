@@ -16,15 +16,23 @@ use image::{Rgba, RgbaImage};
 
 use crate::core::{Document, Frame};
 
-pub fn decode_path(path: impl AsRef<Path>) -> Result<Vec<Frame>> {
+pub fn decode_path(
+    path: impl AsRef<Path>,
+    progress: &mut dyn FnMut(usize, Option<usize>) -> bool,
+) -> Result<Vec<Frame>> {
     let path = path.as_ref();
     let file = std::fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;
-    decode(std::io::BufReader::new(file))
+    decode(std::io::BufReader::new(file), progress)
 }
 
 /// Decode to full-canvas RGBA frames, honoring disposal so each frame stands
-/// alone in the document.
-pub fn decode(reader: impl Read) -> Result<Vec<Frame>> {
+/// alone in the document. `progress` gets the frame count as it grows; a GIF
+/// header carries no frame total, so there is nothing to estimate with, and
+/// returning false stops the decode where it stands.
+pub fn decode(
+    reader: impl Read,
+    progress: &mut dyn FnMut(usize, Option<usize>) -> bool,
+) -> Result<Vec<Frame>> {
     let mut options = gif::DecodeOptions::new();
     options.set_color_output(gif::ColorOutput::RGBA);
     let mut decoder = options.read_info(reader).context("reading GIF header")?;
@@ -52,7 +60,9 @@ pub fn decode(reader: impl Read) -> Result<Vec<Frame>> {
         }
 
         frames.push(Frame::new(canvas.clone(), frame.delay.max(1)));
-
+        if !progress(frames.len(), None) {
+            break;
+        }
         match frame.dispose {
             gif::DisposalMethod::Background => {
                 for y in 0..frame.height as u32 {
@@ -394,7 +404,7 @@ mod tests {
         let mut bytes = Vec::new();
         encode(&mut bytes, &enc, &ExportSettings::default()).unwrap();
 
-        let decoded = decode(std::io::Cursor::new(bytes)).unwrap();
+        let decoded = decode(&mut std::io::Cursor::new(bytes), &mut |_, _| true).unwrap();
         assert_eq!(decoded.len(), 3);
         assert_eq!(
             decoded.iter().map(|f| f.delay_cs).collect::<Vec<_>>(),
@@ -438,9 +448,36 @@ mod tests {
         let enc = Encodable::from_document(&doc, &no_text, &ExportSettings::default());
         let mut bytes = Vec::new();
         encode(&mut bytes, &enc, &ExportSettings::default()).unwrap();
-        let decoded = decode(std::io::Cursor::new(bytes)).unwrap();
+        let decoded = decode(&mut std::io::Cursor::new(bytes), &mut |_, _| true).unwrap();
         assert_eq!(decoded[0].pixels.get_pixel(0, 0).0[3], 0);
         assert_eq!(decoded[0].pixels.get_pixel(4, 4).0[3], 255);
+    }
+
+    /// The progress callback is the X beside the import bar. A GIF decode has
+    /// no ffmpeg child to kill, so returning false is the only thing that
+    /// stops it, and it has to stop between frames, not after the file.
+    #[test]
+    fn returning_false_from_progress_stops_the_decode() {
+        let enc = Encodable::from_document(&source(), &no_text, &ExportSettings::default());
+        let mut bytes = Vec::new();
+        encode(&mut bytes, &enc, &ExportSettings::default()).unwrap();
+
+        let mut seen = Vec::new();
+        let decoded = decode(&mut std::io::Cursor::new(bytes), &mut |done, expected| {
+            seen.push((done, expected));
+            done < 2
+        })
+        .unwrap();
+        assert_eq!(decoded.len(), 2, "stopped where it was told to");
+        assert_eq!(
+            seen.iter().map(|(done, _)| *done).collect::<Vec<_>>(),
+            vec![1, 2],
+            "one report per decoded frame"
+        );
+        assert!(
+            seen.iter().all(|(_, expected)| expected.is_none()),
+            "a GIF header carries no frame count to promise"
+        );
     }
 
     /// A moving subject on a flat field: frames differ, so a sample taken from

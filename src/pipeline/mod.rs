@@ -19,7 +19,7 @@ pub fn import_any(
         .extension()
         .is_some_and(|e| e.eq_ignore_ascii_case("gif"));
     if is_gif {
-        gif::decode_path(path)
+        gif::decode_path(path, progress)
     } else {
         video::import(path, options, progress)
     }

@@ -79,3 +79,9 @@
 - Applying the crop-all dialog unchanged (full canvas) is a no-op rather than
   an empty "Cropped" undo step, and its width/height fields stay consistent
   with X/Y as the box is edited. Dialog response buttons are translated.
+- GIF imports now count frames in the progress bar as they decode; the GIF
+  header carries no frame total, so the bar pulses rather than filling.
+- A running import can be cancelled from an X beside the bar. The stop flag
+  ends the decode between frames for both pipelines — the ffmpeg child is
+  killed, the GIF decoder stops reading — and nothing is loaded; a cancelled
+  import is not a failure, so it says nothing.
