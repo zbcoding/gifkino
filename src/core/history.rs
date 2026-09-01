@@ -158,7 +158,7 @@ mod tests {
 
         for step in 0..60 {
             let n = ed.doc.frames.len().max(1);
-            match rng.next(7) {
+            match rng.next(8) {
                 0 => {
                     let start = rng.next(n);
                     let end = (start + 1 + rng.next(4)).min(n);
@@ -198,6 +198,21 @@ mod tests {
                 5 => {
                     let i = rng.next(n);
                     ed.edit("Duplicate frame", 1, |d| d.duplicate_frame(i));
+                }
+                7 => {
+                    // A scoped edit splits an overlay into pieces with fresh
+                    // ids; the walk must reassemble it exactly.
+                    if let Some(id) = ed.doc.overlays.last().map(|o| o.id) {
+                        let range = ed.doc.overlay(id).map_or(0..0, |o| o.range.clone());
+                        if !range.is_empty() {
+                            let at = range.start + rng.next(range.len());
+                            ed.edit("Scoped move", 1, |d| {
+                                d.edit_on_frames(id, at..at + 1, |o| {
+                                    o.transform = Transform::at(100.0 + rng_f(step), 4.0, 2.0, 2.0);
+                                });
+                            });
+                        }
+                    }
                 }
                 _ => {
                     ed.edit("Set delay", n, |d| d.set_delay(0..n, 4 + (step % 3) as u16));
@@ -257,6 +272,40 @@ mod tests {
         });
         assert!(!ed.can_redo());
         assert_eq!(ed.doc.overlays.len(), 1);
+    }
+
+    /// A scoped edit cuts one overlay into pieces with fresh ids; undo must
+    /// reassemble the original and redo must land back on the split.
+    #[test]
+    fn a_scoped_edit_round_trips_through_history() {
+        let mut ed = seeded();
+        ed.edit("Add overlay", 24, |d| {
+            d.add_overlay("a", shape(), Transform::at(0.0, 0.0, 1.0, 1.0), 0..24);
+        });
+        let before = ed.doc.clone();
+        let original = ed.doc.overlays[0].id;
+        let moved = Transform::at(7.0, 7.0, 2.0, 2.0);
+
+        let (_, (edited, touched)) = ed.edit("Scoped move", 1, |d| {
+            d.edit_on_frames(original, 10..11, |o| o.transform = moved)
+        });
+        assert_eq!((touched, ed.doc.overlays.len()), (1, 3));
+        assert_ne!(edited, original, "the edited frame is its own overlay");
+        assert_eq!(
+            ed.doc.overlay(edited).map(|o| o.range.clone()),
+            Some(10..11)
+        );
+        let after = ed.doc.clone();
+
+        assert!(ed.undo());
+        assert_eq!(ed.doc, before, "undo reassembles the original overlay");
+        assert!(ed.redo());
+        assert_eq!(ed.doc, after);
+        assert_eq!(
+            ed.doc.overlay(edited).map(|o| o.transform),
+            Some(moved),
+            "redo lands back on the piece with its own transform"
+        );
     }
 
     #[test]
