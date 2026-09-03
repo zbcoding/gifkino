@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#62a0ea"/>
+      <stop offset="1" stop-color="#3584e4"/>
+    </linearGradient>
+    <linearGradient id="strip" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#deddda"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="8" y="8" width="112" height="112" rx="26" fill="url(#bg)"/>
+
+  <!-- Two frames fanned out behind the front one: the time axis this app edits along. -->
+  <rect x="26" y="34" width="76" height="60" rx="7" fill="#1c71d8" opacity="0.55"
+        transform="rotate(-8 64 64)"/>
+  <rect x="26" y="34" width="76" height="60" rx="7" fill="#1a5fb4" opacity="0.45"
+        transform="rotate(-4 64 64)"/>
+
+  <!-- Front frame: a filmstrip with sprocket holes and a play triangle. -->
+  <rect x="24" y="38" width="80" height="56" rx="7" fill="url(#strip)"/>
+  <g fill="#3584e4">
+    <rect x="24" y="38" width="80" height="9" rx="4.5" opacity="0.18"/>
+    <rect x="24" y="85" width="80" height="9" rx="4.5" opacity="0.18"/>
+  </g>
+  <g fill="#1a5fb4" opacity="0.75">
+    <rect x="30" y="40.5" width="7" height="4" rx="1.5"/>
+    <rect x="44" y="40.5" width="7" height="4" rx="1.5"/>
+    <rect x="58" y="40.5" width="7" height="4" rx="1.5"/>
+    <rect x="72" y="40.5" width="7" height="4" rx="1.5"/>
+    <rect x="86" y="40.5" width="7" height="4" rx="1.5"/>
+    <rect x="30" y="87.5" width="7" height="4" rx="1.5"/>
+    <rect x="44" y="87.5" width="7" height="4" rx="1.5"/>
+    <rect x="58" y="87.5" width="7" height="4" rx="1.5"/>
+    <rect x="72" y="87.5" width="7" height="4" rx="1.5"/>
+    <rect x="86" y="87.5" width="7" height="4" rx="1.5"/>
+  </g>
+  <path d="M57 55.5 L79 66 L57 76.5 Z" fill="#1a5fb4"/>
+</svg>

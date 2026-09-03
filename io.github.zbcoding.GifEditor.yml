@@ -1,0 +1,93 @@
+# Flatpak manifest. Build and install locally with:
+#
+#   flatpak install flathub org.gnome.Sdk//50 org.gnome.Platform//50 \
+#     org.freedesktop.Sdk.Extension.rust-stable//25.08
+#   flatpak-builder --user --install --force-clean build-dir io.github.zbcoding.GifEditor.yml
+#   flatpak run io.github.zbcoding.GifEditor
+#
+# The app only calls GTK 4.14 / libadwaita 1.5 APIs (the feature gates in
+# Cargo.toml enforce that at compile time), so it builds against any newer
+# runtime. The runtime travels inside the flatpak, so the choice costs users
+# nothing; take the current one and move up when it goes end-of-life.
+id: io.github.zbcoding.GifEditor
+runtime: org.gnome.Platform
+runtime-version: '50'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: gif-editor
+
+finish-args:
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --device=dri
+  # File > Open goes through the portal, so no filesystem permission is needed.
+  # A path handed to the app on the command line or by a file manager is the
+  # other direction: the `@@ %f @@` markers in the desktop Exec line are what
+  # make flatpak forward those files into the sandbox. --file-forwarding is not
+  # a build-finish option and belongs nowhere in this list.
+  # The screen recorder is not implemented yet. When it lands it needs
+  # --socket=pipewire and the ScreenCast portal, not a capture permission.
+
+modules:
+  # The GNOME runtime ships the libav* libraries but not the ffmpeg and ffprobe
+  # programs, and this app drives them as subprocesses (src/pipeline/video.rs).
+  # Only the two binaries are installed - no libraries, so nothing here shadows
+  # the runtime's own libav*. No external codec libraries are enabled either,
+  # which keeps this off ffmpeg's GPL-only components; the built-in H.264, VP9
+  # and AV1 decoders are what import actually uses.
+  - name: ffmpeg
+    buildsystem: simple
+    build-commands:
+      - ./configure --prefix=/app --disable-doc --disable-debug --disable-ffplay
+      - make -j$FLATPAK_BUILDER_N_JOBS ffmpeg ffprobe
+      - install -Dm755 ffmpeg /app/bin/ffmpeg
+      - install -Dm755 ffprobe /app/bin/ffprobe
+    sources:
+      - type: archive
+        url: https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz
+        sha256: 464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c
+
+  # Optional at runtime: without it, export skips the -O3 pass and still writes
+  # a valid GIF (src/pipeline/caps.rs). It costs seconds to build, so ship it.
+  - name: gifsicle
+    config-opts:
+      - --disable-gifview
+      - --disable-gifdiff
+    sources:
+      - type: archive
+        url: https://www.lcdf.org/gifsicle/gifsicle-1.96.tar.gz
+        sha256: fd23d279681a6dfe3c15264e33f344045b3ba473da4d19f49e67a50994b077fb
+
+  - name: gif-editor
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/rust-stable/bin
+      env:
+        CARGO_HOME: /run/build/gif-editor/cargo
+      # ponytail: cargo fetches crates during the build instead of the manifest
+      # listing every crate as a source. A store that builds offline (Flathub)
+      # would refuse this; generating cargo-sources.json from Cargo.lock with
+      # flatpak-builder-tools is the fix if that day comes.
+      build-args:
+        - --share=network
+    build-commands:
+      - cargo build --release
+      - install -Dm755 target/release/gif-editor /app/bin/gif-editor
+      - install -Dm644 xdg/$FLATPAK_ID.desktop -t /app/share/applications/
+      - install -Dm644 xdg/$FLATPAK_ID.metainfo.xml -t /app/share/metainfo/
+      - install -Dm644 xdg/$FLATPAK_ID.svg -t /app/share/icons/hicolor/scalable/apps/
+      # i18n.rs looks here for the catalogs; they are read as .po, not compiled.
+      - install -Dm644 po/*.po -t /app/share/gif-editor/po/
+    sources:
+      # Builds whatever is checked out. For a release build from a tag, swap in
+      # `type: git` with `url:` and `tag:`.
+      - type: dir
+        path: .
+        skip:
+          - target
+          - .flatpak-builder
+          - .git
+          - docs-private
+          - references

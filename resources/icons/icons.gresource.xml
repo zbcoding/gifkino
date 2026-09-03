@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gresources>
+  <gresource prefix="/io/github/zbcoding/GifEditor/icons">
+    <file preprocess="xml-stripblanks">scalable/actions/tool-text-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">scalable/actions/tool-rect-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">scalable/actions/tool-ellipse-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">scalable/actions/tool-arrow-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">scalable/actions/tool-crop-symbolic.svg</file>
+  </gresource>
+</gresources>

@@ -10,9 +10,21 @@ use image::RgbaImage;
 
 pub type Rgba8 = [u8; 4];
 
-/// Width of the filmstrip thumbnail. Lives here because the thumbnail is built
-/// where the frame is, off the main thread.
-pub const THUMB_W: u32 = 72;
+/// The filmstrip thumbnail is scaled to fit inside a box this many pixels on
+/// a side. A box rather than a fixed width, because a portrait frame at a
+/// fixed 72px wide comes out 128px tall: a strip of those is half the height
+/// of the window, and the frame numbers under them are the first thing to be
+/// cut off. Lives here because the thumbnail is built where the frame is,
+/// off the main thread.
+pub const THUMB_BOX: u32 = 72;
+
+/// The thumbnail a `w`×`h` frame gets: fitted to `THUMB_BOX` on its long
+/// side, aspect preserved, at least one pixel each way.
+pub fn thumb_size(w: u32, h: u32) -> (u32, u32) {
+    let scale = THUMB_BOX as f32 / w.max(h).max(1) as f32;
+    let side = |px: u32| (px as f32 * scale).round().max(1.0) as u32;
+    (side(w), side(h))
+}
 
 static NEXT_KEY: AtomicU64 = AtomicU64::new(0);
 
@@ -38,12 +50,10 @@ pub struct Frame {
 impl Frame {
     pub fn new(pixels: RgbaImage, delay_cs: u16) -> Self {
         let (w, h) = pixels.dimensions();
-        let thumb_h = (THUMB_W as f32 * h as f32 / w.max(1) as f32)
-            .round()
-            .max(1.0) as u32;
+        let (thumb_w, thumb_h) = thumb_size(w, h);
         let thumb = image::imageops::resize(
             &pixels,
-            THUMB_W,
+            thumb_w,
             thumb_h,
             image::imageops::FilterType::Triangle,
         );
@@ -333,6 +343,39 @@ impl Document {
         id
     }
 
+    /// Add the same overlay across `frames`, split into one piece per
+    /// contiguous run. `add_overlay` alone always takes a single `Range`, so
+    /// a gappy selection — Ctrl+click picks frames 2, 5 and 7 — would have to
+    /// widen to 2..8 to fit it, silently landing on frames 3, 4 and 6 that
+    /// were never picked. `frames` must already be sorted and deduplicated,
+    /// the same contract `Scope::resolve` returns.
+    pub fn add_overlay_over(
+        &mut self,
+        name: impl Into<String>,
+        kind: OverlayKind,
+        transform: Transform,
+        frames: &[usize],
+    ) -> Vec<OverlayId> {
+        let name = name.into();
+        let mut ids = Vec::new();
+        let mut iter = frames.iter().copied();
+        let Some(mut start) = iter.next() else {
+            return ids;
+        };
+        let mut end = start + 1;
+        for f in iter {
+            if f == end {
+                end = f + 1;
+                continue;
+            }
+            ids.push(self.add_overlay(name.clone(), kind.clone(), transform, start..end));
+            start = f;
+            end = f + 1;
+        }
+        ids.push(self.add_overlay(name, kind, transform, start..end));
+        ids
+    }
+
     pub fn remove_overlay(&mut self, id: OverlayId) -> Option<Overlay> {
         let i = self.overlays.iter().position(|o| o.id == id)?;
         Some(self.overlays.remove(i))
@@ -422,18 +465,24 @@ mod tests {
 
     /// Regression: the thumbnail and the opacity flag are built once, where the
     /// frame is decoded. Recomputing either per view update froze the UI for
-    /// seconds on a few hundred frames.
+    /// seconds on a few hundred frames. The thumbnail fits a square box on
+    /// whichever side is longer, so a portrait frame's thumbnail is no taller
+    /// than a landscape one's is wide — the filmstrip is as tall either way.
     #[test]
     fn a_frame_caches_its_thumbnail_and_its_opacity() {
         let opaque = Frame::new(RgbaImage::from_pixel(1920, 1080, Rgba([9, 9, 9, 255])), 4);
-        assert_eq!(opaque.thumb.width(), THUMB_W);
-        let want = THUMB_W as f32 * 1080.0 / 1920.0;
+        assert_eq!(opaque.thumb.width(), THUMB_BOX);
+        let want = THUMB_BOX as f32 * 1080.0 / 1920.0;
         assert!(
             (opaque.thumb.height() as f32 - want).abs() <= 0.5,
             "aspect preserved: {} vs {want}",
             opaque.thumb.height()
         );
         assert!(opaque.opaque);
+
+        let portrait = Frame::new(RgbaImage::from_pixel(270, 480, Rgba([9, 9, 9, 255])), 4);
+        assert_eq!(portrait.thumb.height(), THUMB_BOX, "boxed, not widened");
+        assert_eq!(portrait.thumb.width(), 41, "270/480 of the box, rounded");
 
         let holed = Frame::new(RgbaImage::from_pixel(64, 64, Rgba([9, 9, 9, 200])), 4);
         assert!(!holed.opaque);
@@ -489,6 +538,48 @@ mod tests {
         );
         assert_eq!(picked.span(0, n), 2..8);
         assert_eq!(Scope::Frames(Vec::new()).span(0, n), 0..0);
+    }
+
+    /// The exact bug report: Ctrl+click picks frames 2, 5 and 7, and the
+    /// overlay must land only on those — not widen to cover 3, 4 and 6 too,
+    /// the way a single `Range`-based overlay would have to.
+    #[test]
+    fn add_overlay_over_a_gappy_selection_skips_the_gaps() {
+        let mut doc = blank(4, 4, 10);
+        let kind = OverlayKind::Shape(ShapeOverlay {
+            shape: Shape::Rect,
+            fill: Some([1, 2, 3, 255]),
+            stroke: None,
+        });
+        let frames = Scope::Frames(vec![2, 5, 7]).resolve(0, doc.frames.len());
+        let ids = doc.add_overlay_over("cap", kind, Transform::at(0., 0., 1., 1.), &frames);
+
+        assert_eq!(ids.len(), 3, "three separate, non-adjacent runs");
+        for frame in [2, 5, 7] {
+            assert_eq!(doc.overlays_on(frame).count(), 1, "frame {frame} is picked");
+        }
+        for frame in [0, 1, 3, 4, 6, 8, 9] {
+            assert_eq!(
+                doc.overlays_on(frame).count(),
+                0,
+                "frame {frame} was never picked"
+            );
+        }
+    }
+
+    /// A contiguous selection still comes out as the one overlay it always
+    /// did — the split only happens where the picked frames actually gap.
+    #[test]
+    fn add_overlay_over_a_contiguous_selection_stays_one_overlay() {
+        let mut doc = blank(4, 4, 10);
+        let kind = OverlayKind::Shape(ShapeOverlay {
+            shape: Shape::Rect,
+            fill: Some([1, 2, 3, 255]),
+            stroke: None,
+        });
+        let ids = doc.add_overlay_over("cap", kind, Transform::at(0., 0., 1., 1.), &[2, 3, 4]);
+        assert_eq!(ids.len(), 1);
+        assert_eq!(doc.overlay(ids[0]).unwrap().range, 2..5);
     }
 
     #[test]

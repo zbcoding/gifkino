@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.zbcoding.GifEditor</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+
+  <name>GIF Editor</name>
+  <summary>Edit animated GIFs along the time axis</summary>
+
+  <description>
+    <p>
+      A GIF editor for Linux built on one idea: an edit knows which frames it
+      applies to. Add a caption once and it spans the range you chose, instead
+      of being retyped on every frame it should cover.
+    </p>
+    <p>
+      Open an existing GIF or import a video, work on the frame list, then
+      export an optimized GIF.
+    </p>
+    <ul>
+      <li>Text, shape and image overlays scoped to a range of frames</li>
+      <li>Crop, resize, rotate and flip, applied across the whole animation</li>
+      <li>Frame list editing: reorder, duplicate, delete, retime</li>
+      <li>A timeline that zooms, with overlay bands showing what covers what</li>
+      <li>Undo and redo over every edit, including scoped overlay changes</li>
+      <li>Video import through ffmpeg, with a frame budget you set before decoding</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">io.github.zbcoding.GifEditor.desktop</launchable>
+  <provides>
+    <binary>gif-editor</binary>
+  </provides>
+
+  <developer id="io.github.zbcoding">
+    <name>zbcoding</name>
+  </developer>
+
+  <url type="homepage">https://github.com/zbcoding/gif-editor</url>
+  <url type="bugtracker">https://github.com/zbcoding/gif-editor/issues</url>
+  <url type="vcs-browser">https://github.com/zbcoding/gif-editor</url>
+
+  <!-- No <screenshots>: a software centre shows the entry without one, and a
+       block pointing at an image that is not published yet only makes
+       appstreamcli fail validation. Add one if this ever goes to a store. -->
+
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <recommends>
+    <display_length compare="ge">1024</display_length>
+  </recommends>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="0.1.0" date="2026-09-03">
+      <description>
+        <p>First release.</p>
+      </description>
+    </release>
+  </releases>
+</component>

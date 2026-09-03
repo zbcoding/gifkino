@@ -1,0 +1,155 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+env:
+  APP_ID: io.github.zbcoding.GifEditor
+  # GNOME 50 gives GTK 4.20, well above the 4.14 the bindings are gated at. The
+  # extension branch has to match the runtime's freedesktop base.
+  RUNTIME_VERSION: '50'
+  RUST_EXT_VERSION: '25.08'
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install GTK development packages
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libgtk-4-dev libadwaita-1-dev ffmpeg gifsicle
+    - uses: dtolnay/rust-toolchain@stable
+    - run: cargo fmt --check
+    # No clippy gate: the tree has one explicit_counter_loop warning in
+    # core/ops.rs. Fix that and add `cargo clippy --all-targets -- -D warnings`.
+    # The video tests generate clips with lavfi and skip themselves when ffmpeg
+    # is missing, which is why it is installed above.
+    - run: cargo test
+
+  appimage:
+    # Cargo.toml gates the bindings at GTK 4.14 / libadwaita 1.5, which is what
+    # noble ships. Building here puts the glibc floor at 2.39, so the image runs
+    # on Ubuntu 24.04 and everything newer. A later runner would raise that floor
+    # and buy nothing.
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    env:
+      APPIMAGE_EXTRACT_AND_RUN: 1   # the runners have no FUSE
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install GTK runtime, helper programs and packaging dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libgtk-4-dev libadwaita-1-dev \
+          gsettings-desktop-schemas adwaita-icon-theme librsvg2-common \
+          librsvg2-bin webp-pixbuf-loader libgdk-pixbuf-2.0-0 \
+          libgdk-pixbuf2.0-bin ffmpeg gifsicle xvfb
+    - uses: dtolnay/rust-toolchain@stable
+    - name: Build AppImage
+      run: scripts/build-appimage.sh
+
+    # The image builds even when the bundle is broken; only running it catches a
+    # missing library or a bad AppRun.
+    - name: Smoke-test the AppImage
+      run: |
+        ./GifEditor-x86_64.AppImage --appimage-extract >/dev/null
+        squashfs-root/usr/bin/ffmpeg -version | head -1
+        test -f squashfs-root/usr/share/gif-editor/po/de.po
+        set +e
+        xvfb-run --auto-servernum timeout 25 ./GifEditor-x86_64.AppImage
+        code=$?
+        set -e
+        case $code in
+          124) echo "stayed up until the timeout" ;;
+          0)   echo "exited cleanly" ;;
+          *)   echo "::error::AppImage exited $code on startup"; exit 1 ;;
+        esac
+    - uses: actions/upload-artifact@v4
+      with:
+        name: GifEditor-x86_64.AppImage
+        path: GifEditor-x86_64.AppImage
+        if-no-files-found: error
+
+  flatpak:
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install flatpak-builder
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y flatpak flatpak-builder
+        flatpak remote-add --user --if-not-exists flathub \
+          https://dl.flathub.org/repo/flathub.flatpakrepo
+        flatpak install --user -y --noninteractive flathub \
+          org.gnome.Platform//${RUNTIME_VERSION} \
+          org.gnome.Sdk//${RUNTIME_VERSION} \
+          org.freedesktop.Sdk.Extension.rust-stable//${RUST_EXT_VERSION}
+    # ffmpeg is a ten-minute compile that changes only when the manifest pins a
+    # new tarball, so the module cache is worth carrying between runs.
+    - uses: actions/cache@v4
+      with:
+        path: .flatpak-builder
+        key: flatpak-builder-${{ hashFiles('io.github.zbcoding.GifEditor.yml') }}
+        restore-keys: flatpak-builder-
+    - name: Build
+      run: |
+        flatpak-builder --user --repo=repo --force-clean \
+          build-dir "$APP_ID.yml"
+        flatpak build-bundle repo "GifEditor.flatpak" "$APP_ID" \
+          --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo
+
+    # No display needed for either of these, and both catch a bundle that built
+    # but shipped nothing useful.
+    - name: Check the bundled helpers and catalogs
+      run: |
+        flatpak install --user -y --noninteractive --bundle GifEditor.flatpak
+        flatpak run --command=ffmpeg "$APP_ID" -version | head -1
+        flatpak run --command=ffprobe "$APP_ID" -version | head -1
+        flatpak run --command=gifsicle "$APP_ID" --version | head -1
+        flatpak run --command=ls "$APP_ID" /app/share/gif-editor/po
+    - uses: actions/upload-artifact@v4
+      with:
+        name: GifEditor.flatpak
+        path: GifEditor.flatpak
+        if-no-files-found: error
+
+  release:
+    needs: [appimage, flatpak]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/download-artifact@v4
+      with:
+        merge-multiple: true
+    # The asset list alone does not say which one a given machine can run, so
+    # the notes say it instead.
+    - name: Publish
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        cat > notes.md <<'EOF'
+        ## Downloads
+
+        - **Flatpak** (`GifEditor.flatpak`) — carries its own GTK and the ffmpeg,
+          ffprobe and gifsicle programs the editor drives, so it runs anywhere
+          flatpak does, Ubuntu 22.04 included. Install with
+          `flatpak install --bundle GifEditor.flatpak`.
+        - **AppImage** (`GifEditor-x86_64.AppImage`) — built against glibc 2.39,
+          so it needs Ubuntu 24.04, Debian 13, Fedora 40 or newer. Bundles the
+          same helper programs. `chmod +x` it and run it.
+        EOF
+        gh release create "${GITHUB_REF_NAME}" \
+          --repo "${GITHUB_REPOSITORY}" \
+          --title "${GITHUB_REF_NAME}" \
+          --notes-file notes.md \
+          GifEditor-x86_64.AppImage GifEditor.flatpak

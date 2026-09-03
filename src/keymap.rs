@@ -33,14 +33,20 @@ pub enum Action {
     ToolCrop,
     FrameDelete,
     FrameDuplicate,
+    FrameCut,
+    FrameCopy,
+    FramePaste,
     FrameReverse,
     ZoomToSelection,
+    StripZoomIn,
+    StripZoomOut,
+    StripZoomReset,
 }
 
 use Action::*;
 
 /// Order is the order the shortcuts window lists them in.
-pub const ACTIONS: [Action; 17] = [
+pub const ACTIONS: [Action; 23] = [
     Open,
     Export,
     Undo,
@@ -56,8 +62,14 @@ pub const ACTIONS: [Action; 17] = [
     ToolCrop,
     FrameDelete,
     FrameDuplicate,
+    FrameCut,
+    FrameCopy,
+    FramePaste,
     FrameReverse,
     ZoomToSelection,
+    StripZoomIn,
+    StripZoomOut,
+    StripZoomReset,
 ];
 
 impl Action {
@@ -79,8 +91,14 @@ impl Action {
             ToolCrop => "tool-crop",
             FrameDelete => "frame-delete",
             FrameDuplicate => "frame-duplicate",
+            FrameCut => "frame-cut",
+            FrameCopy => "frame-copy",
+            FramePaste => "frame-paste",
             FrameReverse => "frame-reverse",
             ZoomToSelection => "zoom-to-selection",
+            StripZoomIn => "strip-zoom-in",
+            StripZoomOut => "strip-zoom-out",
+            StripZoomReset => "strip-zoom-reset",
         }
     }
 
@@ -102,9 +120,18 @@ impl Action {
             ToolCrop => n("Crop tool"),
             FrameDelete => n("Delete frames"),
             FrameDuplicate => n("Duplicate frames"),
+            FrameCut => n("Cut frames"),
+            FrameCopy => n("Copy frames"),
+            // Translators: Inserts the cut or copied frames after the frame on screen.
+            FramePaste => n("Paste frames"),
             FrameReverse => n("Reverse frames"),
-            // Translators: Fills the canvas from the crop box, on the frames in scope.
-            ZoomToSelection => n("Zoom to selection"),
+            // Translators: Fills the canvas from the crop box, on the frame on screen.
+            ZoomToSelection => n("Zoom this frame"),
+            // Translators: Makes the frame thumbnails in the timeline strip larger.
+            StripZoomIn => n("Zoom in the frame strip"),
+            // Translators: Makes the frame thumbnails in the timeline strip smaller.
+            StripZoomOut => n("Zoom out the frame strip"),
+            StripZoomReset => n("Reset the frame strip zoom"),
         }
     }
 
@@ -114,6 +141,8 @@ impl Action {
             Undo | Redo | Delete | SelectAll | ShowShortcuts | PlayPause => n("Edit"),
             ToolText | ToolRect | ToolEllipse | ToolArrow | ToolCrop => n("Tools"),
             FrameDelete | FrameDuplicate | FrameReverse | ZoomToSelection => n("Frames"),
+            FrameCut | FrameCopy | FramePaste => n("Frames"),
+            StripZoomIn | StripZoomOut | StripZoomReset => n("Frames"),
         }
     }
 
@@ -371,8 +400,14 @@ impl Default for Keymap {
         set(ToolCrop, &["C"]);
         set(FrameDelete, &[]);
         set(FrameDuplicate, &["Ctrl+D"]);
+        set(FrameCut, &["Ctrl+X"]);
+        set(FrameCopy, &["Ctrl+C"]);
+        set(FramePaste, &["Ctrl+V"]);
         set(FrameReverse, &[]);
         set(ZoomToSelection, &[]);
+        set(StripZoomIn, &["Ctrl+Up", "Ctrl+plus", "Ctrl+equal"]);
+        set(StripZoomOut, &["Ctrl+Down", "Ctrl+minus"]);
+        set(StripZoomReset, &["Ctrl+0"]);
 
         // Impasto's transform tool: Alt rotates, Shift keeps the aspect ratio,
         // Ctrl resizes from the center.
@@ -584,6 +619,10 @@ mod tests {
         );
         assert_eq!(fires(false, false, "space"), vec![PlayPause]);
         assert_eq!(fires(false, false, "t"), vec![ToolText]);
+        // The clipboard keys everyone else uses, on frames.
+        assert_eq!(fires(true, false, "x"), vec![FrameCut]);
+        assert_eq!(fires(true, false, "c"), vec![FrameCopy]);
+        assert_eq!(fires(true, false, "v"), vec![FramePaste]);
         assert!(fires(false, false, "q").is_empty());
     }
 

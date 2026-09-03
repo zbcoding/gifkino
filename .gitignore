@@ -8,3 +8,14 @@
 /docs-private/
 
 *.env
+
+# Python bytecode from the scripts/ helpers
+__pycache__/
+
+# Packaging output
+/appimage-build/
+/.flatpak-builder/
+/build-dir/
+/repo/
+*.AppImage
+*.flatpak

@@ -21,7 +21,7 @@ use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt};
 
 use crate::core::render::{self, TextRasterizer};
 use crate::core::{
-    Document, Editor, Frame, OverlayId, OverlayKind, Scope, Shape, ShapeOverlay, TextAlign,
+    Change, Document, Editor, Frame, OverlayId, OverlayKind, Scope, Shape, ShapeOverlay, TextAlign,
     TextOverlay, Transform,
 };
 use crate::i18n::{fill, lookup, n, t, tn};
@@ -33,8 +33,16 @@ use crate::pipeline::{gif as gif_pipeline, import_any};
 use crate::settings::Settings;
 use crate::ui::text::rasterize;
 
-const THUMB_W: i32 = crate::core::model::THUMB_W as i32;
+/// The box a thumbnail is fitted into (`core::model::THUMB_BOX`) — the widest
+/// and tallest a strip cell can be at 1x, and the fallback cell width while
+/// there is no document to read a real thumbnail size off.
+const THUMB_BOX: i32 = crate::core::model::THUMB_BOX as i32;
 const THUMB_SPACING: i32 = 4;
+/// Timeline-strip thumbnail zoom bounds and the per-step multiplier shared by
+/// the Ctrl+wheel handler and the Ctrl+Up/Down shortcuts.
+const STRIP_ZOOM_MIN: f64 = 0.2;
+const STRIP_ZOOM_MAX: f64 = 3.0;
+const STRIP_ZOOM_STEP: f64 = 1.2;
 /// How long the settings have to sit still before a size measurement starts. A
 /// measurement spawns ffmpeg and encodes for real, so it waits for the user to
 /// stop moving rather than chasing every keystroke.
@@ -55,13 +63,22 @@ pub const CSS: &str = "
 .thumb.in-scope { border-top-color: alpha(@accent_bg_color, 0.55); }
 .thumb.playhead { border-top-color: @accent_bg_color; }
 .thumb.selected { background: alpha(@accent_bg_color, 0.18); }
+/* The drag-reorder divider: same accent as the playhead border, drawn as an
+   Overlay child of the thumbnail so it paints on top of the picture. */
+.drop-divider { background: @accent_bg_color; }
 .tnum { font-feature-settings: 'tnum'; }
 .bind-conflict { color: @error_color; }
 ";
 
 /// How many overlay rows the band area shows before it starts scrolling. Past
-/// this the list is taller than the thumbnails it annotates.
 const BANDS_COLLAPSED_ROWS: usize = 5;
+/// How many layers the sidebar's list shows before it starts scrolling, and
+/// how few it keeps showing when the panel runs out of room. Past the first
+/// the editor for the layer that is picked would be off the panel; below the
+/// second the list is too small to pick anything out of, and the panel
+/// around it scrolls instead.
+const LAYER_ROWS_SHOWN: usize = 6;
+const LAYER_ROWS_KEPT: usize = 3;
 /// Grab radius for a resize handle, in widget pixels. Impasto inflates its
 /// 4.5px grip by a 5px tolerance for the same reason: the dot is smaller than
 /// anyone can reliably hit.
@@ -76,6 +93,21 @@ const ROTATE_STEPS: f32 = 32.0;
 /// Impasto's rotate glyph (`resources/README.md`). GTK has no CSS cursor name
 /// for rotation, so it travels as a texture rather than a name.
 const ROTATE_CURSOR: &[u8] = include_bytes!("../../resources/rotate-handle.png");
+/// Left-rail tool icons (`resources/README.md`), compiled ahead of time with
+/// `glib-compile-resources` rather than in a build script.
+const TOOL_ICONS_GRESOURCE: &[u8] = include_bytes!("../../resources/icons/icons.gresource");
+
+/// Registers the bundled tool-icon gresource with the default display's icon
+/// theme, so `gtk::Button::from_icon_name("tool-text-symbolic")` etc. resolve
+/// like a stock Adwaita icon (recolored for theme/hover/insensitive state).
+/// Called once from `App::init`, before any tool button is built.
+fn register_tool_icons() {
+    let bytes = glib::Bytes::from_static(TOOL_ICONS_GRESOURCE);
+    let resource = gio::Resource::from_data(&bytes).expect("icons.gresource is well-formed");
+    gio::resources_register(&resource);
+    let display = gdk::Display::default().expect("a default display");
+    gtk::IconTheme::for_display(&display).add_resource_path("/io/github/zbcoding/GifEditor/icons");
+}
 
 #[derive(Debug)]
 pub enum Msg {
@@ -96,18 +128,54 @@ pub enum Msg {
     TogglePlay,
     Tick,
     Seek(usize),
+    /// Right-click on a frame already inside the active selection: navigate
+    /// to it without throwing the selection away, which a plain `Seek`
+    /// (navigation *is* picking one frame) would do.
+    SeekKeepSelection(usize),
     ExtendSelection(usize),
     SetScope(ScopeChoice),
     AddOverlay(Tool),
     SelectOverlay(Option<OverlayId>),
     FrameOp(FrameOp),
-    /// A frame's own context menu acts on that frame, not on the scope.
-    FrameOpAt(usize, FrameOp),
-    SetFrameDelay(usize, u16),
+    /// Put the frames in scope on the app's frame clipboard, changing
+    /// nothing. Cutting is `FrameOp::Cut`, which copies and then deletes.
+    FrameCopy,
+    /// Splice the frame clipboard in after the frame on screen.
+    FramePaste,
+    /// Nudge every frame in scope one slot toward the start or the end,
+    /// swapping the block with the one unselected frame beside it.
+    MoveSelection {
+        earlier: bool,
+    },
+    /// A drag-and-drop landing: `from` is the frame the drag started on, and
+    /// `gap` is the divider position it was released at. The model widens
+    /// `from` to the whole selection when it was dragged from inside one.
+    MoveSelectionTo {
+        from: usize,
+        gap: usize,
+    },
+    /// The sidebar's delay spin button and the frame context menu's
+    /// "Set delay…": applies to every frame the current scope names (just
+    /// the playhead, for `ThisFrame`).
+    SetScopeDelay(u16),
+    /// Open the "set delay for all frames" dialog. Needs the live frame count
+    /// and a default value, which only the model knows.
+    DelayAllDialog,
+    SetAllFramesDelay(u16),
     EditText(String),
     /// Every overlay property the sidebar can change, in one message: they all
     /// do the same thing to history and the view.
     SetOverlayProp(OverlayProp),
+    /// Delete one named overlay — the X on its row in the layer list, which
+    /// acts on the row it sits on rather than on whatever is selected.
+    DeleteOverlay(OverlayId),
+    /// Move one overlay a step up or down the z-order, past the overlay
+    /// shown next to it in the layer list. `up` is toward the top of that
+    /// list, which is the overlay painted last.
+    RestackOverlay {
+        id: OverlayId,
+        up: bool,
+    },
     DeleteSelection,
     SelectAllFrames,
     /// Ctrl+click: add or remove this one frame, wherever it is.
@@ -129,18 +197,49 @@ pub enum Msg {
     },
     CanvasRelease,
     ToggleCropTool,
+    /// Esc: leave the crop tool if it is on, otherwise drop the overlay
+    /// selection so the sidebar falls back to the plain frame view.
+    Escape,
     ApplyCrop,
+    /// Fill the canvas from the crop box on the frame on screen only.
     ApplyZoom,
+    /// Fill the canvas from the crop box on every frame in the document.
+    ApplyZoomAll,
     /// Open the crop-all dialog. The dialog needs the live canvas size, which
     /// only the model knows — action closures do not.
     CropAllDialog,
     /// Crop every frame to this box, the four dialog fields in pixels.
     CropAll(u32, u32, u32, u32),
+    /// Keep the crop box and blank everything outside it, on every frame in
+    /// scope. Unlike `ApplyZoom` the kept region is not scaled back up.
+    ApplyShrink,
     DropEveryNth(usize),
     SmartDrop(usize),
     Resize(u32, u32),
+    /// A frame's own context menu: splice a decoded image in right after it.
+    InsertImageFrame(usize, PathBuf),
+    /// A still image chosen from "Add frames from file": decode it and append
+    /// one frame, fitted to the canvas. Videos and animations take the async
+    /// `LoadAppend` path instead.
+    AppendImageFrame(PathBuf),
+    /// Pick another clip or image from "Add frames from file".
+    ImportMore,
+    /// Like `Load`, but appends the decoded frames instead of replacing the
+    /// document — `import_append` carries the mode across the async decode.
+    LoadAppend(PathBuf),
+    /// Reorder: pull the frame at `.0` out and reinsert it at `.1`.
+    MoveFrame(usize, usize),
+    /// A frame's own context menu: ask where to move it.
+    MoveFrameDialog(usize),
     SetKeymap(Box<Keymap>),
+    /// An edit landed: the toast offers Undo.
     Toast(String),
+    /// Feedback for something that changed nothing undoable, so its toast
+    /// carries no Undo button. See `update_with_view`.
+    Notice(String),
+    /// Scale the timeline strip's thumbnails. `.0` multiplies the current zoom;
+    /// `0.0` is the reset sentinel back to 1×.
+    StripZoom(f64),
 }
 
 impl Msg {
@@ -154,25 +253,42 @@ impl Msg {
             self,
             Msg::Load(_)
                 | Msg::LoadConfirmed(_, _)
+                | Msg::LoadAppend(_)
                 | Msg::Undo
                 | Msg::Redo
                 | Msg::DeleteSelection
                 | Msg::FrameOp(_)
-                | Msg::FrameOpAt(_, _)
-                | Msg::SetFrameDelay(_, _)
+                | Msg::FramePaste
+                | Msg::MoveSelection { .. }
+                | Msg::MoveSelectionTo { .. }
+                | Msg::SetScopeDelay(_)
+                | Msg::SetAllFramesDelay(_)
                 | Msg::ApplyCrop
                 | Msg::CropAll(_, _, _, _)
                 | Msg::ApplyZoom
+                | Msg::ApplyZoomAll
+                | Msg::ApplyShrink
                 | Msg::DropEveryNth(_)
                 | Msg::SmartDrop(_)
                 | Msg::Resize(_, _)
+                | Msg::InsertImageFrame(_, _)
+                | Msg::AppendImageFrame(_)
+                | Msg::MoveFrame(_, _)
         )
     }
 
     /// Operations whose result would be stale or whose follow-up message would
     /// be discarded while an import, resize, or zoom owns the document.
     fn requires_idle(&self) -> bool {
-        self.changes_frames() || matches!(self, Msg::Open | Msg::Export | Msg::CropAllDialog)
+        self.changes_frames()
+            || matches!(
+                self,
+                Msg::Open
+                    | Msg::Export
+                    | Msg::CropAllDialog
+                    | Msg::DelayAllDialog
+                    | Msg::ImportMore
+            )
     }
 
     fn edits_document(&self) -> bool {
@@ -182,8 +298,13 @@ impl Msg {
                 | Msg::Redo
                 | Msg::AddOverlay(_)
                 | Msg::FrameOp(_)
-                | Msg::FrameOpAt(_, _)
-                | Msg::SetFrameDelay(_, _)
+                | Msg::FramePaste
+                | Msg::DeleteOverlay(_)
+                | Msg::RestackOverlay { .. }
+                | Msg::MoveSelection { .. }
+                | Msg::MoveSelectionTo { .. }
+                | Msg::SetScopeDelay(_)
+                | Msg::SetAllFramesDelay(_)
                 | Msg::EditText(_)
                 | Msg::SetOverlayProp(_)
                 | Msg::DeleteSelection
@@ -193,10 +314,15 @@ impl Msg {
                 | Msg::ToggleCropTool
                 | Msg::ApplyCrop
                 | Msg::ApplyZoom
+                | Msg::ApplyZoomAll
+                | Msg::ApplyShrink
                 | Msg::CropAll(_, _, _, _)
                 | Msg::DropEveryNth(_)
                 | Msg::SmartDrop(_)
                 | Msg::Resize(_, _)
+                | Msg::InsertImageFrame(_, _)
+                | Msg::AppendImageFrame(_)
+                | Msg::MoveFrame(_, _)
         )
     }
 }
@@ -246,6 +372,8 @@ pub enum FrameOp {
     Delete,
     Duplicate,
     Reverse,
+    /// Delete, but onto the frame clipboard first.
+    Cut,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -284,18 +412,20 @@ fn scale_in_flight_canvas(
     crop_rect: &mut Option<(f32, f32, f32, f32)>,
     fx: f32,
     fy: f32,
+    dx: f32,
+    dy: f32,
 ) {
-    if (fx, fy) == (1.0, 1.0) {
+    if (fx, fy) == (1.0, 1.0) && (dx, dy) == (0.0, 0.0) {
         return;
     }
     if let Some((x, y, w, h)) = crop_rect {
-        (*x, *y, *w, *h) = (*x * fx, *y * fy, *w * fx, *h * fy);
+        (*x, *y, *w, *h) = (*x * fx - dx, *y * fy - dy, *w * fx, *h * fy);
     }
     if let Some(drag) = drag {
-        drag.from = (drag.from.0 * fx, drag.from.1 * fy);
+        drag.from = (drag.from.0 * fx - dx, drag.from.1 * fy - dy);
         for transform in [&mut drag.origin, &mut drag.current] {
-            transform.x *= fx;
-            transform.y *= fy;
+            transform.x = transform.x * fx - dx;
+            transform.y = transform.y * fy - dy;
             transform.w *= fx;
             transform.h *= fy;
         }
@@ -322,6 +452,8 @@ enum BusyKind {
     Import,
     Resize,
     Zoom,
+    Shrink,
+    Crop,
 }
 
 /// A frame-heavy operation the worker thread runs against the document as it
@@ -333,6 +465,13 @@ enum FrameWork {
         frames: Vec<usize>,
         rect: (u32, u32, u32, u32),
     },
+    Shrink {
+        frames: Vec<usize>,
+        rect: (u32, u32, u32, u32),
+    },
+    Crop {
+        rect: (u32, u32, u32, u32),
+    },
 }
 
 impl FrameWork {
@@ -341,14 +480,20 @@ impl FrameWork {
         match self {
             FrameWork::Resize(..) => n("Resized"),
             FrameWork::Zoom { .. } => n("Zoomed"),
+            // Translators: Past-tense edit name for cropping a frame in
+            // place, without scaling the kept region back up to the canvas
+            // size. "{change} on {count} frames" is appended when the scope
+            // is more than one frame.
+            FrameWork::Shrink { .. } => n("Cropped"),
+            FrameWork::Crop { .. } => n("Cropped"),
         }
     }
 
     /// How many frames the edit will claim.
     fn touched(&self, doc: &Document) -> usize {
         match self {
-            FrameWork::Resize(..) => doc.frames.len(),
-            FrameWork::Zoom { frames, .. } => frames.len(),
+            FrameWork::Resize(..) | FrameWork::Crop { .. } => doc.frames.len(),
+            FrameWork::Zoom { frames, .. } | FrameWork::Shrink { frames, .. } => frames.len(),
         }
     }
 
@@ -360,7 +505,19 @@ impl FrameWork {
                 let (cw, ch) = doc.size();
                 (*w as f32 / cw.max(1) as f32, *h as f32 / ch.max(1) as f32)
             }
-            FrameWork::Zoom { .. } => (1.0, 1.0),
+            FrameWork::Zoom { .. } | FrameWork::Shrink { .. } | FrameWork::Crop { .. } => {
+                (1.0, 1.0)
+            }
+        }
+    }
+
+    /// How overlays move when the work lands, on top of any scale. Only a
+    /// crop moves the origin — the frame it kept starts somewhere other than
+    /// `(0, 0)`, so every overlay has to follow it there.
+    fn shift(&self) -> (f32, f32) {
+        match self {
+            FrameWork::Crop { rect: (x, y, _, _) } => (*x as f32, *y as f32),
+            _ => (0.0, 0.0),
         }
     }
 }
@@ -372,6 +529,7 @@ pub struct WorkDone {
     label: &'static str,
     frames_touched: usize,
     scale: (f32, f32),
+    shift: (f32, f32),
     frames: Vec<(usize, Frame)>,
 }
 
@@ -436,7 +594,27 @@ pub struct App {
     /// on `rev` because `rev` also moves for overlay edits, and rebuilding a
     /// few hundred thumbnails on every keystroke in the text entry is a freeze.
     strip_keys: RefCell<Vec<(u64, bool)>>,
+    /// Timeline-strip thumbnail zoom.
+    strip_zoom: Rc<Cell<f64>>,
+    /// Distance from one strip cell to the next at the current zoom and
+    /// thumbnail size (`cell_pitch`), which is where the bands under the
+    /// strip put their per-frame columns. Shared with the bands
+    /// `DrawingArea`'s draw and click closures, which cannot borrow the
+    /// model; `update_view` keeps it current.
+    strip_pitch: Rc<Cell<f64>>,
+    /// Zoom the strip's pictures were last sized to, so `update_view` only walks
+    /// the thumbnails when it actually changed.
+    strip_zoom_shown: Cell<f64>,
     rev: u64,
+    /// Set right before a `Load`/`LoadAppend` starts and consumed when
+    /// `Cmd::Imported` lands: whether the decode should replace the document
+    /// or append its frames to the end of the current one.
+    import_append: bool,
+    /// Cut or copied frames, waiting for a paste. App-local rather than the
+    /// system clipboard: what a paste needs is the frame with its delay and
+    /// its cached thumbnail, and a GIF frame has no interchange format that
+    /// carries either.
+    clipboard: Vec<Frame>,
 }
 
 /// One row of the strip's layer list.
@@ -491,6 +669,32 @@ pub struct Widgets {
     properties: gtk::Box,
     text_entry: gtk::Entry,
     text_row: adw::ActionRow,
+    /// The "Properties" group holding `text_row`, hidden while the scope
+    /// names more than one frame — see `frame_group`.
+    text_group: adw::PreferencesGroup,
+    /// Titled "Frame" for a single frame in scope, or a "N frames selected"
+    /// summary once the scope names more than one.
+    frame_group: adw::PreferencesGroup,
+    frame_delay: gtk::SpinButton,
+    /// Carries the same summary as `frame_group`'s title, since a spin
+    /// button has no room for a heading of its own.
+    delay_row: adw::ActionRow,
+    overlay_list: gtk::ListBox,
+    /// Caps the layer list's height at `LAYER_ROWS_SHOWN` rows, so a
+    /// document with dozens of overlays scrolls the list rather than the
+    /// whole panel. See `update_view`.
+    overlay_list_scroll: gtk::ScrolledWindow,
+    overlay_list_group: adw::PreferencesGroup,
+    /// Overlay id for each `overlay_list` row, by position.
+    overlay_list_ids: Rc<RefCell<Vec<OverlayId>>>,
+    /// The frames the current scope names, mirrored for the strip's
+    /// right-click handler: it has to pick the single-frame or the
+    /// selection popover synchronously, before the model could answer.
+    scope_mirror: Rc<RefCell<Vec<usize>>>,
+    /// Each thumbnail's drag-reorder divider, in strip order, so the drop
+    /// target can show and hide them as the pointer moves. Rebuilt with the
+    /// strip; see `rebuild_strip`.
+    drop_dividers: Rc<RefCell<Vec<gtk::Widget>>>,
     text_rows: Vec<gtk::Widget>,
     shape_rows: Vec<gtk::Widget>,
     overlay_group: adw::PreferencesGroup,
@@ -509,7 +713,10 @@ pub struct Widgets {
     crop_button: gtk::ToggleButton,
     crop_apply: gtk::Button,
     zoom_apply: gtk::Button,
+    shrink_apply: gtk::Button,
     tool_buttons: Vec<(Tool, gtk::Button)>,
+    shape_button: adw::SplitButton,
+    shape_tool: Rc<Cell<Tool>>,
     bands_scroll: gtk::ScrolledWindow,
     bands_expander: gtk::Button,
     canvas_overlay: gtk::DrawingArea,
@@ -552,6 +759,66 @@ impl App {
 
     fn scope_frames(&self) -> Vec<usize> {
         self.scope().resolve(self.playhead, self.frame_count())
+    }
+
+    /// Overlays sitting on `frame`, in document order.
+    fn overlays_on(&self, frame: usize) -> Vec<OverlayId> {
+        self.editor
+            .doc
+            .overlays
+            .iter()
+            .filter(|o| o.range.contains(&frame))
+            .map(|o| o.id)
+            .collect()
+    }
+
+    /// The sidebar's layer list for the frame on screen: topmost overlay
+    /// first. `doc.overlays` is bottom-to-top — list order *is* z-order —
+    /// but a layer list reads the way the layers stack, so the row above
+    /// another names the overlay painted over it.
+    fn stacked_overlays(&self) -> Vec<(OverlayId, String)> {
+        self.editor
+            .doc
+            .overlays
+            .iter()
+            .rev()
+            .filter(|o| o.range.contains(&self.playhead))
+            .map(|o| (o.id, o.name.clone()))
+            .collect()
+    }
+
+    /// The overlay the sidebar edits: the selection, but only while it is on
+    /// the frame on screen. Off its frame the sidebar drops to the plain frame
+    /// view; returning to that frame brings the editor back.
+    fn editing_overlay(&self) -> Option<OverlayId> {
+        self.selected_overlay
+            .filter(|id| self.overlays_on(self.playhead).contains(id))
+    }
+
+    /// Frames a zoom touches. The panel's "Zoom and resize" follows the frame
+    /// scope (`all` false); the Image menu's "Zoom and resize all frames"
+    /// ignores it and takes the whole document (`all` true). Regression: the
+    /// panel button used to hardcode `vec![self.playhead]`.
+    fn zoom_frames(&self, all: bool) -> Vec<usize> {
+        if all {
+            (0..self.frame_count()).collect()
+        } else {
+            self.scope_frames()
+        }
+    }
+
+    /// The crop-and-keep-size work for a given box, or `None` if the box is
+    /// off canvas. Which frames it touches follows the scope exactly, the
+    /// same as `FrameOp` does: the frame on screen, a selection, or every
+    /// frame - never hardcoded to just the frame on screen the way `ApplyZoom`
+    /// intentionally is. Split out from the `Msg` handler so that contract has
+    /// a regression test that does not need a live sender.
+    fn shrink_work(&self, rect: (f32, f32, f32, f32)) -> Option<FrameWork> {
+        let rect = normalize_canvas_rect(self.editor.doc.size(), rect)?;
+        Some(FrameWork::Shrink {
+            frames: self.scope_frames(),
+            rect,
+        })
     }
 
     /// The contiguous range an overlay would take. A gappy selection widens.
@@ -619,6 +886,7 @@ impl Component for App {
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         relm4::set_global_css(CSS);
+        register_tool_icons();
 
         let model = App {
             editor: Editor::new(Document::default()),
@@ -640,7 +908,12 @@ impl Component for App {
             crop_rect: None,
             bands_expanded: false,
             strip_keys: RefCell::new(Vec::new()),
+            strip_zoom: Rc::new(Cell::new(1.0)),
+            strip_pitch: Rc::new(Cell::new(cell_pitch(THUMB_BOX, 1.0))),
+            strip_zoom_shown: Cell::new(1.0),
             rev: 0,
+            import_append: false,
+            clipboard: Vec::new(),
         };
 
         let widgets = build(&root, &model, &sender);
@@ -656,7 +929,7 @@ impl Component for App {
     fn update(&mut self, msg: Msg, sender: ComponentSender<Self>, root: &Self::Root) {
         let blocked = self.busy.as_ref().is_some_and(|busy| match busy.kind {
             BusyKind::Import => msg.requires_idle() || msg.edits_document(),
-            BusyKind::Resize | BusyKind::Zoom => {
+            BusyKind::Resize | BusyKind::Zoom | BusyKind::Shrink | BusyKind::Crop => {
                 msg.requires_idle()
                     && !(matches!(msg, Msg::DeleteSelection) && self.selected_overlay.is_some())
             }
@@ -683,6 +956,7 @@ impl Component for App {
                 });
             }
             Msg::Load(path) => {
+                self.import_append = false;
                 let cancel = Arc::new(AtomicBool::new(false));
                 self.busy = Some(Busy {
                     kind: BusyKind::Import,
@@ -691,6 +965,47 @@ impl Component for App {
                     cancel: Some(cancel.clone()),
                 });
                 plan_import(path, self.import_options(), cancel, &sender);
+            }
+            Msg::LoadAppend(path) => {
+                if self.frame_count() == 0 {
+                    // Nothing to append to: behave like a normal open.
+                    sender.input(Msg::Load(path));
+                    return;
+                }
+                self.import_append = true;
+                let cancel = Arc::new(AtomicBool::new(false));
+                self.busy = Some(Busy {
+                    kind: BusyKind::Import,
+                    done: 0,
+                    total: None,
+                    cancel: Some(cancel.clone()),
+                });
+                plan_import(path, self.import_options(), cancel, &sender);
+            }
+            Msg::ImportMore => {
+                let dialog = gtk::FileDialog::builder()
+                    .title(t("Add frames from a file"))
+                    .build();
+                let filter = gtk::FileFilter::new();
+                filter.set_name(Some(t("Images, videos and GIFs")));
+                filter.add_mime_type("image/*");
+                filter.add_mime_type("video/*");
+                let filters = gio::ListStore::new::<gtk::FileFilter>();
+                filters.append(&filter);
+                dialog.set_filters(Some(&filters));
+
+                let sender = sender.clone();
+                dialog.open(Some(root), gio::Cancellable::NONE, move |res| {
+                    if let Some(path) = res.ok().and_then(|f| f.path()) {
+                        // Still images splice in directly; anything that might
+                        // carry motion goes through the async import pipeline.
+                        sender.input(if is_still_image(&path) {
+                            Msg::AppendImageFrame(path)
+                        } else {
+                            Msg::LoadAppend(path)
+                        });
+                    }
+                });
             }
             Msg::LoadConfirmed(path, plan) => {
                 let cancel = Arc::new(AtomicBool::new(false));
@@ -833,7 +1148,10 @@ impl Component for App {
                 if self.frame_count() == 0 {
                     return;
                 }
-                let range = self.scope_span();
+                let frames = self.scope_frames();
+                if frames.is_empty() {
+                    return;
+                }
                 let (w, h) = self.editor.doc.size();
                 let (kind, name, transform) = match tool {
                     Tool::Text => (
@@ -874,19 +1192,28 @@ impl Component for App {
                         ),
                     ),
                 };
-                let touched = range.len();
+                let touched = frames.len();
                 let added = match tool {
                     Tool::Text => n("Text added"),
                     Tool::Rect => n("Rectangle added"),
                     Tool::Ellipse => n("Ellipse added"),
                     Tool::Arrow => n("Arrow added"),
                 };
-                let (change, id) = self.editor.edit(added, touched, |d| {
-                    d.add_overlay(name, kind, transform, range)
+                let (change, ids) = self.editor.edit(added, touched, |d| {
+                    d.add_overlay_over(name, kind, transform, &frames)
                 });
-                self.selected_overlay = Some(id);
+                self.selected_overlay = ids
+                    .iter()
+                    .copied()
+                    .find(|&id| {
+                        self.editor
+                            .doc
+                            .overlay(id)
+                            .is_some_and(|o| o.range.contains(&self.playhead))
+                    })
+                    .or(ids.first().copied());
                 self.after_edit();
-                sender.input(Msg::Toast(change.message()));
+                self.toast_if_document_wide(&sender, &change, self.frame_count());
             }
             Msg::SelectOverlay(id) => {
                 self.selected_overlay = id;
@@ -924,38 +1251,141 @@ impl Component for App {
             }
             Msg::DeleteSelection => {
                 if let Some(id) = self.selected_overlay.take() {
-                    let touched = self.editor.doc.overlay(id).map_or(0, |o| o.range.len());
-                    let (change, _) = self.editor.edit(n("Overlay deleted"), touched, |d| {
-                        d.remove_overlay(id);
-                    });
-                    self.after_edit();
-                    sender.input(Msg::Toast(change.message()));
+                    self.delete_overlay(id, &sender);
                 } else if !self.selection.is_empty() {
                     let frames = std::mem::take(&mut self.selection);
                     let touched = frames.len();
+                    let total = self.frame_count();
                     let (change, _) = self.editor.edit(n("Frames deleted"), touched, |d| {
                         d.delete_frames_at(&frames)
                     });
                     self.playhead = self.playhead.min(self.frame_count().saturating_sub(1));
                     self.scope = ScopeChoice::ThisFrame;
                     self.after_edit();
-                    sender.input(Msg::Toast(change.message()));
+                    self.toast_if_document_wide(&sender, &change, total);
+                }
+            }
+            Msg::DeleteOverlay(id) => {
+                self.delete_overlay(id, &sender);
+            }
+            Msg::RestackOverlay { id, up } => self.restack_overlay(id, up),
+            Msg::FrameCopy => {
+                let frames = self.scope_frames();
+                if frames.is_empty() {
+                    return;
+                }
+                self.copy_frames(&frames);
+                let copied = self.clipboard.len();
+                sender.input(Msg::Notice(fill(
+                    tn("{count} frame copied", "{count} frames copied", copied),
+                    &[("count", &copied.to_string())],
+                )));
+            }
+            Msg::FramePaste => {
+                let total = self.frame_count();
+                if let Some(change) = self.paste_frames() {
+                    self.toast_if_document_wide(&sender, &change, total);
                 }
             }
             Msg::FrameOp(op) => {
                 let frames = self.scope_frames();
                 self.run_frame_op(op, frames, &sender);
             }
-            Msg::FrameOpAt(i, op) => self.run_frame_op(op, vec![i], &sender),
-            Msg::SetFrameDelay(i, cs) => {
+            Msg::SeekKeepSelection(i) => {
+                self.playhead = i.min(self.frame_count().saturating_sub(1));
+            }
+            Msg::MoveSelection { earlier } => {
+                let picked = self.scope_frames();
+                let Some(gap) = selection_nudge_gap(&picked, earlier, self.frame_count()) else {
+                    return;
+                };
+                let to = move_target_for_set(&picked, gap);
+                if let Some(change) = self.move_picked(&picked, to) {
+                    self.toast_if_document_wide(&sender, &change, self.frame_count());
+                }
+            }
+            Msg::MoveSelectionTo { from, gap } => {
+                // A drag that started on a frame inside the active selection
+                // moves the whole selection; anywhere else it is a plain
+                // one-frame drag.
+                let multi = self.selection.len() > 1 && self.selection.contains(&from);
+                let picked: Vec<usize> = if multi {
+                    self.selection.clone()
+                } else {
+                    vec![from]
+                };
+                let to = move_target_for_set(&picked, gap);
+                if let Some(change) = self.move_picked(&picked, to) {
+                    self.toast_if_document_wide(&sender, &change, self.frame_count());
+                }
+            }
+            Msg::InsertImageFrame(index, path) => {
+                let delay = self.editor.doc.frames.get(index).map_or(10, |f| f.delay_cs);
+                let Some(frame) = self.decode_image_frame(&path, delay) else {
+                    sender.input(Msg::Toast(t("Could not read that image.").into()));
+                    return;
+                };
+                self.splice_frame((index + 1).min(self.frame_count()), frame, &sender);
+            }
+            Msg::AppendImageFrame(path) => {
+                let delay = self.editor.doc.frames.last().map_or(10, |f| f.delay_cs);
+                let Some(frame) = self.decode_image_frame(&path, delay) else {
+                    sender.input(Msg::Toast(t("Could not read that image.").into()));
+                    return;
+                };
+                self.splice_frame(self.frame_count(), frame, &sender);
+            }
+            Msg::MoveFrame(from, to) => {
+                let total = self.frame_count();
+                if from >= total || to >= total || from == to {
+                    return;
+                }
+                let (change, _) = self
+                    .editor
+                    .edit(n("Frame moved"), 1, |d| d.move_frame(from, to));
+                self.playhead = to;
+                self.after_edit();
+                self.toast_if_document_wide(&sender, &change, total);
+            }
+            Msg::MoveFrameDialog(i) => {
                 if i >= self.frame_count() {
                     return;
                 }
-                let (change, _) =
+                move_frame_dialog(root, i, self.frame_count(), &sender);
+            }
+            Msg::SetScopeDelay(cs) => {
+                let frames = self.scope_frames();
+                if frames.is_empty() {
+                    return;
+                }
+                let total = self.frame_count();
+                let touched = frames.len();
+                let (change, _) = self
+                    .editor
                     // Translators: Past-tense edit name, used inside "{change} on {count} frames".
-                    self.editor.edit(n("Delay set"), 1, |d| d.set_delay(i..i + 1, cs.max(1)));
+                    .edit(n("Delay set"), touched, |d| {
+                        d.set_delay_at(&frames, cs.max(1))
+                    });
                 self.after_edit();
-                sender.input(Msg::Toast(change.message()));
+                self.toast_if_document_wide(&sender, &change, total);
+            }
+            Msg::DelayAllDialog => {
+                if self.frame_count() == 0 {
+                    return;
+                }
+                let default = self.editor.doc.frames[0].delay_cs;
+                delay_all_dialog(root, self.frame_count(), default, &sender);
+            }
+            Msg::SetAllFramesDelay(cs) => {
+                let total = self.frame_count();
+                if total == 0 {
+                    return;
+                }
+                let (change, _) = self
+                    .editor
+                    .edit(n("Delay set"), total, |d| d.set_delay(0..total, cs.max(1)));
+                self.after_edit();
+                self.toast_if_document_wide(&sender, &change, total);
             }
             Msg::SelectAllFrames => {
                 if self.frame_count() > 0 {
@@ -1012,6 +1442,14 @@ impl Component for App {
                     self.selected_overlay = None;
                 }
             }
+            Msg::Escape => {
+                if self.crop_tool {
+                    self.crop_tool = false;
+                    self.crop_rect = None;
+                } else {
+                    self.selected_overlay = None;
+                }
+            }
             Msg::CanvasPress { x, y, scale, state } => {
                 if self.crop_tool {
                     self.crop_rect = Some((x, y, 0.0, 0.0));
@@ -1032,6 +1470,7 @@ impl Component for App {
                 let selected = self
                     .selected_overlay
                     .and_then(|id| self.editor.doc.overlay(id))
+                    .filter(|o| !o.hidden && o.range.contains(&self.playhead))
                     .map(|o| o.transform);
                 if let Some(transform) = selected {
                     let on_overlay =
@@ -1186,7 +1625,7 @@ impl Component for App {
                 });
                 self.selected_overlay = Some(edited);
                 self.after_edit();
-                sender.input(Msg::Toast(change.message()));
+                self.toast_if_document_wide(&sender, &change, self.frame_count());
             }
             Msg::ApplyCrop => {
                 let Some((x, y, w, h)) = self.crop_rect.take() else {
@@ -1195,25 +1634,20 @@ impl Component for App {
                 let Some(rect) = normalize_canvas_rect(self.editor.doc.size(), (x, y, w, h)) else {
                     return;
                 };
-                self.crop_tool = false;
-                if let Some(message) = self.apply_crop_rect(rect) {
-                    sender.input(Msg::Toast(message));
-                }
+                self.start_crop(rect, &sender);
             }
-            Msg::ApplyZoom => {
+            Msg::ApplyZoom => self.start_zoom(self.zoom_frames(false), &sender),
+            Msg::ApplyZoomAll => self.start_zoom(self.zoom_frames(true), &sender),
+            Msg::ApplyShrink => {
                 let Some(rect) = self.crop_rect.take() else {
                     return;
                 };
-                let Some(rect) = normalize_canvas_rect(self.editor.doc.size(), rect) else {
+                let Some(work) = self.shrink_work(rect) else {
                     return;
-                };
-                let work = FrameWork::Zoom {
-                    frames: self.scope_frames(),
-                    rect,
                 };
                 self.crop_tool = false;
                 self.busy = Some(Busy {
-                    kind: BusyKind::Zoom,
+                    kind: BusyKind::Shrink,
                     done: 0,
                     total: Some(work.touched(&self.editor.doc)),
                     cancel: None,
@@ -1228,24 +1662,24 @@ impl Component for App {
                 crop_dialog(root, cw, ch, &sender);
             }
             Msg::CropAll(x, y, w, h) => {
-                if let Some(message) = self.apply_crop(x as f32, y as f32, w as f32, h as f32) {
-                    sender.input(Msg::Toast(message));
-                }
+                self.start_crop((x, y, w, h), &sender);
             }
             Msg::DropEveryNth(every) => {
                 if self.frame_count() == 0 || every < 2 {
                     return;
                 }
-                let touched = self.frame_count() / every;
+                let total = self.frame_count();
+                let touched = total / every;
                 let (change, _) = self
                     .editor
                     .edit(n("Frames removed"), touched, |d| d.drop_every_nth(every));
                 self.playhead = 0;
                 self.after_edit();
-                sender.input(Msg::Toast(change.message()));
+                self.toast_if_document_wide(&sender, &change, total);
             }
             Msg::SmartDrop(percent) => {
-                let count = self.frame_count() * percent.min(95) / 100;
+                let total = self.frame_count();
+                let count = total * percent.min(95) / 100;
                 if count == 0 {
                     return;
                 }
@@ -1254,7 +1688,7 @@ impl Component for App {
                     .edit(n("Frames removed"), count, |d| d.drop_low_motion(count));
                 self.playhead = 0;
                 self.after_edit();
-                sender.input(Msg::Toast(change.message()));
+                self.toast_if_document_wide(&sender, &change, total);
             }
             Msg::Resize(w, h) => {
                 let (w, h) = (w.max(1), h.max(1));
@@ -1284,7 +1718,11 @@ impl Component for App {
                 map.save();
                 *self.keymap.borrow_mut() = *map;
             }
-            Msg::Toast(_) => {}
+            Msg::Toast(_) | Msg::Notice(_) => {}
+            Msg::StripZoom(factor) => {
+                self.strip_zoom
+                    .set(next_strip_zoom(self.strip_zoom.get(), factor));
+            }
         }
     }
 
@@ -1318,18 +1756,24 @@ impl Component for App {
                 label,
                 frames_touched,
                 scale,
+                shift,
                 frames,
             } = *done;
             let (fx, fy) = scale;
+            let (dx, dy) = shift;
             let (change, _) = self.editor.edit(label, frames_touched, |d| {
                 for (i, frame) in frames {
                     d.frames[i] = frame;
                 }
                 d.scale_overlays(fx, fy);
+                for o in &mut d.overlays {
+                    o.transform.x -= dx;
+                    o.transform.y -= dy;
+                }
             });
-            scale_in_flight_canvas(&mut self.drag, &mut self.crop_rect, fx, fy);
+            scale_in_flight_canvas(&mut self.drag, &mut self.crop_rect, fx, fy, dx, dy);
             self.after_edit();
-            sender.input(Msg::Toast(change.message()));
+            self.toast_if_document_wide(&sender, &change, self.frame_count());
             return;
         }
         if let Cmd::Estimated(rev, result) = msg {
@@ -1377,7 +1821,20 @@ impl Component for App {
                 // An import ends the bar it started; an export never owns the
                 // bar, so its result leaves whatever is running alone.
                 self.busy = None;
+                let append = std::mem::take(&mut self.import_append);
                 match *outcome {
+                    ImportOutcome::Loaded(path, frames) if append => {
+                        if !frames.is_empty() {
+                            let frames = resize_frames_to(frames, self.editor.doc.size());
+                            let touched = frames.len();
+                            let (change, _) = self.editor.edit(n("Frames added"), touched, |d| {
+                                d.frames.extend(frames);
+                            });
+                            self.after_edit();
+                            sender.input(Msg::Toast(change.message()));
+                        }
+                        let _ = path;
+                    }
                     ImportOutcome::Loaded(path, frames) => {
                         self.editor = Editor::new(Document::from_frames(frames));
                         self.path = Some(path);
@@ -1412,17 +1869,23 @@ impl Component for App {
         sender: ComponentSender<Self>,
         root: &Self::Root,
     ) {
-        let toast = matches!(&msg, Msg::Toast(_)).then(|| match &msg {
-            Msg::Toast(t) => t.clone(),
-            _ => unreachable!(),
-        });
+        // A toast for an edit offers Undo; a notice is feedback for
+        // something with nothing to undo — a copy — and must not, or its
+        // button would undo whatever edit happened to come before it.
+        let toast = match &msg {
+            Msg::Toast(text) => Some((text.clone(), true)),
+            Msg::Notice(text) => Some((text.clone(), false)),
+            _ => None,
+        };
         self.update(msg, sender.clone(), root);
         self.schedule_estimate(&sender);
-        if let Some(text) = toast {
+        if let Some((text, undoable)) = toast {
             let toast = adw::Toast::new(&text);
-            toast.set_button_label(Some(t("Undo")));
-            let s = sender.clone();
-            toast.connect_button_clicked(move |_| s.input(Msg::Undo));
+            if undoable {
+                toast.set_button_label(Some(t("Undo")));
+                let s = sender.clone();
+                toast.connect_button_clicked(move |_| s.input(Msg::Undo));
+            }
             widgets.toasts.add_toast(toast);
         }
         self.update_view(widgets, sender);
@@ -1458,6 +1921,10 @@ impl Component for App {
                         BusyKind::Resize => t("Resizing… {done} / {total} frames"),
                         // Translators: Progress while selected frames are being zoomed; both values are frame counts.
                         BusyKind::Zoom => t("Zooming… {done} / {total} frames"),
+                        // Translators: Progress while this frame's crop is being applied.
+                        BusyKind::Shrink => t("Cropping this frame…"),
+                        // Translators: Progress while every frame is being cropped; both values are frame counts.
+                        BusyKind::Crop => t("Cropping… {done} / {total} frames"),
                     };
                     widgets.import_bar.set_text(Some(&fill(
                         label,
@@ -1533,6 +2000,12 @@ impl Component for App {
         for (tool, button) in &widgets.tool_buttons {
             button.set_tooltip_text(Some(&keys.tip(t(tool_label(*tool)), tool_action(*tool))));
         }
+        {
+            let shape = widgets.shape_tool.get();
+            widgets
+                .shape_button
+                .set_tooltip_text(Some(&keys.tip(t(tool_label(shape)), tool_action(shape))));
+        }
         widgets.crop_button.set_tooltip_text(Some(&keys.tip(
             t("Crop or zoom: drag a box on the canvas"),
             Action::ToolCrop,
@@ -1580,8 +2053,19 @@ impl Component for App {
         {
             action.set_enabled(idle && count > 0);
         }
-        widgets.crop_apply.set_sensitive(idle);
-        widgets.zoom_apply.set_sensitive(idle);
+        // The three buttons act on the drawn box; before one exists there is
+        // nothing for them to do.
+        let crop = self.crop_rect.filter(|(_, _, w, h)| *w >= 2.0 && *h >= 2.0);
+        widgets.crop_apply.set_sensitive(idle && crop.is_some());
+        widgets.zoom_apply.set_sensitive(idle && crop.is_some());
+        widgets.shrink_apply.set_sensitive(idle && crop.is_some());
+        if let Some(action) = widgets
+            .actions
+            .lookup_action("optimize-zoom-all")
+            .and_downcast::<gio::SimpleAction>()
+        {
+            action.set_enabled(idle && crop.is_some());
+        }
         let document_editing = !matches!(
             self.busy.as_ref().map(|busy| busy.kind),
             Some(BusyKind::Import)
@@ -1604,6 +2088,9 @@ impl Component for App {
         for (_, button) in &widgets.tool_buttons {
             button.set_sensitive(document_editing && count > 0);
         }
+        widgets
+            .shape_button
+            .set_sensitive(document_editing && count > 0);
         widgets.play.set_icon_name(if self.playing {
             "media-playback-pause-symbolic"
         } else {
@@ -1664,14 +2151,44 @@ impl Component for App {
         }
 
         let keys = strip_keys(&self.editor.doc);
-        if *self.strip_keys.borrow() != keys {
+        let rebuilt = *self.strip_keys.borrow() != keys;
+        if rebuilt {
             *self.strip_keys.borrow_mut() = keys;
-            rebuild_strip(&widgets.strip, &self.editor.doc, &sender);
+            rebuild_strip(
+                &widgets.strip,
+                &self.editor.doc,
+                &sender,
+                &widgets.scope_mirror,
+                &widgets.drop_dividers,
+            );
+        }
+        let zoom = self.strip_zoom.get();
+        // Whatever the frames' aspect made of the thumbnails is what a cell
+        // measures out to, so the bands read their pitch off a real one.
+        let thumb_w = self
+            .editor
+            .doc
+            .frames
+            .first()
+            .map_or(THUMB_BOX, |frame| frame.thumb.width() as i32);
+        self.strip_pitch.set(cell_pitch(thumb_w, zoom));
+        if rebuilt || self.strip_zoom_shown.get() != zoom {
+            self.strip_zoom_shown.set(zoom);
+            for (cell, frame) in thumb_children(&widgets.strip).zip(&self.editor.doc.frames) {
+                let Some(picture) = cell
+                    .first_child()
+                    .and_then(|overlay| overlay.first_child())
+                    .and_downcast::<gtk::Picture>()
+                else {
+                    continue;
+                };
+                set_thumb_zoom(&picture, &frame.thumb, zoom);
+            }
+            widgets.bands.queue_draw();
         }
         let in_scope = self.scope_frames();
-        let mut child = widgets.strip.first_child();
-        let mut i = 0;
-        while let Some(thumb) = child {
+        *widgets.scope_mirror.borrow_mut() = in_scope.clone();
+        for (i, thumb) in thumb_children(&widgets.strip).enumerate() {
             set_class(&thumb, "playhead", i == self.playhead);
             set_class(
                 &thumb,
@@ -1679,8 +2196,6 @@ impl Component for App {
                 in_scope.contains(&i) && i != self.playhead,
             );
             set_class(&thumb, "selected", self.selection.contains(&i));
-            child = thumb.next_sibling();
-            i += 1;
         }
 
         let ranges: Vec<Range<usize>> = self
@@ -1709,7 +2224,9 @@ impl Component for App {
         widgets
             .bands
             .set_content_height((used_rows as f64 * BAND_H) as i32);
-        widgets.bands.set_content_width(strip_width(count));
+        widgets
+            .bands
+            .set_content_width(strip_width(count, self.strip_pitch.get()));
         widgets.bands.queue_draw();
 
         // The overlay list costs the canvas whatever it takes, so it takes
@@ -1743,12 +2260,87 @@ impl Component for App {
             )
         });
 
-        let (w, h) = self.editor.doc.size();
-        let selected = self
+        // Frame view: the delay of the frame(s) in scope, and a picker for
+        // the overlays sitting on the frame on screen. `overlay_group` below
+        // edits whichever row is picked. Once the scope names more than one
+        // frame, delay still applies to every one of them (`SetScopeDelay`),
+        // but the overlay picker and the overlay/text editors give way to a
+        // summary: which overlay to show, or which overlay's properties to
+        // edit, has no single answer across several frames at once.
+        let multi = in_scope.len() > 1;
+        widgets
+            .frame_delay
+            .set_sensitive(count > 0 && self.busy.is_none());
+        if let Some(frame) = self.editor.doc.frames.get(self.playhead) {
+            set_spin(&widgets.frame_delay, frame.delay_cs as f64);
+        }
+        widgets
+            .frame_group
+            .set_title(&frame_scope_summary(self.scope, &in_scope));
+        widgets.delay_row.set_subtitle(&if multi {
+            fill(
+                // Translators: Shown under the delay field while multiple frames are selected; changing it applies to all of them at once.
+                tn(
+                    "Applies to {count} selected frame",
+                    "Applies to {count} selected frames",
+                    in_scope.len(),
+                ),
+                &[("count", &in_scope.len().to_string())],
+            )
+        } else {
+            String::new()
+        });
+        // Topmost first, so the list reads the way the layers stack; see
+        // `stacked_overlays`. `overlay_list_ids` holds that row order —
+        // what the row-selected handler and each row's own buttons index by.
+        let stacked = self.stacked_overlays();
+        let ids: Vec<OverlayId> = stacked.iter().map(|(id, _)| *id).collect();
+        if *widgets.overlay_list_ids.borrow() != ids {
+            while let Some(child) = widgets.overlay_list.first_child() {
+                widgets.overlay_list.remove(&child);
+            }
+            let bottom = ids.len().saturating_sub(1);
+            for (row, (id, name)) in stacked.iter().enumerate() {
+                widgets.overlay_list.append(&overlay_row(
+                    *id,
+                    name,
+                    row > 0,
+                    row < bottom,
+                    &sender,
+                ));
+            }
+            *widgets.overlay_list_ids.borrow_mut() = ids.clone();
+            let (keep, cap) = layer_list_heights(&widgets.overlay_list);
+            set_layer_list_heights(&widgets.overlay_list_scroll, keep, cap);
+        }
+        match self
             .selected_overlay
+            .and_then(|sel| ids.iter().position(|id| *id == sel))
+            .and_then(|i| widgets.overlay_list.row_at_index(i as i32))
+        {
+            Some(row) => {
+                widgets.overlay_list.select_row(Some(&row));
+                // The pick may have come from the canvas or a band in the
+                // strip, naming a layer the list has scrolled past.
+                show_row(&widgets.overlay_list_scroll, &widgets.overlay_list, &row);
+            }
+            None => widgets.overlay_list.unselect_all(),
+        }
+        widgets
+            .overlay_list_group
+            .set_visible(!multi && !self.crop_tool && !stacked.is_empty());
+        widgets.text_group.set_visible(!multi);
+
+        let (w, h) = self.editor.doc.size();
+        // The overlay editor is part of the frame view: it shows only for an
+        // overlay that is actually on the frame on screen. Selecting one on
+        // another frame and navigating here leaves the plain frame view; going
+        // back to its frame brings the editor back.
+        let selected = self
+            .editing_overlay()
             .and_then(|id| self.editor.doc.overlay(id));
         let kind = selected.map(|o| o.kind.clone());
-        widgets.overlay_group.set_visible(kind.is_some());
+        widgets.overlay_group.set_visible(kind.is_some() && !multi);
         let is_text = matches!(kind, Some(OverlayKind::Text(_)));
         let is_shape = matches!(kind, Some(OverlayKind::Shape(_)));
         for row in &widgets.text_rows {
@@ -1800,24 +2392,16 @@ impl Component for App {
         }
 
         widgets.crop_button.set_active(self.crop_tool);
-        let crop = self.crop_rect.filter(|(_, _, w, h)| *w >= 2.0 && *h >= 2.0);
         widgets.crop_group.set_visible(self.crop_tool);
         widgets.crop_label.set_label(&match crop {
-            Some((x, y, w, h)) => format!(
-                "{}\n{}",
-                fill(
-                    t("{width} × {height} at {x}, {y}"),
-                    &[
-                        ("width", &format!("{w:.0}")),
-                        ("height", &format!("{h:.0}")),
-                        ("x", &format!("{x:.0}")),
-                        ("y", &format!("{y:.0}")),
-                    ],
-                ),
-                t(
-                    "Crop resizes every frame; zoom fills the canvas from this box on the \
-                   frames in scope."
-                ),
+            Some((x, y, w, h)) => fill(
+                t("{width} × {height} at {x}, {y}"),
+                &[
+                    ("width", &format!("{w:.0}")),
+                    ("height", &format!("{h:.0}")),
+                    ("x", &format!("{x:.0}")),
+                    ("y", &format!("{y:.0}")),
+                ],
             ),
             None => t("Drag a box on the canvas.").into(),
         });
@@ -1826,7 +2410,12 @@ impl Component for App {
             let keys = self.keymap.borrow();
             let mut state = widgets.canvas_state.borrow_mut();
             state.image = (w as f32, h as f32);
-            state.selected = selected.map(|o| o.transform).filter(|_| !self.crop_tool);
+            // Only box the selection when it actually paints on this frame;
+            // stay selected for the sidebar otherwise. Matches `overlays_on`.
+            state.selected = selected
+                .filter(|o| !o.hidden && o.range.contains(&self.playhead))
+                .map(|o| o.transform)
+                .filter(|_| !self.crop_tool);
             state.movable = if self.crop_tool {
                 Vec::new()
             } else {
@@ -1892,21 +2481,54 @@ impl App {
         });
     }
 
+    /// Move `picked` so the run lands at `to`, an index into the list with
+    /// the picked frames already removed — what `move_target_for_set`
+    /// produces from a divider gap. One history step; the selection follows
+    /// the frames it named (they come out contiguous at their new home) and
+    /// the playhead rides whatever frame it was on. `None` when nothing
+    /// would move, so the caller can skip the toast.
+    fn move_picked(&mut self, picked: &[usize], to: usize) -> Option<Change> {
+        let mut picked: Vec<usize> = picked.to_vec();
+        picked.sort_unstable();
+        picked.dedup();
+        if picked.is_empty() || picked.iter().enumerate().all(|(k, &p)| p == to + k) {
+            return None;
+        }
+        let (change, _) = self.editor.edit(n("Frames moved"), picked.len(), |d| {
+            d.move_frames_to(&picked, to)
+        });
+        if let Some(at) = picked.iter().position(|&p| p == self.playhead) {
+            self.playhead = to + at;
+        }
+        if picked.len() > 1 {
+            self.selection = (to..to + picked.len()).collect();
+            self.anchor = Some(to);
+            self.scope = ScopeChoice::Range;
+        }
+        self.after_edit();
+        Some(change)
+    }
+
     /// The frame operations, shared by the toolbar menu (which acts on the
     /// scope) and a frame's own context menu (which acts on that frame).
     fn run_frame_op(&mut self, op: FrameOp, frames: Vec<usize>, sender: &ComponentSender<Self>) {
         if self.frame_count() == 0 || frames.is_empty() {
             return;
         }
+        let total = self.frame_count();
         let touched = frames.len();
         let (first, last) = (frames[0], frames[frames.len() - 1]);
+        if op == FrameOp::Cut {
+            self.copy_frames(&frames);
+        }
         let (label, playhead) = match op {
             FrameOp::Delete => (n("Frames deleted"), first),
+            FrameOp::Cut => (n("Frames cut"), first),
             FrameOp::Duplicate => (n("Frames duplicated"), self.playhead),
             FrameOp::Reverse => (n("Frames reversed"), self.playhead),
         };
         let (change, _) = self.editor.edit(label, touched, |d| match op {
-            FrameOp::Delete => d.delete_frames_at(&frames),
+            FrameOp::Delete | FrameOp::Cut => d.delete_frames_at(&frames),
             // back to front, so each insert leaves the rest of the
             // selection's indices alone
             FrameOp::Duplicate => {
@@ -1924,7 +2546,95 @@ impl App {
             self.scope = ScopeChoice::ThisFrame;
         }
         self.after_edit();
-        sender.input(Msg::Toast(change.message()));
+        self.toast_if_document_wide(sender, &change, total);
+    }
+
+    /// Take a copy of the named frames onto the clipboard, in strip order.
+    /// `frames` must be sorted, as `scope_frames` returns it.
+    fn copy_frames(&mut self, frames: &[usize]) {
+        self.clipboard = frames
+            .iter()
+            .filter_map(|&i| self.editor.doc.frames.get(i).cloned())
+            .collect();
+    }
+
+    /// Paste the clipboard in directly after the frame on screen, the way a
+    /// duplicate lands beside its source, and leave the pasted run selected
+    /// so a second edit acts on what just arrived. `None` when there is
+    /// nothing on the clipboard, so the caller can skip the toast.
+    fn paste_frames(&mut self) -> Option<Change> {
+        if self.clipboard.is_empty() {
+            return None;
+        }
+        let frames = self.clipboard.clone();
+        let count = frames.len();
+        let at = if self.frame_count() == 0 {
+            0
+        } else {
+            self.playhead + 1
+        };
+        let (change, _) = self.editor.edit(n("Frames pasted"), count, |d| {
+            d.insert_frames_at(at, frames)
+        });
+        // The playhead rides the *last* pasted frame, so pasting twice
+        // stacks the runs rather than splitting the first one down the
+        // middle at "after the frame on screen".
+        self.playhead = at + count - 1;
+        if count > 1 {
+            self.selection = (at..at + count).collect();
+            self.anchor = Some(at);
+            self.scope = ScopeChoice::Range;
+        } else {
+            self.selection.clear();
+        }
+        self.after_edit();
+        Some(change)
+    }
+
+    /// The overlay a z-order step lands next to: the one shown beside `id`
+    /// in the layer list, which lists the overlays on the frame on screen.
+    /// Not the neighbouring entry in `doc.overlays` — that one may sit on
+    /// frames nowhere near here, and stepping past it would move nothing
+    /// the user can see. `up` is toward the top of the list, which is the
+    /// overlay painted last.
+    fn restack_neighbour(&self, id: OverlayId, up: bool) -> Option<OverlayId> {
+        let on_frame = self.overlays_on(self.playhead);
+        let at = on_frame.iter().position(|o| *o == id)?;
+        if up {
+            on_frame.get(at + 1).copied()
+        } else {
+            on_frame.get(at.checked_sub(1)?).copied()
+        }
+    }
+
+    /// Move one overlay a step through the z-order, past the layer shown
+    /// next to it. Keeps it selected, so the sidebar stays on the layer that
+    /// just moved rather than on whatever row now sits under the pointer.
+    fn restack_overlay(&mut self, id: OverlayId, up: bool) {
+        let Some(other) = self.restack_neighbour(id, up) else {
+            return;
+        };
+        let touched = self.editor.doc.overlay(id).map_or(0, |o| o.range.len());
+        self.editor.edit(n("Overlay reordered"), touched, |d| {
+            d.restack_overlay(id, other, up)
+        });
+        self.selected_overlay = Some(id);
+        self.after_edit();
+    }
+
+    /// Remove one overlay, whichever way it was named: the sidebar's trash
+    /// button and the band menu act on the selection, the layer list's X on
+    /// its own row.
+    fn delete_overlay(&mut self, id: OverlayId, sender: &ComponentSender<Self>) {
+        let Some(overlay) = self.editor.doc.overlay(id) else {
+            return;
+        };
+        let touched = overlay.range.len();
+        let (change, _) = self.editor.edit(n("Overlay deleted"), touched, |d| {
+            d.remove_overlay(id);
+        });
+        self.after_edit();
+        self.toast_if_document_wide(sender, &change, self.frame_count());
     }
 
     /// Everything a document change invalidates.
@@ -1944,25 +2654,86 @@ impl App {
             self.selected_overlay = None;
         }
     }
-    /// One crop, applied to every frame. Synchronous on purpose: cropping
-    /// copies the kept region rather than resampling it. A full-canvas crop is
-    /// ignored so the dialog's defaults do not create an empty undo step.
-    fn apply_crop(&mut self, x: f32, y: f32, w: f32, h: f32) -> Option<String> {
-        let rect = normalize_canvas_rect(self.editor.doc.size(), (x, y, w, h))?;
-        self.apply_crop_rect(rect)
+
+    /// The strip and the canvas already show what a scoped edit did; a toast
+    /// earns its interruption only when the edit reached every frame the
+    /// document had when it started. `total` is that frame count, taken
+    /// before an edit that adds or removes frames changes it.
+    fn toast_if_document_wide(
+        &self,
+        sender: &ComponentSender<Self>,
+        change: &Change,
+        total: usize,
+    ) {
+        if change.frames_touched >= total.max(1) {
+            sender.input(Msg::Toast(change.message()));
+        }
+    }
+    /// One crop, threaded like a resize or zoom: cropping copies the kept
+    /// region rather than resampling it, but a few hundred full frames is
+    /// still real work, and it must not freeze the window either. A
+    /// full-canvas crop is ignored so the dialog's defaults do not create an
+    /// empty undo step.
+    fn start_crop(&mut self, rect: (u32, u32, u32, u32), sender: &ComponentSender<Self>) {
+        if !crop_changes_canvas(self.editor.doc.size(), rect) {
+            return;
+        }
+        self.crop_tool = false;
+        let work = FrameWork::Crop { rect };
+        self.busy = Some(Busy {
+            kind: BusyKind::Crop,
+            done: 0,
+            total: Some(work.touched(&self.editor.doc)),
+            cancel: None,
+        });
+        run_frame_work(&self.editor.doc, work, sender);
     }
 
-    /// A crop whose rectangle is already normalized to the canvas.
-    fn apply_crop_rect(&mut self, rect: (u32, u32, u32, u32)) -> Option<String> {
-        if !crop_changes_canvas(self.editor.doc.size(), rect) {
-            return None;
-        }
-        let touched = self.frame_count();
-        let (change, _) = self.editor.edit(n("Cropped"), touched, |d| {
-            d.crop(rect.0, rect.1, rect.2, rect.3)
-        });
+    /// Decode a still image and fit it to the canvas, ready to splice in as one
+    /// frame. `None` if the file will not decode (the caller toasts).
+    fn decode_image_frame(&self, path: &Path, delay_cs: u16) -> Option<Frame> {
+        let img = image::open(path).ok()?.to_rgba8();
+        let size = self.editor.doc.size();
+        let img = if size == (0, 0) || img.dimensions() == size {
+            img
+        } else {
+            image::imageops::resize(&img, size.0, size.1, image::imageops::FilterType::Triangle)
+        };
+        Some(Frame::new(img, delay_cs))
+    }
+
+    /// Insert one frame at `at` as a single "Frame added" history step and move
+    /// the playhead onto it.
+    fn splice_frame(&mut self, at: usize, frame: Frame, sender: &ComponentSender<Self>) {
+        let (change, _) = self
+            .editor
+            .edit(n("Frame added"), 1, |d| d.insert_frame_at(at, frame));
+        self.playhead = at;
         self.after_edit();
-        Some(change.message())
+        self.toast_if_document_wide(sender, &change, self.frame_count());
+    }
+
+    /// Fill the canvas from the drawn crop box on `frames`, threaded like a
+    /// resize. No-op if no box is drawn, it degenerates, or `frames` is empty.
+    fn start_zoom(&mut self, frames: Vec<usize>, sender: &ComponentSender<Self>) {
+        let Some(rect) = self.crop_rect.take() else {
+            return;
+        };
+        let Some(rect) = normalize_canvas_rect(self.editor.doc.size(), rect) else {
+            return;
+        };
+        if frames.is_empty() {
+            return;
+        }
+        self.crop_tool = false;
+        let work = FrameWork::Zoom { frames, rect };
+        self.busy = Some(Busy {
+            kind: BusyKind::Zoom,
+            done: 0,
+            total: Some(work.touched(&self.editor.doc)),
+            cancel: None,
+        });
+        run_frame_work(&self.editor.doc, work, sender);
     }
 }
 
@@ -1987,6 +2758,58 @@ fn resize_fits_budget(w: u32, h: u32, frames: usize, limit: usize) -> bool {
 
 fn crop_changes_canvas((cw, ch): (u32, u32), (x, y, w, h): (u32, u32, u32, u32)) -> bool {
     cw > 0 && ch > 0 && !(x == 0 && y == 0 && w >= cw && h >= ch)
+}
+
+/// Fit imported frames onto an existing canvas before mixing them in — a
+/// second file rarely decodes at the same size, and appending frames the
+/// compositor cannot assume are uniform would break every op that reads
+/// `Document::size()` from the first frame. `(0, 0)` means the document was
+/// empty, so whatever the new frames decoded at becomes the canvas.
+fn resize_frames_to(frames: Vec<Frame>, (cw, ch): (u32, u32)) -> Vec<Frame> {
+    if cw == 0 || ch == 0 {
+        return frames;
+    }
+    frames
+        .into_iter()
+        .map(|frame| {
+            if frame.pixels.dimensions() == (cw, ch) {
+                return frame;
+            }
+            let pixels = image::imageops::resize(
+                frame.pixels.as_ref(),
+                cw,
+                ch,
+                image::imageops::FilterType::Triangle,
+            );
+            let mut resized = Frame::new(pixels, frame.delay_cs);
+            resized.detached = frame.detached;
+            resized
+        })
+        .collect()
+}
+
+/// Extensions "Add frames from file" splices in synchronously as one still
+/// frame. Anything else — video, GIF, animated WebP — goes through the async
+/// import pipeline so it gets probing, progress, cancel and the resize prompt.
+fn is_still_image(path: &Path) -> bool {
+    path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+        matches!(
+            e.to_ascii_lowercase().as_str(),
+            "png"
+                | "jpg"
+                | "jpeg"
+                | "bmp"
+                | "tif"
+                | "tiff"
+                | "tga"
+                | "ico"
+                | "qoi"
+                | "ppm"
+                | "pgm"
+                | "pbm"
+                | "pnm"
+        )
+    })
 }
 
 /// Probe before decoding. ffprobe is cheap but it is still a subprocess, so it
@@ -2037,11 +2860,20 @@ fn run_frame_work(doc: &Document, work: FrameWork, sender: &ComponentSender<App>
                     let (x, y, w, h) = *rect;
                     doc.zoomed_frames(frames, x, y, w, h, &mut progress)
                 }
+                FrameWork::Shrink { frames, rect } => {
+                    let (x, y, w, h) = *rect;
+                    doc.shrunk_frame_list(frames, x, y, w, h, &mut progress)
+                }
+                FrameWork::Crop { rect } => {
+                    let (x, y, w, h) = *rect;
+                    doc.cropped_frames(x, y, w, h, &mut progress)
+                }
             };
             Box::new(WorkDone {
                 label: work.label(),
                 frames_touched: frames.len(),
                 scale: work.scale(&doc),
+                shift: work.shift(),
                 frames,
             })
         }))
@@ -2447,8 +3279,61 @@ fn overlay_edit_span(overlay: Range<usize>, scope: Range<usize>, playhead: usize
     span
 }
 
-fn strip_width(count: usize) -> i32 {
-    count as i32 * (THUMB_W + THUMB_SPACING)
+/// One thumbnail dimension at `zoom`, rounded to whole pixels the way the
+/// widget will be sized, never off to nothing.
+fn zoomed(px: u32, zoom: f64) -> i32 {
+    (px as f64 * zoom).round().max(1.0) as i32
+}
+
+/// Distance from one strip cell to the next: a zoomed thumbnail plus the
+/// strip `Box`'s spacing, which is a fixed number of pixels and *not* zoomed
+/// — the reason this is not `(thumb_w + THUMB_SPACING) * zoom`. The bands
+/// under the strip put their per-frame columns here, so a pitch that does
+/// not match what the cells measure out to slides every band sideways by a
+/// growing fraction of a frame.
+fn cell_pitch(thumb_w: i32, zoom: f64) -> f64 {
+    (zoomed(thumb_w.max(1) as u32, zoom) + THUMB_SPACING) as f64
+}
+
+fn strip_width(count: usize, pitch: f64) -> i32 {
+    (count as f64 * pitch) as i32
+}
+
+/// Size one strip thumbnail for `zoom`. Zooming in is a size request over
+/// the thumbnail's own texture, which a `GtkPicture` scales up to whatever
+/// it is given. Zooming out has to shrink the texture: a picture never
+/// measures smaller than its paintable, so below 1x a request alone left
+/// every cell at its 1x width while the bands under them shrank away from
+/// the frames they annotate. The scaled copies are cheap — a thumbnail is
+/// `THUMB_BOX` pixels on its long side — and only built when the zoom moves.
+fn set_thumb_zoom(picture: &gtk::Picture, thumb: &image::RgbaImage, zoom: f64) {
+    let (w, h) = (zoomed(thumb.width(), zoom), zoomed(thumb.height(), zoom));
+    let paintable_w = picture.paintable().map(|p| p.intrinsic_width());
+    if zoom < 1.0 {
+        if paintable_w != Some(w) {
+            let small = image::imageops::resize(
+                thumb,
+                w as u32,
+                h as u32,
+                image::imageops::FilterType::Triangle,
+            );
+            picture.set_paintable(Some(&texture_from(&small)));
+        }
+    } else if paintable_w != Some(thumb.width() as i32) {
+        picture.set_paintable(Some(&texture_from(thumb)));
+    }
+    picture.set_size_request(w, h);
+}
+
+/// New timeline-strip zoom after a `Msg::StripZoom(factor)`: `factor` multiplies
+/// the current zoom and the result is clamped to the bounds; `0.0` is the reset
+/// sentinel back to 1x.
+fn next_strip_zoom(current: f64, factor: f64) -> f64 {
+    if factor == 0.0 {
+        1.0
+    } else {
+        (current * factor).clamp(STRIP_ZOOM_MIN, STRIP_ZOOM_MAX)
+    }
 }
 
 fn texture_from(img: &image::RgbaImage) -> gdk::Texture {
@@ -2471,6 +3356,92 @@ fn set_class(widget: &gtk::Widget, class: &str, on: bool) {
     }
 }
 
+/// The strip's thumbnail cells, in order — never the frame context menu's
+/// popover, which is also parented to the strip (a `Popover` needs a parent
+/// to show itself) and would otherwise turn up in `first_child()` right along
+/// with the real cells, one position ahead of every thumbnail after it.
+/// Regression: that shift left the playhead border one frame behind whatever
+/// was actually clicked, while the canvas — which reads `self.playhead`
+/// directly, not this walk — showed the right one.
+fn thumb_children(strip: &gtk::Box) -> impl Iterator<Item = gtk::Widget> + use<> {
+    let mut child = strip.first_child();
+    std::iter::from_fn(move || {
+        while let Some(widget) = child.take() {
+            child = widget.next_sibling();
+            if widget.has_css_class("thumb") {
+                return Some(widget);
+            }
+        }
+        None
+    })
+}
+
+/// A move removes the picked frames, which shifts every later index down,
+/// then inserts at `to` — so where the run actually lands depends on how
+/// many picked frames sat before the gap. `gap` names a position between
+/// frames as shown before the move (`count` is past the last); this is the
+/// `to` that puts the run exactly there once `picked` is gone from the
+/// list, matching what the divider promised. `picked` must be sorted.
+fn move_target_for_set(picked: &[usize], gap: usize) -> usize {
+    gap - picked.iter().filter(|&&p| p < gap).count()
+}
+
+/// The gap "nudge the whole selection one slot earlier/later" aims at: just
+/// before the unselected frame preceding it, or just after the one
+/// following it — swapping the block with that neighbour. `None` when the
+/// selection already sits against that edge, or names every frame and
+/// leaves nothing to swap with. `picked` must be sorted.
+fn selection_nudge_gap(picked: &[usize], earlier: bool, frame_count: usize) -> Option<usize> {
+    let first = *picked.first()?;
+    let last = *picked.last()?;
+    if earlier {
+        (first > 0).then(|| first - 1)
+    } else {
+        (last + 1 < frame_count).then(|| last + 2)
+    }
+}
+
+/// Which gap between thumbnails `x` (strip-local) is nearest: `0` is before
+/// the first frame, `count` is after the last. Splits each cell at its own
+/// midpoint, so the divider promises exactly where a drop will land.
+fn gap_at(strip: &gtk::Box, x: f64) -> usize {
+    let cells: Vec<gtk::Widget> = thumb_children(strip).collect();
+    for (i, cell) in cells.iter().enumerate() {
+        let Some(bounds) = cell.compute_bounds(strip) else {
+            continue;
+        };
+        if x < bounds.x() as f64 + bounds.width() as f64 / 2.0 {
+            return i;
+        }
+    }
+    cells.len()
+}
+
+/// Shows the drag-drop divider at `gap`, the same accent blue as the
+/// playhead border: on the left edge of the cell that gap sits before, or —
+/// for the gap past the last frame, which has no cell after it — on the
+/// right edge of the last cell instead. The dividers are Overlay children
+/// of the thumbnails, so the line paints on top of the picture; they are
+/// rebuilt with the strip (`rebuild_strip` fills the vec in strip order).
+fn mark_drop_gap(dividers: &[gtk::Widget], gap: Option<usize>) {
+    let count = dividers.len();
+    for (i, divider) in dividers.iter().enumerate() {
+        let (show, at_end) = match gap {
+            Some(g) if g == i => (true, false),
+            Some(g) if g == count && i + 1 == count => (true, true),
+            _ => (false, false),
+        };
+        divider.set_visible(show);
+        if show {
+            divider.set_halign(if at_end {
+                gtk::Align::End
+            } else {
+                gtk::Align::Start
+            });
+        }
+    }
+}
+
 /// What the strip is showing. Only a change here is worth a rebuild: overlay
 /// edits move the document revision too, and there are hundreds of thumbnails.
 fn strip_keys(doc: &Document) -> Vec<(u64, bool)> {
@@ -2481,14 +3452,58 @@ fn strip_keys(doc: &Document) -> Vec<(u64, bool)> {
 /// The thumbnails themselves are already built (see `Frame::new`), so this is a
 /// hitch rather than a freeze; swap in a virtualized list when someone imports
 /// something long enough to notice.
-fn rebuild_strip(strip: &gtk::Box, doc: &Document, sender: &ComponentSender<App>) {
+fn rebuild_strip(
+    strip: &gtk::Box,
+    doc: &Document,
+    sender: &ComponentSender<App>,
+    scope_mirror: &Rc<RefCell<Vec<usize>>>,
+    drop_dividers: &Rc<RefCell<Vec<gtk::Widget>>>,
+) {
     while let Some(child) = strip.first_child() {
         strip.remove(&child);
     }
+    drop_dividers.borrow_mut().clear();
+
+    // Two faces of the one popover: the frame under the pointer when it was
+    // opened either stands alone — the menu acts on that frame — or belongs
+    // to the active selection, and then it acts on the whole scope. The
+    // right-click handler picks which model to show; the actions are
+    // scope-based either way, because a plain right-click outside the
+    // selection seeks first, which resets the scope to that one frame.
+    let edit_section = gio::Menu::new();
+    edit_section.append(Some(t("Delete this frame")), Some("frame.delete"));
+    edit_section.append(Some(t("Duplicate this frame")), Some("frame.duplicate"));
+    edit_section.append(Some(t("Cut this frame")), Some("frame.cut"));
+    edit_section.append(Some(t("Copy this frame")), Some("frame.copy"));
+    edit_section.append(Some(t("Paste frames")), Some("frame.paste"));
+    edit_section.append(Some(t("Set delay…")), Some("frame.delay"));
+    let move_section = gio::Menu::new();
+    move_section.append(Some(t("Move earlier")), Some("frame.move-earlier"));
+    move_section.append(Some(t("Move later")), Some("frame.move-later"));
+    move_section.append(Some(t("Move to position…")), Some("frame.move-to"));
+    let import_section = gio::Menu::new();
+    import_section.append(Some(t("Add frame from image…")), Some("frame.add-image"));
     let menu = gio::Menu::new();
-    menu.append(Some(t("Delete this frame")), Some("frame.delete"));
-    menu.append(Some(t("Duplicate this frame")), Some("frame.duplicate"));
-    menu.append(Some(t("Set delay…")), Some("frame.delay"));
+    menu.append_section(None, &edit_section);
+    menu.append_section(None, &move_section);
+    menu.append_section(None, &import_section);
+    let selection_edit_section = gio::Menu::new();
+    selection_edit_section.append(Some(t("Delete selected frames")), Some("frame.delete"));
+    selection_edit_section.append(
+        Some(t("Duplicate selected frames")),
+        Some("frame.duplicate"),
+    );
+    selection_edit_section.append(Some(t("Cut selected frames")), Some("frame.cut"));
+    selection_edit_section.append(Some(t("Copy selected frames")), Some("frame.copy"));
+    selection_edit_section.append(Some(t("Paste frames")), Some("frame.paste"));
+    selection_edit_section.append(Some(t("Set delay…")), Some("frame.delay"));
+    let selection_move_section = gio::Menu::new();
+    selection_move_section.append(Some(t("Move earlier")), Some("frame.move-earlier"));
+    selection_move_section.append(Some(t("Move later")), Some("frame.move-later"));
+    let selection_menu = gio::Menu::new();
+    selection_menu.append_section(None, &selection_edit_section);
+    selection_menu.append_section(None, &selection_move_section);
+    selection_menu.append_section(None, &import_section);
     let popover = gtk::PopoverMenu::from_model(Some(&menu));
     popover.set_parent(strip);
     popover.set_has_arrow(false);
@@ -2504,36 +3519,118 @@ fn rebuild_strip(strip: &gtk::Box, doc: &Document, sender: &ComponentSender<App>
     for (name, op) in [
         ("delete", FrameOp::Delete),
         ("duplicate", FrameOp::Duplicate),
+        ("cut", FrameOp::Cut),
     ] {
         let action = gio::SimpleAction::new(name, None);
-        let (sender, target) = (sender.clone(), target.clone());
-        action.connect_activate(move |_, _| sender.input(Msg::FrameOpAt(target.get(), op)));
+        let sender = sender.clone();
+        action.connect_activate(move |_, _| sender.input(Msg::FrameOp(op)));
+        group.add_action(&action);
+    }
+    // Function pointers rather than values: an action fires every time the
+    // item is picked, and `Msg` is not `Clone`.
+    for (name, msg) in [
+        ("copy", (|| Msg::FrameCopy) as fn() -> Msg),
+        ("paste", || Msg::FramePaste),
+    ] {
+        let action = gio::SimpleAction::new(name, None);
+        let sender = sender.clone();
+        action.connect_activate(move |_, _| sender.input(msg()));
         group.add_action(&action);
     }
     let delay_action = gio::SimpleAction::new("delay", None);
     {
-        let (sender, target, strip) = (sender.clone(), target.clone(), strip.clone());
+        let (sender, target, strip, scope_mirror) = (
+            sender.clone(),
+            target.clone(),
+            strip.clone(),
+            scope_mirror.clone(),
+        );
         let delays: Vec<u16> = doc.frames.iter().map(|f| f.delay_cs).collect();
         delay_action.connect_activate(move |_, _| {
             let i = target.get();
-            delay_dialog(&strip, i, delays.get(i).copied().unwrap_or(10), &sender);
+            let scope = scope_mirror.borrow().clone();
+            delay_scope_dialog(
+                &strip,
+                &scope,
+                delays.get(i).copied().unwrap_or(10),
+                &sender,
+            );
         });
     }
     group.add_action(&delay_action);
+    let move_earlier = gio::SimpleAction::new("move-earlier", None);
+    {
+        let sender = sender.clone();
+        move_earlier.connect_activate(move |_, _| {
+            sender.input(Msg::MoveSelection { earlier: true });
+        });
+    }
+    group.add_action(&move_earlier);
+    let move_later = gio::SimpleAction::new("move-later", None);
+    {
+        let sender = sender.clone();
+        move_later.connect_activate(move |_, _| {
+            sender.input(Msg::MoveSelection { earlier: false });
+        });
+    }
+    group.add_action(&move_later);
+    let move_to = gio::SimpleAction::new("move-to", None);
+    {
+        let (sender, target) = (sender.clone(), target.clone());
+        move_to.connect_activate(move |_, _| sender.input(Msg::MoveFrameDialog(target.get())));
+    }
+    group.add_action(&move_to);
+    let add_image = gio::SimpleAction::new("add-image", None);
+    {
+        let (sender, target, strip) = (sender.clone(), target.clone(), strip.clone());
+        add_image.connect_activate(move |_, _| {
+            let dialog = gtk::FileDialog::builder()
+                .title(t("Add frame from image"))
+                .build();
+            let filter = gtk::FileFilter::new();
+            filter.set_name(Some(t("Images")));
+            filter.add_mime_type("image/*");
+            let filters = gio::ListStore::new::<gtk::FileFilter>();
+            filters.append(&filter);
+            dialog.set_filters(Some(&filters));
+            let window = strip.root().and_downcast::<gtk::Window>();
+            let (sender, index) = (sender.clone(), target.get());
+            dialog.open(window.as_ref(), gio::Cancellable::NONE, move |res| {
+                if let Some(path) = res.ok().and_then(|f| f.path()) {
+                    sender.input(Msg::InsertImageFrame(index, path));
+                }
+            });
+        });
+    }
+    group.add_action(&add_image);
     strip.insert_action_group("frame", Some(&group));
 
     for (i, frame) in doc.frames.iter().enumerate() {
-        let thumb_h = frame.thumb.height() as i32;
+        // Sized by `set_thumb_zoom`, which `update_view` runs over the whole
+        // strip right after any rebuild.
         let picture = gtk::Picture::for_paintable(&texture_from(&frame.thumb));
-        picture.set_size_request(THUMB_W, thumb_h.max(1));
+        // The drag-reorder divider is an Overlay child rather than CSS on
+        // the cell: an inset box-shadow painted below the child widgets and
+        // never showed over the thumbnail. Overlays paint on top.
+        let divider = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        divider.add_css_class("drop-divider");
+        divider.set_width_request(3);
+        divider.set_visible(false);
+        let overlay = gtk::Overlay::new();
+        overlay.set_child(Some(&picture));
+        overlay.add_overlay(&divider);
+        drop_dividers.borrow_mut().push(divider.upcast());
 
         let cell = gtk::Box::new(gtk::Orientation::Vertical, 2);
         cell.add_css_class("thumb");
-        cell.append(&picture);
+        cell.append(&overlay);
         let label = gtk::Label::new(Some(&(i + 1).to_string()));
         label.add_css_class("dim-label");
         label.add_css_class("caption");
         label.add_css_class("tnum");
+        // Ellipsized so a four-digit frame number cannot widen the cell past
+        // its thumbnail box and slide the bands out from under the strip.
+        label.set_ellipsize(gtk::pango::EllipsizeMode::End);
         cell.append(&label);
         if frame.detached {
             let badge = gtk::Image::from_icon_name("document-edit-symbolic");
@@ -2549,38 +3646,78 @@ fn rebuild_strip(strip: &gtk::Box, doc: &Document, sender: &ComponentSender<App>
             ],
         )));
 
+        // A press on a frame that is inside the active selection must not
+        // collapse the selection on the spot: the click may be the start of
+        // a drag that moves the whole selection, and the drop still needs
+        // to find it. So the press only arms a pending seek; if a drag
+        // begins it is dropped, and a plain release — no drag — collapses
+        // the selection to that one frame, which is what a click means.
+        let pending_seek = Rc::new(Cell::new(None::<usize>));
         let click = gtk::GestureClick::new();
         {
-            let sender = sender.clone();
+            let (sender, scope_mirror, pending_seek) =
+                (sender.clone(), scope_mirror.clone(), pending_seek.clone());
+            // Released-handler copies: the press closure moves its own in.
+            let (released_sender, released_pending) = (sender.clone(), pending_seek.clone());
             click.connect_pressed(move |gesture, _, _, _| {
                 let state = gesture.current_event_state();
                 let shift = state.contains(gdk::ModifierType::SHIFT_MASK);
                 let ctrl = state.contains(gdk::ModifierType::CONTROL_MASK);
-                sender.input(match (shift, ctrl) {
-                    (true, _) => Msg::ExtendSelection(i),
-                    (_, true) => Msg::ToggleSelection(i),
-                    _ => Msg::Seek(i),
-                });
+                if shift {
+                    sender.input(Msg::ExtendSelection(i));
+                } else if ctrl {
+                    sender.input(Msg::ToggleSelection(i));
+                } else {
+                    let on_selection = {
+                        let scope = scope_mirror.borrow();
+                        scope.len() > 1 && scope.contains(&i)
+                    };
+                    if on_selection {
+                        pending_seek.set(Some(i));
+                    } else {
+                        sender.input(Msg::Seek(i));
+                    }
+                }
+            });
+            click.connect_released(move |_, _, _, _| {
+                if let Some(i) = released_pending.take() {
+                    released_sender.input(Msg::Seek(i));
+                }
             });
         }
         cell.add_controller(click);
 
         // Right-click acts on the frame under the pointer, not on the scope,
-        // which is the whole reason to have it as well as the ⋮ menu. The
-        // popover is shared: one per frame is a widget tree per thumbnail.
+        // which is the whole reason to have it as well as the ⋮ menu — but
+        // only when that frame stands alone. Right-clicking a frame already
+        // inside the active selection keeps the selection and switches the
+        // popover to its scope-acting menu. The popover is shared: one per
+        // frame is a widget tree per thumbnail.
         let secondary = gtk::GestureClick::new();
         secondary.set_button(gdk::BUTTON_SECONDARY);
         {
-            let (sender, target, popover, strip) = (
+            let (menu, selection_menu) = (menu.clone(), selection_menu.clone());
+            let (sender, target, popover, strip, scope_mirror) = (
                 sender.clone(),
                 target.clone(),
                 popover.clone(),
                 strip.clone(),
+                scope_mirror.clone(),
             );
             let cell = cell.clone();
             secondary.connect_pressed(move |_, _, x, y| {
                 target.set(i);
-                sender.input(Msg::Seek(i));
+                let on_selection = {
+                    let scope = scope_mirror.borrow();
+                    scope.len() > 1 && scope.contains(&i)
+                };
+                if on_selection {
+                    sender.input(Msg::SeekKeepSelection(i));
+                    popover.set_menu_model(Some(&selection_menu));
+                } else {
+                    sender.input(Msg::Seek(i));
+                    popover.set_menu_model(Some(&menu));
+                }
                 let point = cell
                     .compute_point(&strip, &gtk::graphene::Point::new(x as f32, y as f32))
                     .unwrap_or_else(|| gtk::graphene::Point::new(x as f32, y as f32));
@@ -2594,6 +3731,29 @@ fn rebuild_strip(strip: &gtk::Box, doc: &Document, sender: &ComponentSender<App>
             });
         }
         cell.add_controller(secondary);
+
+        // Drag one thumbnail to reorder it; the payload is just the source
+        // index. Where it lands is decided by the strip's own drop target
+        // (added once, in `build`), which tracks the gap nearest the pointer
+        // across the whole strip rather than per cell.
+        let drag_source = gtk::DragSource::new();
+        drag_source.set_actions(gdk::DragAction::MOVE);
+        {
+            let pending_seek = pending_seek.clone();
+            drag_source.connect_drag_begin(move |_, _| {
+                // The press became a drag: the drop moves whatever the
+                // selection then names, so it must still be whole here —
+                // cancel the collapse-on-release instead.
+                pending_seek.take();
+            });
+        }
+        {
+            let from = i as u32;
+            drag_source.connect_prepare(move |_, _, _| {
+                Some(gdk::ContentProvider::for_value(&from.to_value()))
+            });
+        }
+        cell.add_controller(drag_source);
 
         strip.append(&cell);
     }
@@ -2618,8 +3778,14 @@ fn message_for(action: Action) -> Msg {
         Action::ToolCrop => Msg::ToggleCropTool,
         Action::FrameDelete => Msg::FrameOp(FrameOp::Delete),
         Action::FrameDuplicate => Msg::FrameOp(FrameOp::Duplicate),
+        Action::FrameCut => Msg::FrameOp(FrameOp::Cut),
+        Action::FrameCopy => Msg::FrameCopy,
+        Action::FramePaste => Msg::FramePaste,
         Action::FrameReverse => Msg::FrameOp(FrameOp::Reverse),
         Action::ZoomToSelection => Msg::ApplyZoom,
+        Action::StripZoomIn => Msg::StripZoom(STRIP_ZOOM_STEP),
+        Action::StripZoomOut => Msg::StripZoom(1.0 / STRIP_ZOOM_STEP),
+        Action::StripZoomReset => Msg::StripZoom(0.0),
     }
 }
 
@@ -2632,6 +3798,7 @@ fn install_shortcuts(
     keymap: Rc<RefCell<Keymap>>,
 ) {
     let keys = shortcuts_controller();
+    let esc_sender = sender.clone();
     let sender = sender.clone();
     let root_for_dialog = root.clone();
     // Where the tool cycle is up to, for the case where several tools share a
@@ -2668,6 +3835,22 @@ fn install_shortcuts(
         glib::Propagation::Stop
     });
     root.add_controller(keys);
+
+    // Escape is not a bindable action: it just backs out of the crop tool or
+    // the overlay selection. Bubble phase, so a focused entry clearing itself
+    // wins first.
+    let esc = gtk::EventControllerKey::new();
+    {
+        esc.connect_key_pressed(move |_, key, _, _| {
+            if key == gdk::Key::Escape {
+                esc_sender.input(Msg::Escape);
+                glib::Propagation::Stop
+            } else {
+                glib::Propagation::Proceed
+            }
+        });
+    }
+    root.add_controller(esc);
 }
 
 /// The window's key controller, in the capture phase rather than the default
@@ -3006,6 +4189,9 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
     let file = gio::Menu::new();
     file.append(Some(t("Open…")), Some("win.open"));
     file.append(Some(t("Export GIF…")), Some("win.export"));
+    // Translators: Decodes another video or GIF and appends its frames, so two
+    // clips can be mixed into one timeline.
+    file.append(Some(t("Add frames from file…")), Some("win.import-more"));
     menu.append_section(None, &file);
 
     let insert = gio::Menu::new();
@@ -3019,16 +4205,22 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
     }
     menu.append_submenu(Some(t("Insert")), &insert);
 
+    let image = gio::Menu::new();
+    image.append(Some(t("Resize frames…")), Some("win.optimize-resize"));
+    // Translators: Like the Zoom and resize button, but ignoring the frame
+    // scope — needs a box drawn with the crop tool first.
+    image.append(
+        Some(t("Zoom and resize all frames")),
+        Some("win.optimize-zoom-all"),
+    );
+    menu.append_submenu(Some(t("Image")), &image);
+
     // Everything that makes the GIF smaller, in one place. "Halve frame rate"
     // used to sit in the frame menu pretending to be a rate control; it was
     // deleting every second frame, which is what these say they do.
     let optimize = gio::Menu::new();
     optimize.append(Some(t("Remove frames…")), Some("win.optimize-remove"));
     optimize.append(Some(t("Smart remove frames…")), Some("win.optimize-smart"));
-    optimize.append(Some(t("Resize…")), Some("win.optimize-resize"));
-    // Translators: The same crop the canvas tool applies, offered
-    // document-wide from the Optimize menu.
-    optimize.append(Some(t("Crop all frames…")), Some("win.optimize-crop"));
     menu.append_submenu(Some(t("Optimize")), &optimize);
 
     let settings_menu = gio::Menu::new();
@@ -3080,7 +4272,7 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
         .visible(false)
         .build();
     import_bar.set_size_request(320, -1);
-    let import_cancel = gtk::Button::from_icon_name("process-stop-symbolic");
+    let import_cancel = gtk::Button::from_icon_name("window-close-symbolic");
     import_cancel.add_css_class("circular");
     import_cancel.add_css_class("flat");
     import_cancel.set_valign(gtk::Align::Center);
@@ -3103,14 +4295,54 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
     let rail = gtk::Box::new(gtk::Orientation::Vertical, 4);
     rail.set_margin_all(6);
     let mut tool_buttons = Vec::new();
-    for tool in [Tool::Text, Tool::Rect, Tool::Ellipse, Tool::Arrow] {
-        let button = gtk::Button::with_label(tool_letter(tool));
+    {
+        let button = gtk::Button::from_icon_name(tool_icon_name(Tool::Text));
         button.add_css_class("flat");
-        connect(&button, sender, move || Msg::AddOverlay(tool));
+        connect(&button, sender, || Msg::AddOverlay(Tool::Text));
         rail.append(&button);
-        tool_buttons.push((tool, button));
+        tool_buttons.push((Tool::Text, button));
     }
-    let crop_button = gtk::ToggleButton::with_label("C");
+    // Rect, Ellipse and Arrow share one button: the icon and the click both
+    // follow whichever of the three was used last (Impasto's `ToolBoxWidget`
+    // groups related tools the same way), and the dropdown arrow opens a
+    // flyout to pick a different one.
+    let shape_tool = Rc::new(Cell::new(Tool::Rect));
+    let shape_button = adw::SplitButton::builder()
+        .icon_name(tool_icon_name(shape_tool.get()))
+        .build();
+    shape_button.add_css_class("flat");
+    no_focus_steal(&shape_button);
+    {
+        let (sender, shape_tool) = (sender.clone(), shape_tool.clone());
+        shape_button.connect_clicked(move |_| sender.input(Msg::AddOverlay(shape_tool.get())));
+    }
+    let shape_popover = gtk::Popover::new();
+    let shape_list = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+    for tool in [Tool::Rect, Tool::Ellipse, Tool::Arrow] {
+        let item = gtk::Button::from_icon_name(tool_icon_name(tool));
+        item.add_css_class("flat");
+        item.set_tooltip_text(Some(t(tool_label(tool))));
+        no_focus_steal(&item);
+        let (sender, shape_tool, shape_button, shape_popover) = (
+            sender.clone(),
+            shape_tool.clone(),
+            shape_button.clone(),
+            shape_popover.clone(),
+        );
+        item.connect_clicked(move |_| {
+            shape_tool.set(tool);
+            shape_button.set_icon_name(tool_icon_name(tool));
+            sender.input(Msg::AddOverlay(tool));
+            shape_popover.popdown();
+        });
+        shape_list.append(&item);
+    }
+    shape_popover.set_child(Some(&shape_list));
+    shape_button.set_popover(Some(&shape_popover));
+    rail.append(&shape_button);
+    let crop_button = gtk::ToggleButton::builder()
+        .icon_name("tool-crop-symbolic")
+        .build();
     crop_button.add_css_class("flat");
     no_focus_steal(&crop_button);
     {
@@ -3159,7 +4391,14 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
     let frame_menu = gio::Menu::new();
     frame_menu.append(Some(t("Delete")), Some("win.frame-delete"));
     frame_menu.append(Some(t("Duplicate")), Some("win.frame-duplicate"));
+    frame_menu.append(Some(t("Cut")), Some("win.frame-cut"));
+    frame_menu.append(Some(t("Copy")), Some("win.frame-copy"));
+    frame_menu.append(Some(t("Paste")), Some("win.frame-paste"));
     frame_menu.append(Some(t("Reverse")), Some("win.frame-reverse"));
+    frame_menu.append(
+        Some(t("Set delay for all frames…")),
+        Some("win.frame-delay-all"),
+    );
     let frame_menu_button = gtk::MenuButton::builder()
         .icon_name("view-more-symbolic")
         .menu_model(&frame_menu)
@@ -3206,31 +4445,103 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
     footer.append(&transport);
 
     let strip = gtk::Box::new(gtk::Orientation::Horizontal, THUMB_SPACING);
+    let scope_mirror: Rc<RefCell<Vec<usize>>> = Rc::new(RefCell::new(Vec::new()));
+    let drop_dividers: Rc<RefCell<Vec<gtk::Widget>>> = Rc::new(RefCell::new(Vec::new()));
+    // One drop target for the whole strip, not one per cell: it tracks the
+    // gap nearest the pointer as it moves and paints the divider there, so a
+    // release lands exactly where the line promised rather than leaving the
+    // player to guess between "before" and "after" the cell under it.
+    let drop_target = gtk::DropTarget::new(u32::static_type(), gdk::DragAction::MOVE);
+    {
+        let (strip, drop_dividers) = (strip.clone(), drop_dividers.clone());
+        drop_target.connect_motion(move |_, x, _y| {
+            mark_drop_gap(&drop_dividers.borrow(), Some(gap_at(&strip, x)));
+            gdk::DragAction::MOVE
+        });
+    }
+    {
+        let drop_dividers = drop_dividers.clone();
+        drop_target.connect_leave(move |_| mark_drop_gap(&drop_dividers.borrow(), None));
+    }
+    {
+        let (sender, strip, drop_dividers) = (sender.clone(), strip.clone(), drop_dividers.clone());
+        drop_target.connect_drop(move |_, value, x, _y| {
+            let Ok(from) = value.get::<u32>() else {
+                return false;
+            };
+            let gap = gap_at(&strip, x);
+            mark_drop_gap(&drop_dividers.borrow(), None);
+            sender.input(Msg::MoveSelectionTo {
+                from: from as usize,
+                gap,
+            });
+            true
+        });
+    }
+    strip.add_controller(drop_target);
+
     let bands_model: Rc<RefCell<Vec<Band>>> = Rc::new(std::cell::RefCell::new(Vec::new()));
     let bands = gtk::DrawingArea::new();
     bands.set_content_height(0);
     {
         let bands_model = bands_model.clone();
+        let strip_pitch = model.strip_pitch.clone();
         bands.set_draw_func(move |area, cr, _, _| {
-            draw_bands(area, cr, &bands_model.borrow());
+            draw_bands(area, cr, &bands_model.borrow(), strip_pitch.get());
         });
     }
     let band_click = gtk::GestureClick::new();
+    band_click.set_button(gdk::BUTTON_PRIMARY);
     {
         let bands_model = bands_model.clone();
         let sender = sender.clone();
+        let strip_pitch = model.strip_pitch.clone();
         band_click.connect_pressed(move |_, _, x, y| {
-            let row = (y / BAND_H) as usize;
-            let frame = (x / (THUMB_W + THUMB_SPACING) as f64) as usize;
-            let hit = bands_model
-                .borrow()
-                .get(row)
-                .filter(|band| band.range.contains(&frame))
-                .map(|band| band.id);
+            let hit = band_at(&bands_model.borrow(), x, y, strip_pitch.get());
             sender.input(Msg::SelectOverlay(hit));
         });
     }
     bands.add_controller(band_click);
+
+    // Right-click a band to act on that overlay: in the strip the band *is*
+    // the overlay, so deleting it there beats a trip through the sidebar.
+    // Picking it first means the menu always names what is under the pointer.
+    let band_menu = gio::Menu::new();
+    band_menu.append(Some(t("Delete overlay")), Some("overlay.delete"));
+    let band_popover = gtk::PopoverMenu::from_model(Some(&band_menu));
+    band_popover.set_parent(&bands);
+    band_popover.set_has_arrow(false);
+    {
+        let band_popover = band_popover.clone();
+        bands.connect_destroy(move |_| band_popover.unparent());
+    }
+    {
+        let group = gio::SimpleActionGroup::new();
+        let action = gio::SimpleAction::new("delete", None);
+        let sender = sender.clone();
+        action.connect_activate(move |_, _| sender.input(Msg::DeleteSelection));
+        group.add_action(&action);
+        bands.insert_action_group("overlay", Some(&group));
+    }
+    let band_secondary = gtk::GestureClick::new();
+    band_secondary.set_button(gdk::BUTTON_SECONDARY);
+    {
+        let bands_model = bands_model.clone();
+        let sender = sender.clone();
+        let strip_pitch = model.strip_pitch.clone();
+        let band_popover = band_popover.clone();
+        band_secondary.connect_pressed(move |_, _, x, y| {
+            // Empty space under the pointer: no menu at all, rather than one
+            // that would delete whatever happened to be selected elsewhere.
+            let Some(id) = band_at(&bands_model.borrow(), x, y, strip_pitch.get()) else {
+                return;
+            };
+            sender.input(Msg::SelectOverlay(Some(id)));
+            band_popover.set_pointing_to(Some(&gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+            band_popover.popup();
+        });
+    }
+    bands.add_controller(band_secondary);
 
     // The band list can outgrow the strip, so it scrolls in its own right and
     // collapses to a few rows until asked to expand.
@@ -3255,14 +4566,62 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
     strip_column.append(&bands_scroll);
     strip_column.append(&bands_expander);
     let strip_scroll = gtk::ScrolledWindow::builder()
-        .hscrollbar_policy(gtk::PolicyType::Automatic)
+        .hscrollbar_policy(gtk::PolicyType::External)
         .vscrollbar_policy(gtk::PolicyType::Never)
         .child(&strip_column)
         .build();
     // The footer asks for what the strip actually needs, so this has to carry
     // the strip's own height out rather than reporting a scrollable minimum.
     strip_scroll.set_propagate_natural_height(true);
+    dont_chase_focus(&strip_scroll);
+    // The horizontal scrollbar is a sibling rather than the scrolled window's
+    // own. A non-overlay `Automatic` scrollbar takes its height out of the
+    // viewport without adding it to what the scrolled window measures, so
+    // wherever the footer sat at its minimum height — which is where a
+    // `GtkPaned` end child lands — the strip lost exactly the row of frame
+    // numbers under the thumbnails, with no scrollbar to reach it by. Out
+    // here it is measured along with everything else, and it only takes
+    // space while the strip really is wider than the window.
+    let strip_bar = gtk::Scrollbar::new(
+        gtk::Orientation::Horizontal,
+        Some(&strip_scroll.hadjustment()),
+    );
+    strip_bar.set_visible(false);
+    {
+        let bar = strip_bar.clone();
+        strip_scroll.hadjustment().connect_changed(move |adj| {
+            bar.set_visible(adj.upper() > adj.page_size() + 1.0);
+        });
+    }
+
+    // Ctrl+wheel over the strip zooms the thumbnails; a plain wheel still
+    // scrolls it. Capture phase so it beats the scrolled window's own handler.
+    let strip_wheel = gtk::EventControllerScroll::new(
+        gtk::EventControllerScrollFlags::VERTICAL | gtk::EventControllerScrollFlags::DISCRETE,
+    );
+    strip_wheel.set_propagation_phase(gtk::PropagationPhase::Capture);
+    {
+        let sender = sender.clone();
+        strip_wheel.connect_scroll(move |controller, _, dy| {
+            if !controller
+                .current_event_state()
+                .contains(gdk::ModifierType::CONTROL_MASK)
+                || dy == 0.0
+            {
+                return glib::Propagation::Proceed;
+            }
+            let factor = if dy < 0.0 {
+                STRIP_ZOOM_STEP
+            } else {
+                1.0 / STRIP_ZOOM_STEP
+            };
+            sender.input(Msg::StripZoom(factor));
+            glib::Propagation::Stop
+        });
+    }
+    strip_scroll.add_controller(strip_wheel);
     footer.append(&strip_scroll);
+    footer.append(&strip_bar);
 
     // No fixed split: the footer asks for what the strip and its bands
     // actually need, and the canvas gets everything else. Adding an overlay
@@ -3281,7 +4640,7 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
     let properties = gtk::Box::new(gtk::Orientation::Vertical, 12);
     properties.set_margin_all(12);
     properties.set_size_request(280, -1);
-    let group = adw::PreferencesGroup::builder()
+    let text_group = adw::PreferencesGroup::builder()
         .title(t("Properties"))
         .build();
     // Every sidebar setter fires its own notify handler, so `update_view` holds
@@ -3302,7 +4661,7 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
     let text_row = adw::ActionRow::builder().title(t("Text")).build();
     text_row.add_suffix(&text_entry);
     text_row.set_visible(false);
-    group.add(&text_row);
+    text_group.add(&text_row);
 
     // Overlay styling. Font choice covers bold and italic, because a font
     // description already carries weight and style: two toggles that fight the
@@ -3311,6 +4670,17 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
         .title(t("Overlay"))
         .visible(false)
         .build();
+    // Deleting the overlay belongs with the controls that edit it — the same
+    // one the band menu in the strip acts on. Destructive, so it takes the
+    // accent-free red styling rather than sitting in the row list where a
+    // stray click while changing a colour would land on it.
+    let overlay_delete = gtk::Button::from_icon_name("user-trash-symbolic");
+    overlay_delete.set_valign(gtk::Align::Center);
+    overlay_delete.add_css_class("flat");
+    overlay_delete.add_css_class("destructive-action");
+    overlay_delete.set_tooltip_text(Some(t("Delete overlay")));
+    connect(&overlay_delete, sender, || Msg::DeleteSelection);
+    overlay_group.set_header_suffix(Some(&overlay_delete));
     let font_button = gtk::FontDialogButton::new(Some(gtk::FontDialog::new()));
     font_button.set_valign(gtk::Align::Center);
     {
@@ -3487,32 +4857,116 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
     crop_label.add_css_class("dim-label");
     crop_label.set_wrap(true);
     crop_label.set_xalign(0.0);
-    let crop_buttons = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    let crop_buttons = gtk::Box::new(gtk::Orientation::Vertical, 6);
     let crop_apply = gtk::Button::with_label(t("Crop all frames"));
-    // Translators: Applies the zoom to the frames the scope control names, not the whole document.
-    let zoom_apply = gtk::Button::with_label(t("Zoom scope"));
+    crop_apply.set_tooltip_text(Some(t(
+        "Crops every frame in the document to this box, shrinking the canvas.",
+    )));
+    // Translators: Zoom follows the frame scope — the frame on screen, or the
+    // selected frames when there is a selection. "Zoom and resize all frames"
+    // in the Optimize menu ignores the scope and takes the whole document.
+    let zoom_apply = gtk::Button::with_label(t("Zoom and resize"));
+    zoom_apply.set_tooltip_text(Some(t(
+        "Fills the canvas from this box, on the frame on screen or the selected frames.",
+    )));
+    // Translators: Crops the frame(s) in scope in place, leaving the rest of
+    // each one transparent instead of scaling the kept region back up.
+    let shrink_apply = gtk::Button::with_label(t("Crop and keep size"));
+    shrink_apply.set_tooltip_text(Some(t(
+        "Crops this box on every frame in scope, in place, without scaling it \
+         up, and blanks the rest of each frame to transparent.",
+    )));
     connect(&crop_apply, sender, || Msg::ApplyCrop);
     connect(&zoom_apply, sender, || Msg::ApplyZoom);
+    connect(&shrink_apply, sender, || Msg::ApplyShrink);
     crop_buttons.append(&crop_apply);
     crop_buttons.append(&zoom_apply);
+    crop_buttons.append(&shrink_apply);
     let crop_box = gtk::Box::new(gtk::Orientation::Vertical, 6);
     crop_box.append(&crop_label);
     crop_box.append(&crop_buttons);
     crop_group.add(&crop_box);
 
+    // Frame view: the delay of the frame(s) in scope, then a picker for the
+    // overlays sitting on the frame on screen. `overlay_group` below edits
+    // whichever overlay is picked. `update_view` swaps this group's title and
+    // the delay row's subtitle to a "N frames selected" summary, and hides
+    // the overlay picker and the overlay/text editors below, whenever the
+    // scope names more than one frame: editing an overlay's own properties,
+    // or picking which overlay sits on "the" frame, has no single answer
+    // once more than one frame is in play.
+    let frame_group = adw::PreferencesGroup::builder().title(t("Frame")).build();
+    let frame_delay = gtk::SpinButton::with_range(1.0, u16::MAX as f64, 1.0);
+    frame_delay.set_valign(gtk::Align::Center);
+    {
+        let (sender, sync) = (sender.clone(), sync.clone());
+        frame_delay.connect_value_changed(move |spin| {
+            if sync.get() {
+                return;
+            }
+            sender.input(Msg::SetScopeDelay(spin.value() as u16));
+        });
+    }
+    // Translators: Per-frame hold time, in centiseconds (1/100 s).
+    let delay_row = suffixed(t("Delay (cs)"), &frame_delay);
+    frame_group.add(&delay_row);
+
+    let overlay_list_group = adw::PreferencesGroup::builder()
+        .title(t("Overlays on this frame"))
+        .visible(false)
+        .build();
+    let overlay_list = gtk::ListBox::builder()
+        .selection_mode(gtk::SelectionMode::Single)
+        .build();
+    overlay_list.add_css_class("boxed-list");
+    let overlay_list_ids: Rc<RefCell<Vec<OverlayId>>> = Rc::new(RefCell::new(Vec::new()));
+    {
+        let (sender, sync, ids) = (sender.clone(), sync.clone(), overlay_list_ids.clone());
+        overlay_list.connect_row_selected(move |_, row| {
+            if sync.get() {
+                return;
+            }
+            let picked = row.and_then(|r| ids.borrow().get(r.index() as usize).copied());
+            sender.input(Msg::SelectOverlay(picked));
+        });
+    }
+    // Past a handful of layers the list scrolls rather than pushing the
+    // overlay editor below it off the panel, the same bargain the strip's
+    // band area makes. The cap is a row height measured off the real rows
+    // (`update_view`), not a guess at what an ActionRow comes out as.
+    let overlay_list_scroll = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .vscrollbar_policy(gtk::PolicyType::Automatic)
+        .propagate_natural_height(true)
+        .child(&overlay_list)
+        .build();
+    overlay_list_group.add(&overlay_list_scroll);
+
     let doc_info = gtk::Label::new(Some(""));
     doc_info.add_css_class("dim-label");
     doc_info.set_wrap(true);
     doc_info.set_xalign(0.0);
-    properties.append(&group);
+    properties.append(&frame_group);
+    properties.append(&overlay_list_group);
+    properties.append(&text_group);
     properties.append(&overlay_group);
     properties.append(&crop_group);
     properties.append(&doc_info);
 
+    // The panel is taller than a short window whenever a text overlay's
+    // editor is up, so it scrolls; without this the rows below the fold —
+    // the colour pickers, the crop buttons, the document summary — were
+    // simply unreachable.
+    let properties_scroll = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .vscrollbar_policy(gtk::PolicyType::Automatic)
+        .propagate_natural_width(true)
+        .child(&properties)
+        .build();
     let split = adw::OverlaySplitView::builder()
         .sidebar_position(gtk::PackType::End)
         .content(&paned)
-        .sidebar(&properties)
+        .sidebar(&properties_scroll)
         .build();
 
     let breakpoint = adw::Breakpoint::new(adw::BreakpointCondition::new_length(
@@ -3547,6 +5001,7 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
         ("frame-delete", FrameOp::Delete),
         ("frame-duplicate", FrameOp::Duplicate),
         ("frame-reverse", FrameOp::Reverse),
+        ("frame-cut", FrameOp::Cut),
     ] {
         let action = gio::SimpleAction::new(name, None);
         let sender = sender.clone();
@@ -3555,6 +5010,8 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
     }
     for (name, make) in [
         ("export", (|| Msg::Export) as fn() -> Msg),
+        ("frame-copy", || Msg::FrameCopy),
+        ("frame-paste", || Msg::FramePaste),
         ("insert-text", || Msg::AddOverlay(Tool::Text)),
         ("insert-rect", || Msg::AddOverlay(Tool::Rect)),
         ("insert-ellipse", || Msg::AddOverlay(Tool::Ellipse)),
@@ -3588,6 +5045,24 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
         crop_all.connect_activate(move |_, _| sender.input(Msg::CropAllDialog));
     }
     actions.add_action(&crop_all);
+    let zoom_all = gio::SimpleAction::new("optimize-zoom-all", None);
+    {
+        let sender = sender.clone();
+        zoom_all.connect_activate(move |_, _| sender.input(Msg::ApplyZoomAll));
+    }
+    actions.add_action(&zoom_all);
+    let delay_all = gio::SimpleAction::new("frame-delay-all", None);
+    {
+        let sender = sender.clone();
+        delay_all.connect_activate(move |_, _| sender.input(Msg::DelayAllDialog));
+    }
+    actions.add_action(&delay_all);
+    let import_more = gio::SimpleAction::new("import-more", None);
+    {
+        let sender = sender.clone();
+        import_more.connect_activate(move |_, _| sender.input(Msg::ImportMore));
+    }
+    actions.add_action(&import_more);
     root.insert_action_group("win", Some(&actions));
 
     Widgets {
@@ -3610,6 +5085,16 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
         properties,
         text_entry,
         text_row,
+        text_group,
+        frame_group,
+        frame_delay,
+        delay_row,
+        overlay_list,
+        overlay_list_scroll,
+        overlay_list_group,
+        overlay_list_ids,
+        scope_mirror,
+        drop_dividers,
         text_rows: vec![
             font_row.into(),
             size_row.into(),
@@ -3634,7 +5119,10 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
         crop_button,
         crop_apply,
         zoom_apply,
+        shrink_apply,
         tool_buttons,
+        shape_button,
+        shape_tool,
         bands_scroll,
         bands_expander,
         canvas_overlay,
@@ -3681,9 +5169,20 @@ fn connect_pair(
 
 /// One row per overlay, each band spanning the frames its range covers. This is
 /// the layer list; a second one in the sidebar would list every object twice.
-fn draw_bands(area: &gtk::DrawingArea, cr: &cairo::Context, bands: &[Band]) {
+/// The overlay whose packed row and frame span contain the click. `bands` is
+/// not one entry per visual row — `pack_rows` puts non-overlapping overlays
+/// side by side on the same row — so this searches rather than indexing.
+fn band_at(bands: &[Band], x: f64, y: f64, pitch: f64) -> Option<OverlayId> {
+    let row = (y / BAND_H) as usize;
+    let frame = (x / pitch) as usize;
+    bands
+        .iter()
+        .find(|band| band.row == row && band.range.contains(&frame))
+        .map(|band| band.id)
+}
+
+fn draw_bands(area: &gtk::DrawingArea, cr: &cairo::Context, bands: &[Band], pitch: f64) {
     let color = area.color();
-    let pitch = (THUMB_W + THUMB_SPACING) as f64;
     for band in bands {
         let row = band.row;
         let x = band.range.start as f64 * pitch;
@@ -4295,10 +5794,12 @@ fn crop_dialog(root: &adw::ApplicationWindow, cw: u32, ch: u32, sender: &Compone
     });
 }
 
-/// Per-frame delay, from the frame's own context menu.
-fn delay_dialog(
+/// Per-frame delay, from the frame's own context menu. `scope` is what
+/// "apply" lands on: the one right-clicked frame, or the whole active
+/// selection when the menu was opened from inside one.
+fn delay_scope_dialog(
     anchor: &impl IsA<gtk::Widget>,
-    index: usize,
+    scope: &[usize],
     delay_cs: u16,
     sender: &ComponentSender<App>,
 ) {
@@ -4311,12 +5812,25 @@ fn delay_dialog(
     spin.set_value(delay_cs.max(1) as f64);
     spin.set_valign(gtk::Align::Center);
     let group = adw::PreferencesGroup::new();
-    let row = adw::ActionRow::builder()
-        .title(fill(
-            t("Frame {number}"),
-            &[("number", &(index + 1).to_string())],
-        ))
-        .build();
+    let row = if scope.len() == 1 {
+        adw::ActionRow::builder()
+            .title(fill(
+                t("Frame {number}"),
+                &[("number", &(scope[0] + 1).to_string())],
+            ))
+            .build()
+    } else {
+        adw::ActionRow::builder()
+            .title(fill(
+                tn(
+                    "{count} selected frame",
+                    "{count} selected frames",
+                    scope.len(),
+                ),
+                &[("count", &scope.len().to_string())],
+            ))
+            .build()
+    };
     row.add_suffix(&spin);
     group.add(&row);
     dialog.set_extra_child(Some(&group));
@@ -4331,18 +5845,103 @@ fn delay_dialog(
         gio::Cancellable::NONE,
         move |response| {
             if response == "apply" {
-                sender.input(Msg::SetFrameDelay(index, spin.value() as u16));
+                sender.input(Msg::SetScopeDelay(spin.value() as u16));
             }
         },
     );
 }
 
-fn tool_letter(tool: Tool) -> &'static str {
+/// From the "Frame operations" menu: set every frame's delay at once, rather
+/// than selecting all frames and finding there is no menu entry for it.
+fn delay_all_dialog(
+    root: &adw::ApplicationWindow,
+    count: usize,
+    delay_cs: u16,
+    sender: &ComponentSender<App>,
+) {
+    let dialog = adw::AlertDialog::new(
+        Some(t("Set delay for all frames")),
+        // Translators: GIF stores frame delays in centiseconds.
+        Some(t(
+            "How long every frame is held, in hundredths of a second.",
+        )),
+    );
+    let spin = gtk::SpinButton::with_range(1.0, 6000.0, 1.0);
+    spin.set_value(delay_cs.max(1) as f64);
+    spin.set_valign(gtk::Align::Center);
+    let group = adw::PreferencesGroup::new();
+    let row = adw::ActionRow::builder()
+        .title(fill(
+            t("All {count} frames"),
+            &[("count", &count.to_string())],
+        ))
+        .build();
+    row.add_suffix(&spin);
+    group.add(&row);
+    dialog.set_extra_child(Some(&group));
+    dialog.add_response("cancel", t("Cancel"));
+    dialog.add_response("apply", t("Apply"));
+    dialog.set_response_appearance("apply", adw::ResponseAppearance::Suggested);
+    dialog.set_close_response("cancel");
+
+    let sender = sender.clone();
+    dialog.choose(Some(root), gio::Cancellable::NONE, move |response| {
+        if response == "apply" {
+            sender.input(Msg::SetAllFramesDelay(spin.value() as u16));
+        }
+    });
+}
+
+/// A frame's own context menu: type an exact 1-based target position rather
+/// than nudging one step at a time.
+fn move_frame_dialog(
+    anchor: &impl IsA<gtk::Widget>,
+    from: usize,
+    count: usize,
+    sender: &ComponentSender<App>,
+) {
+    let dialog = adw::AlertDialog::new(
+        Some(t("Move frame")),
+        Some(t("Where should this frame go?")),
+    );
+    let spin = gtk::SpinButton::with_range(1.0, count as f64, 1.0);
+    spin.set_value((from + 1) as f64);
+    spin.set_valign(gtk::Align::Center);
+    let group = adw::PreferencesGroup::new();
+    let row = adw::ActionRow::builder()
+        .title(fill(
+            t("Frame {number}"),
+            &[("number", &(from + 1).to_string())],
+        ))
+        .build();
+    row.add_suffix(&spin);
+    group.add(&row);
+    dialog.set_extra_child(Some(&group));
+    dialog.add_response("cancel", t("Cancel"));
+    dialog.add_response("apply", t("Move"));
+    dialog.set_response_appearance("apply", adw::ResponseAppearance::Suggested);
+    dialog.set_close_response("cancel");
+
+    let sender = sender.clone();
+    dialog.choose(
+        Some(anchor.as_ref()),
+        gio::Cancellable::NONE,
+        move |response| {
+            if response == "apply" {
+                let to = (spin.value() as usize).saturating_sub(1).min(count - 1);
+                sender.input(Msg::MoveFrame(from, to));
+            }
+        },
+    );
+}
+
+/// Icon name for the bundled left-rail glyph (`resources/README.md`).
+fn tool_icon_name(tool: Tool) -> &'static str {
     match tool {
-        Tool::Text => "T",
-        Tool::Rect => "R",
-        Tool::Ellipse => "O",
-        Tool::Arrow => "A",
+        Tool::Text => "tool-text-symbolic",
+        Tool::Rect => "tool-rect-symbolic",
+        Tool::Ellipse => "tool-ellipse-symbolic",
+        Tool::Arrow => "tool-arrow-symbolic",
     }
 }
 
@@ -4370,6 +5969,159 @@ fn suffixed(title: &str, suffix: &impl IsA<gtk::Widget>) -> adw::ActionRow {
     let row = adw::ActionRow::builder().title(title).build();
     row.add_suffix(suffix);
     row
+}
+
+/// One row of the sidebar layer list: the overlay's name, then its two
+/// z-order steps and a quick delete. Each button carries the overlay it
+/// belongs to rather than acting on the selection, so no row can delete or
+/// restack a different layer than the one it sits on. `can_raise` and
+/// `can_lower` are false at the ends of the list, where the step has
+/// nowhere to go.
+fn overlay_row(
+    id: OverlayId,
+    name: &str,
+    can_raise: bool,
+    can_lower: bool,
+    sender: &ComponentSender<App>,
+) -> adw::ActionRow {
+    let buttons = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    buttons.set_valign(gtk::Align::Center);
+    for (icon, tip, up, enabled) in [
+        ("go-up-symbolic", t("Move overlay up"), true, can_raise),
+        ("go-down-symbolic", t("Move overlay down"), false, can_lower),
+    ] {
+        let step = gtk::Button::from_icon_name(icon);
+        step.add_css_class("flat");
+        step.set_tooltip_text(Some(tip));
+        step.set_sensitive(enabled);
+        connect(&step, sender, move || Msg::RestackOverlay { id, up });
+        buttons.append(&step);
+    }
+    // The X is the quick one, beside the layer it removes; the red trash
+    // button in the overlay editor below deletes the selected overlay.
+    let delete = gtk::Button::from_icon_name("window-close-symbolic");
+    delete.add_css_class("flat");
+    delete.set_tooltip_text(Some(t("Delete overlay")));
+    connect(&delete, sender, move || Msg::DeleteOverlay(id));
+    buttons.append(&delete);
+    suffixed(name, &buttons)
+}
+
+/// The heights to hold the layer list between: `LAYER_ROWS_KEPT` rows it
+/// never shrinks below and `LAYER_ROWS_SHOWN` it never grows past, in units
+/// of its own rows — measured rather than assumed, since a row's height is
+/// whatever the theme's `AdwActionRow` plus the buttons in it comes out as.
+/// The floor is what makes the panel around it overflow and scroll instead
+/// of squeezing the list down to a sliver; the ceiling is what keeps the
+/// editor for the layer that is picked from being pushed off the panel.
+/// `(0, 0)` while the list is empty, which is also when the group is hidden.
+fn layer_list_heights(list: &gtk::ListBox) -> (i32, i32) {
+    let Some(row) = list.first_child() else {
+        return (0, 0);
+    };
+    let (_, row_h, _, _) = row.measure(gtk::Orientation::Vertical, -1);
+    let rows = list.observe_children().n_items() as usize;
+    (
+        row_h * rows.min(LAYER_ROWS_KEPT) as i32,
+        row_h * LAYER_ROWS_SHOWN as i32,
+    )
+}
+
+/// Stop a scroller's viewport from scrolling itself to wherever the keyboard
+/// focus went. The strip's frame menu is a `Popover` parented to the strip, so
+/// closing it — which is what duplicating, deleting or pasting a frame does —
+/// moved the focus, and the viewport answered by scrolling the timeline off to
+/// whatever it thought the focus was nearest, usually back to frame 1. Nothing
+/// inside the strip takes the focus, so there is nothing there worth chasing.
+fn dont_chase_focus(scroll: &gtk::ScrolledWindow) {
+    if let Some(viewport) = scroll.child().and_downcast::<gtk::Viewport>() {
+        viewport.set_scroll_to_focus(false);
+    }
+}
+
+/// Apply `layer_list_heights` to the list's scroller in whichever order
+/// leaves the pair consistent at every step. GTK checks each half against
+/// the other as it is set and drops the write that would cross it, so
+/// raising the floor past the standing ceiling has to raise the ceiling
+/// first — which is exactly what a list refilling after it went empty does,
+/// both bounds having been pinned to zero while it had no rows. The other
+/// direction needs the floor lowered first, and `cap >= keep` holds by
+/// construction (`LAYER_ROWS_KEPT <= LAYER_ROWS_SHOWN`), so one comparison
+/// picks the safe order.
+fn set_layer_list_heights(scroll: &gtk::ScrolledWindow, keep: i32, cap: i32) {
+    if keep > scroll.max_content_height() {
+        scroll.set_max_content_height(cap);
+        scroll.set_min_content_height(keep);
+    } else {
+        scroll.set_min_content_height(keep);
+        scroll.set_max_content_height(cap);
+    }
+}
+
+/// Scroll `row` into `scroll`'s visible window, by the shortest move that
+/// gets it there — nothing at all when it is already in view, so picking a
+/// row does not jerk the list around. Silent before the first layout, when
+/// the row has no bounds to read yet.
+fn show_row(scroll: &gtk::ScrolledWindow, list: &gtk::ListBox, row: &gtk::ListBoxRow) {
+    let Some(bounds) = row.compute_bounds(list) else {
+        return;
+    };
+    let (top, bottom) = (bounds.y() as f64, (bounds.y() + bounds.height()) as f64);
+    let adjustment = scroll.vadjustment();
+    let (shown, page) = (adjustment.value(), adjustment.page_size());
+    if top < shown {
+        adjustment.set_value(top);
+    } else if bottom > shown + page {
+        adjustment.set_value(bottom - page);
+    }
+}
+
+/// The sidebar heading for the frame view: "Frame" for a single frame in
+/// scope (or none), or a summary of which frames are once the scope names
+/// more than one — the panel this titles trades per-frame overlay editing
+/// for a scoped delay edit (`SetScopeDelay`) once that happens. `in_scope`
+/// is `scope_frames()`: sorted, deduplicated, already clamped to the
+/// document.
+fn frame_scope_summary(scope: ScopeChoice, in_scope: &[usize]) -> String {
+    if in_scope.len() <= 1 {
+        return t("Frame").into();
+    }
+    if scope == ScopeChoice::AllFrames {
+        // Translators: Sidebar heading while every frame is in scope.
+        return fill(
+            t("All {count} frames selected"),
+            &[("count", &in_scope.len().to_string())],
+        );
+    }
+    let (first, last) = (in_scope[0], in_scope[in_scope.len() - 1]);
+    if last - first + 1 == in_scope.len() {
+        return fill(
+            // Translators: Sidebar heading for a run of selected frames. Frame numbers are 1-based and inclusive.
+            t("Frames {first}–{last} selected"),
+            &[
+                ("first", &(first + 1).to_string()),
+                ("last", &(last + 1).to_string()),
+            ],
+        );
+    }
+    if in_scope.len() <= 8 {
+        let numbers = in_scope
+            .iter()
+            .map(|i| (i + 1).to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        // Translators: Sidebar heading for a non-contiguous set of selected frames; {numbers} is a comma-separated, 1-based list.
+        return fill(t("Frames {numbers} selected"), &[("numbers", &numbers)]);
+    }
+    // Translators: Sidebar heading when too many non-contiguous frames are selected to list by number.
+    fill(
+        tn(
+            "{count} frame selected",
+            "{count} frames selected",
+            in_scope.len(),
+        ),
+        &[("count", &in_scope.len().to_string())],
+    )
 }
 
 fn color_button() -> gtk::ColorDialogButton {
@@ -4454,6 +6206,90 @@ mod tests {
         )
     }
 
+    /// A minimal `App` for testing scope logic without a display: nothing
+    /// on the model itself is GTK-owned, so this needs no window or sender.
+    fn app_with(doc: Document, scope: ScopeChoice, selection: Vec<usize>, playhead: usize) -> App {
+        App {
+            editor: Editor::new(doc),
+            caps: Caps::default(),
+            settings: Settings::default(),
+            path: None,
+            playhead,
+            playing: false,
+            scope,
+            selection,
+            anchor: None,
+            selected_overlay: None,
+            busy: None,
+            estimate: None,
+            estimate_pending: None,
+            keymap: Rc::new(RefCell::new(Keymap::default())),
+            drag: None,
+            crop_tool: false,
+            crop_rect: None,
+            bands_expanded: false,
+            strip_keys: RefCell::new(Vec::new()),
+            strip_zoom: Rc::new(Cell::new(1.0)),
+            strip_pitch: Rc::new(Cell::new(cell_pitch(THUMB_BOX, 1.0))),
+            strip_zoom_shown: Cell::new(1.0),
+            rev: 0,
+            import_append: false,
+            clipboard: Vec::new(),
+        }
+    }
+
+    /// Scope-driven tools - "Crop and keep size" and "Zoom and resize" on the
+    /// canvas, and the frame-operations menu (delete/duplicate/reverse) - must
+    /// land on exactly what the scope names: the frame on screen, a selection,
+    /// or every frame. Regression: `Msg::ApplyShrink` and `Msg::ApplyZoom` both
+    /// used to hardcode `vec![self.playhead]`, so selecting "All frames" and
+    /// drawing a crop box still only touched the frame on screen.
+    #[test]
+    fn scope_driven_tools_touch_exactly_what_the_scope_names() {
+        let cases: Vec<(App, Vec<usize>)> = vec![
+            (
+                app_with(doc(5), ScopeChoice::ThisFrame, Vec::new(), 3),
+                vec![3],
+            ),
+            (
+                app_with(doc(5), ScopeChoice::Range, vec![4, 1, 1], 0),
+                vec![1, 4],
+            ),
+            (
+                app_with(doc(5), ScopeChoice::AllFrames, Vec::new(), 0),
+                (0..5).collect(),
+            ),
+        ];
+        for (app, want) in &cases {
+            assert_eq!(
+                &app.scope_frames(),
+                want,
+                "scope_frames() must resolve to {want:?}"
+            );
+
+            // The exact path Msg::ApplyShrink takes, minus dispatching the
+            // work to the worker thread.
+            let work = app.shrink_work((1.0, 1.0, 4.0, 4.0)).unwrap();
+            let FrameWork::Shrink { frames, .. } = work else {
+                panic!("expected Shrink work");
+            };
+            assert_eq!(&frames, want, "shrink must touch exactly the scoped frames");
+
+            // The panel's "Zoom and resize" (Msg::ApplyZoom) follows the same
+            // scope; the Image menu's "all frames" variant never does.
+            assert_eq!(
+                &app.zoom_frames(false),
+                want,
+                "scoped zoom must touch exactly the scoped frames"
+            );
+            assert_eq!(
+                app.zoom_frames(true),
+                (0..app.frame_count()).collect::<Vec<_>>(),
+                "'all frames' zoom must ignore the scope"
+            );
+        }
+    }
+
     /// Regression: the strip was keyed on the document revision, which overlay
     /// edits bump too, so every keystroke in the text entry rebuilt a widget and
     /// a texture per frame.
@@ -4505,6 +6341,477 @@ mod tests {
         doc.replace_frame_pixels(0, image::RgbaImage::new(8, 8));
         assert_ne!(strip_keys(&doc), opaque);
         assert!(strip_keys(&doc)[0].1, "detached");
+    }
+
+    /// Regression: the sidebar overlay editor stayed up for an overlay on a
+    /// different frame, so a frame with nothing on it still showed text fields.
+    #[test]
+    fn sidebar_edits_an_overlay_only_while_it_is_on_the_frame() {
+        let mut app = app_with(doc(6), ScopeChoice::ThisFrame, Vec::new(), 0);
+        let id = app.editor.doc.add_overlay(
+            "cap",
+            OverlayKind::Text(TextOverlay {
+                text: "hi".into(),
+                ..Default::default()
+            }),
+            Transform::at(0.0, 0.0, 8.0, 8.0),
+            1..3,
+        );
+        app.selected_overlay = Some(id);
+
+        app.playhead = 2;
+        assert_eq!(app.editing_overlay(), Some(id), "on the overlay's frame");
+
+        app.playhead = 4;
+        assert_eq!(app.editing_overlay(), None, "off it: plain frame view");
+        assert!(app.overlays_on(4).is_empty());
+
+        app.playhead = 1;
+        assert_eq!(app.editing_overlay(), Some(id), "memory: back on its frame");
+    }
+
+    /// The layer list reads top-down like the canvas stacks — the last
+    /// overlay in `doc.overlays` paints on top, so it is the first row — and
+    /// a step moves past the layer *shown* next to it, skipping overlays that
+    /// are not on this frame and would make the button look dead.
+    #[test]
+    fn layer_list_is_topmost_first_and_steps_past_what_it_shows() {
+        let mut app = app_with(doc(4), ScopeChoice::ThisFrame, Vec::new(), 0);
+        let shape = || {
+            OverlayKind::Shape(ShapeOverlay {
+                shape: Shape::Rect,
+                fill: Some([1, 2, 3, 255]),
+                stroke: None,
+            })
+        };
+        let box_at = Transform::at(0.0, 0.0, 8.0, 8.0);
+        let bottom = app.editor.doc.add_overlay("bottom", shape(), box_at, 0..4);
+        let elsewhere = app
+            .editor
+            .doc
+            .add_overlay("elsewhere", shape(), box_at, 2..4);
+        let top = app.editor.doc.add_overlay("top", shape(), box_at, 0..4);
+
+        let rows = |app: &App| {
+            app.stacked_overlays()
+                .into_iter()
+                .map(|(_, name)| name)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(rows(&app), vec!["top", "bottom"], "topmost row first");
+
+        assert_eq!(
+            app.restack_neighbour(bottom, true),
+            Some(top),
+            "a step up goes past the row above, not past `elsewhere`"
+        );
+        assert_eq!(app.restack_neighbour(top, true), None, "already on top");
+        assert_eq!(app.restack_neighbour(bottom, false), None, "already bottom");
+
+        app.restack_overlay(bottom, true);
+        assert_eq!(rows(&app), vec!["bottom", "top"]);
+        assert_eq!(
+            app.editor.doc.overlays.last().map(|o| o.id),
+            Some(bottom),
+            "the first row is the overlay painted last"
+        );
+        assert_eq!(
+            app.editor.doc.overlay(elsewhere).map(|o| o.range.clone()),
+            Some(2..4),
+            "an overlay the step skipped is untouched"
+        );
+        assert_eq!(app.selected_overlay, Some(bottom), "stays on what moved");
+    }
+
+    /// Copy leaves the document alone and paste splices the clipboard in
+    /// after the frame on screen, keeping the clipboard for the next paste.
+    #[test]
+    fn copied_frames_paste_in_after_the_frame_on_screen() {
+        let mut app = app_with(doc(4), ScopeChoice::ThisFrame, Vec::new(), 0);
+        let reds = |app: &App| {
+            app.editor
+                .doc
+                .frames
+                .iter()
+                .map(|f| f.pixels.get_pixel(0, 0).0[0])
+                .collect::<Vec<u8>>()
+        };
+        assert_eq!(app.paste_frames(), None, "nothing copied yet");
+
+        app.copy_frames(&[0, 1]);
+        assert_eq!(reds(&app), vec![0, 1, 2, 3], "copying edits nothing");
+
+        app.playhead = 2;
+        assert!(app.paste_frames().is_some());
+        assert_eq!(reds(&app), vec![0, 1, 2, 0, 1, 3], "the run lands in order");
+        assert_eq!(app.playhead, 4, "on the last pasted frame");
+        assert_eq!(app.selection, vec![3, 4], "the pasted run stays picked");
+
+        assert!(app.paste_frames().is_some(), "the clipboard is still there");
+        assert_eq!(reds(&app), vec![0, 1, 2, 0, 1, 0, 1, 3]);
+    }
+
+    /// Regression: the band click read `bands_model[pixel_row]`, so with more
+    /// than one overlay - two packed onto row 0 side by side, a third on row 1 -
+    /// clicking the second or third band selected the wrong overlay or nothing.
+    #[test]
+    fn band_click_hits_the_band_under_the_point() {
+        let pitch = cell_pitch(THUMB_BOX, 1.0);
+        let mid = |frame: usize| (frame as f64 + 0.5) * pitch;
+        let bands = vec![
+            Band {
+                id: OverlayId(1),
+                name: "A".into(),
+                range: 0..3,
+                selected: false,
+                row: 0,
+            },
+            Band {
+                id: OverlayId(2),
+                name: "B".into(),
+                range: 5..8,
+                selected: false,
+                row: 0,
+            },
+            Band {
+                id: OverlayId(3),
+                name: "C".into(),
+                range: 1..6,
+                selected: false,
+                row: 1,
+            },
+        ];
+        let y0 = BAND_H * 0.5;
+        let y1 = BAND_H * 1.5;
+        assert_eq!(band_at(&bands, mid(1), y0, pitch), Some(OverlayId(1)));
+        assert_eq!(
+            band_at(&bands, mid(6), y0, pitch),
+            Some(OverlayId(2)),
+            "2nd band on row 0"
+        );
+        assert_eq!(band_at(&bands, mid(4), y0, pitch), None, "gap between them");
+        assert_eq!(
+            band_at(&bands, mid(3), y1, pitch),
+            Some(OverlayId(3)),
+            "band on row 1"
+        );
+        assert_eq!(
+            band_at(&bands, mid(3), BAND_H * 2.5, pitch),
+            None,
+            "empty row"
+        );
+    }
+
+    /// Strip zoom scales the band hit-test pitch: a point that lands on frame 6
+    /// at 1x sits on frame 3 when the strip is drawn at half size.
+    #[test]
+    fn band_hit_test_follows_strip_zoom() {
+        let pitch = cell_pitch(THUMB_BOX, 1.0);
+        let bands = vec![
+            Band {
+                id: OverlayId(1),
+                name: "A".into(),
+                range: 0..4,
+                selected: false,
+                row: 0,
+            },
+            Band {
+                id: OverlayId(2),
+                name: "B".into(),
+                range: 5..8,
+                selected: false,
+                row: 0,
+            },
+        ];
+        let x = (6.0 + 0.5) * pitch;
+        let y = BAND_H * 0.5;
+        assert_eq!(band_at(&bands, x, y, pitch), Some(OverlayId(2)));
+        // Half the zoom: the thumbnails halve but the gaps between them do
+        // not, so the same x is over frame 12, past every band.
+        assert_eq!(band_at(&bands, x, y, cell_pitch(THUMB_BOX, 0.5)), None);
+        // Double: the same x is over frame 3, inside band A.
+        assert_eq!(
+            band_at(&bands, x, y, cell_pitch(THUMB_BOX, 2.0)),
+            Some(OverlayId(1))
+        );
+    }
+
+    /// The divider shown while dragging promises the frames will land right
+    /// next to a specific neighbor; `move_target_for_set` is what turns that
+    /// promise into the post-removal index `Document::move_frames_to` needs.
+    #[test]
+    fn move_target_for_set_lands_where_the_divider_promised() {
+        // Dragging frame 0 to the gap right after itself is a no-op.
+        assert_eq!(move_target_for_set(&[0], 1), 0);
+        // Forward, past several frames still in the way after 0 moves out.
+        assert_eq!(move_target_for_set(&[0], 3), 2);
+        // Backward: nothing before the target gap moved, so it is the
+        // final index outright.
+        assert_eq!(move_target_for_set(&[3], 1), 1);
+        // Past the last frame of 5.
+        assert_eq!(move_target_for_set(&[0], 5), 4);
+        // A gappy selection of three: the gap sits before all of them, so
+        // the whole run slides down by three.
+        assert_eq!(move_target_for_set(&[2, 5, 7], 1), 1);
+        // …and after two of them: the run lands two earlier than the gap.
+        assert_eq!(move_target_for_set(&[2, 5, 7], 6), 4);
+    }
+
+    /// End-to-end through the real `Document::move_frames_to`: whatever gap
+    /// the divider is drawn at, the dragged frames end up adjacent to
+    /// exactly the neighbor the divider promised, dragging either direction
+    /// and as a multi-frame selection.
+    #[test]
+    fn move_target_for_set_round_trips_through_move_frames_to() {
+        let ids_at = |d: &Document| -> Vec<u8> {
+            d.frames
+                .iter()
+                .map(|f| f.pixels.get_pixel(0, 0)[0])
+                .collect()
+        };
+
+        // [0,1,2,3,4], drag 0 to the gap before 3 (gap 3): lands just before it.
+        let mut d = doc(5);
+        d.move_frames_to(&[0], move_target_for_set(&[0], 3));
+        assert_eq!(ids_at(&d), vec![1, 2, 0, 3, 4]);
+
+        // Same document, drag 3 to the gap before 1 (gap 1): lands just before it.
+        let mut d = doc(5);
+        d.move_frames_to(&[3], move_target_for_set(&[3], 1));
+        assert_eq!(ids_at(&d), vec![0, 3, 1, 2, 4]);
+
+        // Drag 0 to the gap past the last frame: lands at the very end.
+        let mut d = doc(5);
+        d.move_frames_to(&[0], move_target_for_set(&[0], 5));
+        assert_eq!(ids_at(&d), vec![1, 2, 3, 4, 0]);
+
+        // A three-frame selection dropped between frames 1 and 2.
+        let mut d = doc(8);
+        d.move_frames_to(&[2, 5, 7], move_target_for_set(&[2, 5, 7], 2));
+        assert_eq!(ids_at(&d), vec![0, 1, 2, 5, 7, 3, 4, 6]);
+    }
+
+    /// "Move earlier"/"Move later" swaps the selection with the one
+    /// unselected frame beside it: the gap aims just before (or after) that
+    /// neighbour, and refuses at either edge of the timeline.
+    #[test]
+    fn selection_nudge_gap_swaps_with_the_beside_neighbour() {
+        // Contiguous run 2..5 of 8: earlier aims before frame 1.
+        assert_eq!(selection_nudge_gap(&[2, 3, 4], true, 8), Some(1));
+        // Later aims past frame 4, the neighbour after the run.
+        assert_eq!(selection_nudge_gap(&[2, 3, 4], false, 8), Some(6));
+        // A single frame nudges exactly like the old move-by-one.
+        assert_eq!(selection_nudge_gap(&[3], true, 8), Some(2));
+        assert_eq!(selection_nudge_gap(&[3], false, 8), Some(5));
+        // Already at an edge: nothing to swap with.
+        assert_eq!(selection_nudge_gap(&[0, 1], true, 8), None);
+        assert_eq!(selection_nudge_gap(&[6, 7], false, 8), None);
+        // Every frame selected: the nudge would be a no-op anyway.
+        assert_eq!(
+            selection_nudge_gap(&(0..8).collect::<Vec<_>>(), true, 8),
+            None
+        );
+        assert_eq!(
+            selection_nudge_gap(&(0..8).collect::<Vec<_>>(), false, 8),
+            None
+        );
+    }
+
+    /// The full drag path at model level: the selection moves as one run,
+    /// follows itself to its new home, and a drag in place does nothing.
+    #[test]
+    fn move_picked_moves_the_whole_selection_and_follows_it() {
+        let ids = |app: &App| -> Vec<u8> {
+            app.editor
+                .doc
+                .frames
+                .iter()
+                .map(|f| f.pixels.get_pixel(0, 0)[0])
+                .collect()
+        };
+
+        // In place means the picked frames already form the run `to` starts:
+        // [2,3,4] dropped at gap 2 would land exactly where they are.
+        let mut app = app_with(doc(8), ScopeChoice::Range, vec![2, 3, 4], 3);
+        assert!(app.move_picked(&[2, 3, 4], 2).is_none(), "already in place");
+
+        // Dropping a gappy selection [2,5,7] between 0 and 1.
+        let mut app = app_with(doc(8), ScopeChoice::Range, vec![2, 5, 7], 5);
+        assert!(app.move_picked(&[2, 5, 7], 1).is_some());
+        assert_eq!(ids(&app), vec![0, 2, 5, 7, 1, 3, 4, 6]);
+        assert_eq!(
+            app.selection,
+            vec![1, 2, 3],
+            "the selection is now the contiguous run at its new home"
+        );
+        assert_eq!(
+            app.playhead, 2,
+            "the frame the playhead was on (5) sits at index 2"
+        );
+        assert_eq!(app.scope, ScopeChoice::Range);
+
+        // A one-frame drag with nothing selected moves just that frame.
+        let mut app = app_with(doc(8), ScopeChoice::ThisFrame, Vec::new(), 4);
+        assert!(app.move_picked(&[4], 1).is_some());
+        assert_eq!(ids(&app), vec![0, 4, 1, 2, 3, 5, 6, 7]);
+        assert!(app.selection.is_empty(), "no selection to carry");
+        assert_eq!(app.playhead, 1);
+    }
+
+    /// "Move earlier" end to end: the run swaps with the neighbour before
+    /// it and the selection keeps covering the same frames.
+    #[test]
+    fn move_selection_earlier_swaps_the_block_with_its_neighbour() {
+        let ids = |app: &App| -> Vec<u8> {
+            app.editor
+                .doc
+                .frames
+                .iter()
+                .map(|f| f.pixels.get_pixel(0, 0)[0])
+                .collect()
+        };
+        let mut app = app_with(doc(8), ScopeChoice::Range, vec![2, 3, 4], 3);
+        let gap = selection_nudge_gap(&[2, 3, 4], true, 8).unwrap();
+        let to = move_target_for_set(&[2, 3, 4], gap);
+        assert!(app.move_picked(&[2, 3, 4], to).is_some());
+        assert_eq!(ids(&app), vec![0, 2, 3, 4, 1, 5, 6, 7]);
+        assert_eq!(app.selection, vec![1, 2, 3]);
+    }
+
+    /// Ctrl+wheel / Ctrl+Up-Down feed `Msg::StripZoom(factor)`: the factor
+    /// multiplies, the result clamps to the bounds, and `0.0` resets to 1x.
+    #[test]
+    fn strip_zoom_multiplies_clamps_and_resets() {
+        let step = STRIP_ZOOM_STEP;
+        assert!(
+            (next_strip_zoom(1.0, step) - step).abs() < 1e-9,
+            "one step in"
+        );
+        assert!(next_strip_zoom(1.0, 1.0 / step) < 1.0, "one step out");
+
+        let mut z = 1.0;
+        for _ in 0..50 {
+            z = next_strip_zoom(z, step);
+        }
+        assert_eq!(z, STRIP_ZOOM_MAX, "clamped to the max");
+        for _ in 0..99 {
+            z = next_strip_zoom(z, 1.0 / step);
+        }
+        assert_eq!(z, STRIP_ZOOM_MIN, "clamped to the min");
+
+        assert_eq!(next_strip_zoom(z, 0.0), 1.0, "0.0 resets to 1x");
+    }
+
+    /// The bands `DrawingArea` is exactly as wide as the zoomed strip, so its
+    /// per-frame columns stay lined up with the thumbnails above them. Only
+    /// the thumbnails zoom: the gap between two cells is the strip `Box`'s
+    /// spacing, a fixed number of pixels, so the width is not linear in the
+    /// zoom the way it was assumed to be.
+    #[test]
+    fn strip_width_zooms_the_thumbnails_and_not_the_gaps() {
+        let width = |zoom| strip_width(10, cell_pitch(THUMB_BOX, zoom));
+        assert_eq!(width(1.0), 10 * (THUMB_BOX + THUMB_SPACING));
+        assert_eq!(width(2.0), 10 * (2 * THUMB_BOX + THUMB_SPACING));
+        assert_eq!(width(0.5), 10 * (THUMB_BOX / 2 + THUMB_SPACING));
+    }
+
+    /// Regression: the bands under the strip are drawn a `cell_pitch` per
+    /// frame, so a cell has to really sit there at every zoom. A `GtkPicture`
+    /// never measures smaller than its paintable — a size request alone left
+    /// the cells at 1x below it — and a four-digit frame number could measure
+    /// wider than the thumbnail over it. Either slid the whole band legend
+    /// right of the frames it annotates, a little further with every column.
+    fn strip_cells_sit_at_the_pitch_the_bands_are_drawn_at() {
+        // A portrait frame's thumbnail: the narrow cell, and the one a
+        // `THUMB_BOX`-wide pitch was wrong about even at 1x.
+        let thumb = image::RgbaImage::new(41, THUMB_BOX as u32);
+        let strip = gtk::Box::new(gtk::Orientation::Horizontal, THUMB_SPACING);
+        for i in 0..6 {
+            let picture = gtk::Picture::for_paintable(&texture_from(&thumb));
+            let cell = gtk::Box::new(gtk::Orientation::Vertical, 2);
+            cell.append(&picture);
+            // Four digits: wider than the thumbnail once the strip zooms out.
+            let label = gtk::Label::new(Some(&format!("{}", 1000 + i)));
+            label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+            cell.append(&label);
+            strip.append(&cell);
+        }
+        let window = gtk::Window::new();
+        window.set_child(Some(&strip));
+        for zoom in [STRIP_ZOOM_MIN, 0.5, 1.0, 2.0, STRIP_ZOOM_MAX] {
+            for cell in thumb_children(&strip) {
+                let picture = cell.first_child().and_downcast::<gtk::Picture>().unwrap();
+                set_thumb_zoom(&picture, &thumb, zoom);
+            }
+            let (_, width, _, _) = strip.measure(gtk::Orientation::Horizontal, -1);
+            strip.allocate(width, 400, -1, None);
+            let pitch = cell_pitch(thumb.width() as i32, zoom);
+            for (i, cell) in thumb_children(&strip).enumerate() {
+                let bounds = cell.compute_bounds(&strip).expect("laid out");
+                assert_eq!(
+                    (bounds.x() as f64, bounds.width() as f64),
+                    (i as f64 * pitch, pitch - THUMB_SPACING as f64),
+                    "cell {i} at {zoom}x"
+                );
+            }
+        }
+        window.set_child(None::<&gtk::Widget>);
+    }
+
+    /// The sidebar heading swaps "Frame" for a summary of which frames are
+    /// in scope once more than one is — the panel this titles trades
+    /// per-frame overlay editing for a scoped delay edit at that point, so
+    /// the heading has to say which frames the edit will land on.
+    #[test]
+    fn frame_scope_summary_names_the_range_or_the_numbers() {
+        assert_eq!(
+            frame_scope_summary(ScopeChoice::ThisFrame, &[3]),
+            "Frame",
+            "a single frame in scope reads as the plain frame view"
+        );
+        assert_eq!(
+            frame_scope_summary(ScopeChoice::Range, &[]),
+            "Frame",
+            "an empty scope falls back the same way"
+        );
+        assert_eq!(
+            frame_scope_summary(ScopeChoice::AllFrames, &(0..12).collect::<Vec<_>>()),
+            "All 12 frames selected"
+        );
+        assert_eq!(
+            frame_scope_summary(ScopeChoice::Range, &[2, 3, 4, 5]),
+            "Frames 3–6 selected",
+            "a contiguous run reads as a range, 1-based and inclusive"
+        );
+        assert_eq!(
+            frame_scope_summary(ScopeChoice::Range, &[1, 4, 7]),
+            "Frames 2, 5, 8 selected",
+            "a gappy pick small enough to read spells out the numbers"
+        );
+        assert_eq!(
+            frame_scope_summary(ScopeChoice::Range, &(0..20).step_by(2).collect::<Vec<_>>()),
+            "10 frames selected",
+            "too many gappy picks to list falls back to a count"
+        );
+    }
+
+    /// "Add frames from file" routes still images to the synchronous one-frame
+    /// splice and everything with possible motion to the async import pipeline.
+    #[test]
+    fn still_images_bypass_the_import_pipeline() {
+        for ext in ["png", "jpg", "jpeg", "PNG", "bmp", "tiff", "webp.png"] {
+            assert!(
+                is_still_image(Path::new(&format!("x.{ext}"))),
+                "{ext} is a still image"
+            );
+        }
+        for ext in ["gif", "mp4", "mov", "webm", "webp", "mkv", "apng", ""] {
+            assert!(
+                !is_still_image(Path::new(&format!("x.{ext}"))),
+                "{ext} must take the async LoadAppend path"
+            );
+        }
+        assert!(!is_still_image(Path::new("noextension")));
     }
 
     /// Regression: a band's row used to be its index in the overlay list, so
@@ -4749,6 +7056,23 @@ mod tests {
         assert!(rotate_cursor().is_some());
     }
 
+    /// The gresource is embedded and registered by hand (no build.rs step),
+    /// so a stale or malformed `icons.gresource` would otherwise only show up
+    /// as tool buttons silently falling back to GTK's "missing image" glyph.
+    fn the_tool_icons_resolve() {
+        register_tool_icons();
+        let theme = gtk::IconTheme::for_display(&gdk::Display::default().expect("display"));
+        for icon in [
+            "tool-text-symbolic",
+            "tool-rect-symbolic",
+            "tool-ellipse-symbolic",
+            "tool-arrow-symbolic",
+            "tool-crop-symbolic",
+        ] {
+            assert!(theme.has_icon(icon), "missing bundled icon: {icon}");
+        }
+    }
+
     /// The resize glyph follows the content round, so a corner of a rotated box
     /// still points along its own edge (Impasto's `ResizeCursors`).
     #[test]
@@ -4783,18 +7107,25 @@ mod tests {
         // Frame-moving edits: blocked in every kind of work.
         for msg in [
             Msg::Load(PathBuf::new()),
+            Msg::LoadAppend(PathBuf::new()),
             Msg::Undo,
             Msg::Redo,
             Msg::DeleteSelection,
             Msg::FrameOp(FrameOp::Delete),
-            Msg::FrameOpAt(0, FrameOp::Delete),
-            Msg::SetFrameDelay(0, 5),
+            Msg::MoveSelection { earlier: true },
+            Msg::MoveSelectionTo { from: 0, gap: 2 },
+            Msg::SetScopeDelay(5),
+            Msg::SetAllFramesDelay(5),
             Msg::ApplyCrop,
             Msg::CropAll(0, 0, 1, 1),
             Msg::ApplyZoom,
+            Msg::ApplyZoomAll,
+            Msg::ApplyShrink,
             Msg::DropEveryNth(2),
             Msg::SmartDrop(30),
             Msg::Resize(10, 10),
+            Msg::InsertImageFrame(0, PathBuf::new()),
+            Msg::MoveFrame(0, 1),
         ] {
             assert!(msg.changes_frames(), "{msg:?} must wait");
             assert!(msg.requires_idle(), "{msg:?} must wait");
@@ -4802,7 +7133,13 @@ mod tests {
 
         // Snapshot/dialog openers: blocked too, or the follow-up edit lands
         // against a stale canvas.
-        for msg in [Msg::Open, Msg::Export, Msg::CropAllDialog] {
+        for msg in [
+            Msg::Open,
+            Msg::Export,
+            Msg::CropAllDialog,
+            Msg::DelayAllDialog,
+            Msg::ImportMore,
+        ] {
             assert!(!msg.changes_frames(), "{msg:?} does not move frames itself");
             assert!(msg.requires_idle(), "{msg:?} must wait");
         }
@@ -4829,7 +7166,9 @@ mod tests {
             assert!(msg.edits_document(), "{msg:?} must wait during import");
         }
 
-        // Pure view/transport messages: never blocked.
+        // Pure view/transport messages: never blocked. `MoveFrameDialog` only
+        // reads the frame count, which frame work never changes, so it needs
+        // no more guarding than opening any other frame's context menu does.
         for msg in [
             Msg::Tick,
             Msg::Seek(0),
@@ -4837,6 +7176,7 @@ mod tests {
             Msg::Toast(String::new()),
             Msg::SetScope(ScopeChoice::AllFrames),
             Msg::SelectOverlay(None),
+            Msg::MoveFrameDialog(0),
         ] {
             assert!(
                 !msg.changes_frames() && !msg.requires_idle() && !msg.edits_document(),
@@ -4889,13 +7229,35 @@ mod tests {
         });
         let mut crop = Some((10.0, 20.0, 30.0, 40.0));
 
-        scale_in_flight_canvas(&mut drag, &mut crop, 0.5, 2.0);
+        scale_in_flight_canvas(&mut drag, &mut crop, 0.5, 2.0, 0.0, 0.0);
 
         let drag = drag.unwrap();
         assert_eq!(drag.from, (5.0, 40.0));
         assert_eq!(drag.origin, Transform::at(2.5, 20.0, 10.0, 60.0));
         assert_eq!(drag.current, Transform::at(3.5, 24.0, 10.0, 60.0));
         assert_eq!(crop, Some((5.0, 40.0, 15.0, 80.0)));
+    }
+
+    /// A crop landing mid-drag moves the origin instead of scaling it: the
+    /// canvas keeps its resolution, but pixel (0, 0) is now somewhere else.
+    #[test]
+    fn crop_completion_shifts_active_canvas_work_by_the_kept_origin() {
+        let mut drag = Some(Drag {
+            mode: DragMode::Move,
+            from: (10.0, 20.0),
+            origin: Transform::at(5.0, 10.0, 20.0, 30.0),
+            current: Transform::at(7.0, 12.0, 20.0, 30.0),
+            moved: true,
+        });
+        let mut crop = Some((10.0, 20.0, 30.0, 40.0));
+
+        scale_in_flight_canvas(&mut drag, &mut crop, 1.0, 1.0, 4.0, 6.0);
+
+        let drag = drag.unwrap();
+        assert_eq!(drag.from, (6.0, 14.0));
+        assert_eq!(drag.origin, Transform::at(1.0, 4.0, 20.0, 30.0));
+        assert_eq!(drag.current, Transform::at(3.0, 6.0, 20.0, 30.0));
+        assert_eq!(crop, Some((6.0, 14.0, 30.0, 40.0)));
     }
 
     #[test]
@@ -4990,9 +7352,116 @@ mod tests {
         }
         syncing_a_colour_and_width_pair_sends_nothing_back();
         the_rotate_cursor_texture_decodes();
+        the_tool_icons_resolve();
         the_shortcuts_controller_runs_before_the_focused_widget();
         a_text_entry_keeps_its_own_keystrokes_but_a_button_does_not();
         a_clicked_toolbar_button_does_not_keep_the_keyboard_focus();
+        thumb_children_skips_the_frames_popover();
+        the_layer_list_is_bounded_by_its_own_row_height();
+        the_layer_list_bounds_survive_the_list_emptying();
+        strip_cells_sit_at_the_pitch_the_bands_are_drawn_at();
+        the_strip_viewport_does_not_chase_the_focus();
+    }
+
+    /// Regression: the frame menu is a popover parented to the strip, and
+    /// closing it moves the keyboard focus. A viewport that follows the focus
+    /// answered every duplicate, delete and paste by scrolling the timeline
+    /// somewhere else — reproducibly back to the first frame, with the strip
+    /// scrolled a couple of thousand pixels along.
+    fn the_strip_viewport_does_not_chase_the_focus() {
+        let scroll = gtk::ScrolledWindow::builder()
+            .child(&gtk::Box::new(gtk::Orientation::Horizontal, 0))
+            .build();
+        let viewport = scroll
+            .child()
+            .and_downcast::<gtk::Viewport>()
+            .expect("the scroller wraps its child in a viewport");
+        assert!(viewport.is_scroll_to_focus(), "GTK's default");
+        dont_chase_focus(&scroll);
+        assert!(!viewport.is_scroll_to_focus());
+    }
+
+    /// A document with dozens of overlays must scroll the layer list rather
+    /// than push the editor for the layer that is picked off the panel, and
+    /// a panel with no room left must scroll itself rather than squeeze the
+    /// list down to a sliver. Both bounds are the list's own row height,
+    /// measured, because a row is as tall as the theme makes it.
+    fn the_layer_list_is_bounded_by_its_own_row_height() {
+        let list = gtk::ListBox::new();
+        assert_eq!(layer_list_heights(&list), (0, 0), "no rows, no size");
+        let row_h = 40;
+        let add = |count| {
+            for _ in 0..count {
+                let row = gtk::ListBoxRow::new();
+                row.set_height_request(row_h);
+                list.append(&row);
+            }
+        };
+        let cap = row_h * LAYER_ROWS_SHOWN as i32;
+        add(2);
+        assert_eq!(
+            layer_list_heights(&list),
+            (2 * row_h, cap),
+            "a list shorter than the floor asks for exactly its rows"
+        );
+        add(10);
+        assert_eq!(
+            layer_list_heights(&list),
+            (row_h * LAYER_ROWS_KEPT as i32, cap),
+            "twelve layers scroll between the floor and the ceiling"
+        );
+    }
+
+    /// Regression: deleting the last overlay pins both bounds to zero, and
+    /// the next overlay added then asks for a floor above that ceiling.
+    /// Setting the floor first made GTK refuse it (`min_content_height`
+    /// asserts against the standing `max_content_height`), leaving the list
+    /// with a zero floor — it collapsed instead of holding its rows open.
+    fn the_layer_list_bounds_survive_the_list_emptying() {
+        let scroll = gtk::ScrolledWindow::new();
+        let (row_h, cap) = (40, 40 * LAYER_ROWS_SHOWN as i32);
+        set_layer_list_heights(&scroll, 2 * row_h, cap);
+        assert_eq!(
+            (scroll.min_content_height(), scroll.max_content_height()),
+            (2 * row_h, cap)
+        );
+        set_layer_list_heights(&scroll, 0, 0);
+        assert_eq!(
+            (scroll.min_content_height(), scroll.max_content_height()),
+            (0, 0),
+            "an empty list asks for no height at all"
+        );
+        set_layer_list_heights(&scroll, row_h, cap);
+        assert_eq!(
+            (scroll.min_content_height(), scroll.max_content_height()),
+            (row_h, cap),
+            "a list refilling past a zeroed ceiling raises the ceiling first"
+        );
+    }
+
+    /// Regression: a `Popover` parented to the strip (`rebuild_strip`'s
+    /// per-frame context menu) turns up in `first_child()`/`next_sibling()`
+    /// right along with the real thumbnails, one position ahead of them all.
+    /// Counting it shifted every playhead/scope/selected border one frame
+    /// behind whatever was actually clicked.
+    fn thumb_children_skips_the_frames_popover() {
+        let strip = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        let popover = gtk::Popover::new();
+        popover.set_parent(&strip);
+        let cells: Vec<gtk::Box> = (0..3)
+            .map(|_| {
+                let cell = gtk::Box::new(gtk::Orientation::Vertical, 0);
+                cell.add_css_class("thumb");
+                strip.append(&cell);
+                cell
+            })
+            .collect();
+        let seen: Vec<gtk::Widget> = thumb_children(&strip).collect();
+        assert_eq!(seen.len(), 3, "the popover must not count as a thumbnail");
+        for (want, got) in cells.iter().zip(&seen) {
+            assert_eq!(want.upcast_ref::<gtk::Widget>(), got, "order preserved");
+        }
+        popover.unparent();
     }
 
     fn syncing_a_colour_and_width_pair_sends_nothing_back() {

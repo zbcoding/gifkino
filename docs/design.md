@@ -1,6 +1,7 @@
 # Design
 
-A GIF editor and screen recorder for Linux. GTK4 + Rust, distributed as a flatpak.
+A GIF editor and screen recorder for Linux. GTK4 + Rust, distributed as a
+flatpak and as an AppImage.
 
 This document records the decisions and the reasoning behind them, so that a
 decision can be reversed deliberately rather than drifted away from.
@@ -113,6 +114,19 @@ have to be rebuilt: portal file dialogs, HiDPI, IME, accessibility, GStreamer
 availability for the recorder, and a flatpak runtime that already ships all of
 it. egui would make the canvas somewhat easier and everything else worse. Tauri
 would drag WebKitGTK into the flatpak for a canvas that can be painted directly.
+
+Two builds ship. The flatpak carries the GNOME runtime, so which GTK it gets is
+a free choice that can move forward on its own schedule. The AppImage cannot
+carry glibc, so its build host sets the floor for every machine that runs it;
+Ubuntu 24.04 is that host because its GTK 4.14 is exactly the baseline the
+bindings are gated at in `Cargo.toml`. Building on anything newer would raise
+the glibc requirement and buy nothing, which is how Impasto's AppImage ended up
+needing Ubuntu 26.04.
+
+Both builds carry `ffmpeg`, `ffprobe` and `gifsicle`. The GNOME runtime ships
+the libav* libraries but not the programs, and `pipeline/video.rs` drives the
+programs over pipes; Ubuntu does not install them at all by default. An app
+whose import path is a subprocess has to bring the subprocess.
 
 Start as one crate with `core/`, `pipeline/`, and `ui/` modules. Splitting into
 separate crates buys nothing while there is one consumer; modules test just as

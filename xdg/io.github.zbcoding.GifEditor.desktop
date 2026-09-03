@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=GIF Editor
+GenericName=Animated GIF Editor
+Comment=Edit animated GIFs along the time axis
+Exec=gif-editor @@ %f @@
+TryExec=gif-editor
+Icon=io.github.zbcoding.GifEditor
+Terminal=false
+StartupNotify=true
+StartupWMClass=io.github.zbcoding.GifEditor
+Categories=Graphics;2DGraphics;RasterGraphics;GTK;
+Keywords=GIF;Animation;Frame;Timeline;Screen Recorder;Capture;Video;
+MimeType=image/gif;video/mp4;video/webm;video/x-matroska;video/quicktime;video/x-msvideo;

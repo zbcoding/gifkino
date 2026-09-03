@@ -21,6 +21,12 @@
 
 ### Timeline
 
+- Ctrl+wheel over the strip zooms the thumbnails; Ctrl+Up / Ctrl+Down and
+  Ctrl+plus / Ctrl+minus do the same from the keyboard, and Ctrl+0 resets. The
+  overlay bands scale with the thumbnails so their columns stay aligned. Zoom
+  out to sweep a long document, in to pick a frame precisely.
+- The strip's horizontal scrollbar sits in its own strip of space rather than
+  floating over the bottom of the thumbnails and their frame numbers.
 - Frames sit above the overlay bands rather than below them.
 - The band area takes no space until there is an overlay, then grows a row at a
   time to five rows and scrolls behind the expander after that. The canvas keeps
@@ -39,6 +45,12 @@
 
 ### Fixes
 
+- Duplicating a frame no longer throws the timeline to another spot. The
+  scroller's viewport follows the keyboard focus by default, and closing the
+  frame menu — a popover parented to the strip, so a duplicate, delete or paste
+  moves the focus out of it — had it scrolling off to wherever the focus landed,
+  usually the first frame. Nothing in the strip takes the focus, so the viewport
+  no longer chases it.
 - Space toggles playback rather than adding an overlay. The window's key
   controller ran in the bubble phase, so whatever held the focus handled the key
   first — and GTK both activates a focused button on Space and parks the initial
@@ -46,6 +58,90 @@
   now runs in the capture phase, with text entries, text views and dialogs
   handed their keystrokes back. Toolbar buttons also no longer take focus on
   click, so Enter and the arrow keys keep meaning what the canvas means by them.
+- Clicking a thumbnail showed the frame that was actually clicked, but
+  highlighted the wrong one — the border always landed one frame behind. The
+  frame's right-click popover has to be parented to the strip to show itself,
+  and GTK counts a `set_parent()`'d popover as a real child right along with
+  the thumbnails, so the playhead/scope/selection walk over the strip's
+  children was off by one from the start. The walk now skips anything that
+  is not an actual thumbnail cell.
+
+### Toolbar
+
+- Rectangle, ellipse and arrow share one split button in the left rail: the
+  icon and a click both follow whichever shape was used last, and its dropdown
+  opens a flyout to pick a different one. Text keeps its own button.
+
+### Notifications
+
+- A toast now only interrupts for an edit that reached every frame the
+  document had — a resize, a document-wide crop, a zoom or shape edit scoped
+  to "All frames". Anything narrower (a caption tweak, a single frame's delay,
+  one frame deleted) already shows in the strip and the canvas, so the popup
+  added nothing but noise.
+- A toast for something with nothing to undo — the count a frame copy
+  reports — carries no Undo button, which would have landed on whatever edit
+  came before it.
+
+### Frame operations
+
+- "Set delay for all frames…" joins the frame menu, for setting every frame's
+  delay at once instead of finding there is no menu entry for it.
+- Drag a thumbnail onto another to reorder the timeline. A frame's own context
+  menu adds "Move earlier", "Move later" and "Move to position…" for the same
+  thing without a pointer.
+- A frame's context menu can also add a frame decoded from an image file,
+  spliced in right after it and resized to the canvas if it does not already
+  match.
+- Ctrl+X, Ctrl+C and Ctrl+V cut, copy and paste frames, on the frame scope:
+  one frame, a selection, or the whole document. A paste lands directly after
+  the frame on screen and keeps the clipboard, so the same run can go in
+  twice; the clipboard holds frames with their delays rather than going
+  through the system one, which has no format that carries a GIF frame's
+  timing. Both frame menus and a frame's context menu list all three.
+
+### Overlays
+
+- The sidebar's layer list reads topmost-first, the way the layers stack on
+  the canvas. It used to be bottom-up, so the row at the bottom was the
+  overlay painted on top.
+- Each row carries its own up and down carets and an X: a step through the
+  z-order past the layer shown next to it, and a delete that acts on that
+  row rather than on the selection. The carets are insensitive at the ends of
+  the list. The red trash button in the overlay editor still deletes the
+  selected overlay.
+- The layer list scrolls past six layers and never shrinks below three, and
+  the properties panel around it scrolls once the window is too short for
+  it. A frame with a dozen overlays used to push the overlay editor, the
+  crop buttons and the document summary off the bottom with no way to reach
+  them. Picking a layer on the canvas or in the strip scrolls its row into
+  view, so the selection is never off-screen.
+
+### Import
+
+- "Add frames from file…" in the File menu decodes another video or GIF and
+  appends its frames to the end of the current timeline, resizing them to the
+  open document's canvas first — two clips can now be mixed into one.
+
+### Crop and zoom
+
+- The three canvas-tool buttons are disabled until a crop box has actually
+  been drawn, rather than as soon as nothing else is busy. Each explains
+  itself in its own tooltip instead of a paragraph shared under all three.
+- Zoom always acts on the frame on screen, not the scope control, which is
+  what its label says: "Zoom and resize this frame only". "Crop and keep
+  size" follows the scope like the frame-operations menu does instead:
+  whichever frames it names — the frame on screen, a selection, or every
+  frame. (It used to hardcode the frame on screen regardless of scope,
+  same as zoom; selecting "All frames" and drawing a crop box still only
+  cropped one. Fixed, and a regression test locks the contract in.)
+- The new crop mode keeps the cropped region at its own size and place instead
+  of scaling it back up to fill the canvas, blanking the rest of the frame to
+  transparent — a frame can look smaller than the others without the document
+  model needing a per-frame canvas size.
+- "Crop all frames" and the per-frame crop mode are threaded like resize and
+  zoom: a large document no longer freezes the window while every frame is
+  copied, and the progress bar shows how far it has gotten.
 
 ### Frame selection
 
@@ -66,6 +162,8 @@
 - German and Japanese drafts for the new strings, flagged `#, fuzzy` for review.
 - `scripts/i18n.py` joins a marker call that rustfmt split from its literal.
   Seven msgids had dropped out of the template that way.
+- German and Japanese drafts for the frame-operations, import, and crop/zoom
+  strings above, flagged `#, fuzzy` for review.
 
 ### Optimize
 
@@ -96,3 +194,21 @@
   ends the decode between frames for both pipelines — the ffmpeg child is
   killed, the GIF decoder stops reading — and nothing is loaded; a cancelled
   import is not a failure, so it says nothing.
+
+### Packaging
+
+- The app ships as a flatpak and as an AppImage, built by
+  `.github/workflows/release.yml` and attached to a `v*` tag. Both carry
+  ffmpeg, ffprobe and gifsicle, so import and the optimized export work on a
+  machine that has none of them installed.
+- The application ID is now `io.github.zbcoding.GifEditor`. The old
+  `io.github.gif_editor` named a GitHub account that does not exist, which
+  Flathub review rejects; the icon resource prefix moved with it.
+- The flatpak builds on the GNOME 50 runtime. Only GTK 4.14 and libadwaita 1.5
+  APIs are called, gated by the feature flags in `Cargo.toml`, so the runtime
+  can move forward without the code following.
+- The AppImage is built on Ubuntu 24.04, whose GTK is exactly the 4.14 baseline
+  the bindings target. That puts its glibc floor at 2.39 and its ceiling
+  nowhere: it runs on 24.04 and everything newer.
+- Added a desktop entry, AppStream metainfo, an application icon and an MIT
+  `LICENSE`.
