@@ -25,16 +25,19 @@ being retyped on every frame it should cover.
 - **Translated UI:** English, German and Japanese.
 - **Optimized GIF export.**
 
-## Install
+## Download
 
-Grab `Gifkino.flatpak` or `Gifkino-x86_64.AppImage` from the
-[releases](https://github.com/zbcoding/gifkino/releases) page.
+Two builds, both self-contained: each carries the ffmpeg, ffprobe and gifsicle
+programs the editor drives as subprocesses, so import and the optimized export
+work on a machine that has none of them installed. Pick either from the
+[releases page](https://github.com/zbcoding/gifkino/releases/latest) —
+`Gifkino.flatpak` or `Gifkino-x86_64.AppImage`.
 
-- **Flatpak** carries its own GTK and the ffmpeg, ffprobe and gifsicle
-  programs the editor drives, so it runs anywhere flatpak does, Ubuntu 22.04
-  included: `flatpak install --bundle Gifkino.flatpak`.
-- **AppImage** needs Ubuntu 24.04, Debian 13, Fedora 40 or newer (glibc 2.39+).
-  `chmod +x` it and run it.
+- **Flatpak** also brings its own GTK, so it runs anywhere flatpak does,
+  Ubuntu 22.04 included: `flatpak install --bundle Gifkino.flatpak`.
+- **AppImage** uses the GTK inside the image and is built against glibc 2.39,
+  so it needs Ubuntu 24.04, Debian 13, Fedora 40 or newer. `chmod +x` it and
+  run it.
 
 ## Build from source
 
