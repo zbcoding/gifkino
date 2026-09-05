@@ -230,3 +230,8 @@
   nowhere: it runs on 24.04 and everything newer.
 - Added a desktop entry, AppStream metainfo, an application icon and an MIT
   `LICENSE`.
+- The application icon is three stacked image cards under a K for kino, drawn
+  as `xdg/io.github.zbcoding.Gifkino.svg`: the flatpak installs it to
+  `hicolor/scalable/apps` and the AppImage build rasterizes it at 512, 256,
+  128, 64 and 48. The K is stroked geometry rather than `<text>`, because
+  nothing rasterizing the icon is guaranteed the font.
