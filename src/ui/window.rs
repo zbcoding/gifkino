@@ -3030,6 +3030,11 @@ fn confirm_oversize(
     spins.append(&gtk::Label::new(Some(t("px"))));
     custom_row.add_suffix(&spins);
 
+    let lock = adw::SwitchRow::builder()
+        .title(t("Keep aspect ratio"))
+        .build();
+    lock.set_active(true);
+
     let rate_row = adw::ActionRow::builder().title(t("Frame rate")).build();
     rate.set_valign(gtk::Align::Center);
     let rate_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
@@ -3054,6 +3059,7 @@ fn confirm_oversize(
     let group = adw::PreferencesGroup::new();
     group.add(&size_row);
     group.add(&custom_row);
+    group.add(&lock);
     group.add(&rate_row);
     let form = gtk::Box::new(gtk::Orientation::Vertical, 0);
     form.append(&group);
@@ -3111,7 +3117,7 @@ fn confirm_oversize(
             generation.set(generation.get() + 1);
             let started_at = generation.get();
 
-            let target = (width.value_as_int() as u32, height.value_as_int() as u32);
+            let target = (requested_dimension(&width), requested_dimension(&height));
             let options = ImportOptions {
                 target: Some(target),
                 fps: Some(rate.value()),
@@ -3144,26 +3150,41 @@ fn confirm_oversize(
     let refresh = Rc::new(refresh);
     refresh();
 
+    let set_pair = link_aspect_fields(&width, &height, &lock, source.width, source.height);
     {
-        let (width, height, refresh) = (width.clone(), height.clone(), refresh.clone());
+        let (width, height, lock) = (width.clone(), height.clone(), lock.clone());
+        let (refresh, set_pair) = (refresh.clone(), set_pair.clone());
         let sizes = sizes.clone();
         presets.connect_selected_notify(move |drop| {
             let picked = drop.selected() as usize;
-            // Custom starts from wherever the last preset left the spins.
+            // Custom starts from wherever the last preset left the spins. A
+            // preset carries its own pair, so both fields are written at once
+            // rather than letting the aspect lock re-derive one of them off
+            // the other's rounding.
             if let Some((w, h)) = sizes.get(picked) {
-                width.set_value(*w as f64);
-                height.set_value(*h as f64);
+                set_pair(*w, *h);
             }
             width.set_sensitive(picked == custom);
             height.set_sensitive(picked == custom);
+            lock.set_sensitive(picked == custom);
             refresh();
         });
     }
     width.set_sensitive(false);
     height.set_sensitive(false);
-    for spin in [&width, &height, &rate] {
+    lock.set_sensitive(false);
+    for spin in [&width, &height] {
+        // Both commit paths, the way the resize dialog links its fields: the
+        // entry's `changed` for keystrokes the spin has not committed yet, and
+        // `value-changed` for arrows, Enter and the aspect lock's own writes.
         let refresh = refresh.clone();
-        spin.connect_value_changed(move |_| refresh());
+        let commit = refresh.clone();
+        spin.connect_changed(move |_| refresh());
+        spin.connect_value_changed(move |_| commit());
+    }
+    {
+        let refresh = refresh.clone();
+        rate.connect_value_changed(move |_| refresh());
     }
 
     let sender = sender.clone();
@@ -6014,14 +6035,40 @@ fn optimize_dialog(
     });
 }
 
-/// The paired dimension that keeps `from`'s aspect ratio against `fixed`:
+/// The paired dimension that keeps the `edited_other`:`fixed_other` ratio:
 /// `edited * fixed_other / edited_other`, rounded to a pixel and clamped to
-/// the resize range. Pure so the linking has a unit test without a display.
+/// the range a size field accepts. Pure so the linking has a unit test
+/// without a display.
 fn paired_dimension(edited: u32, edited_other: u32, fixed_other: u32) -> u32 {
     if edited_other == 0 {
         return edited.clamp(16, 8192);
     }
     ((edited as f64 * fixed_other as f64 / edited_other as f64).round() as u32).clamp(16, 8192)
+}
+
+/// Writes the paired dimension into `peer`, fitted to what `peer` itself will
+/// take: inside its own range, and on its own step — the import fields step
+/// by two, so the number shown is the even one the decode will use.
+fn set_paired_dimension(peer: &gtk::SpinButton, edited: u32, edited_other: u32, fixed_other: u32) {
+    let paired = paired_dimension(edited, edited_other, fixed_other) as f64;
+    let adjustment = peer.adjustment();
+    let (lower, upper) = (adjustment.lower(), adjustment.upper());
+    let step = adjustment.step_increment().max(1.0);
+    let snapped = lower + ((paired - lower) / step).round() * step;
+    peer.set_value(snapped.clamp(lower, upper));
+}
+
+/// What a size field is asking for right now: its text while a keystroke is
+/// still uncommitted, its committed value otherwise, clamped to the range the
+/// field offers so a typed absurdity never reaches a plan.
+fn requested_dimension(spin: &gtk::SpinButton) -> u32 {
+    let adjustment = spin.adjustment();
+    match spin.text().parse::<f64>() {
+        Ok(value) if value.is_finite() && value >= 0.0 => {
+            value.clamp(adjustment.lower(), adjustment.upper()) as u32
+        }
+        _ => spin.value_as_int().max(0) as u32,
+    }
 }
 
 /// Resize every frame, from the Optimize menu. Seeded from the live canvas so
@@ -6087,23 +6134,26 @@ fn relink_from_text(
     if !value.is_finite() || value < 0.0 {
         return false;
     }
-    peer.set_value(paired_dimension(value as u32, edited_other, fixed_other) as f64);
+    set_paired_dimension(peer, value as u32, edited_other, fixed_other);
     true
 }
 
-/// Links the resize dialog's fields to the aspect lock: editing one field
-/// recomputes the other from the canvas ratio. Both commit paths funnel
-/// through one guard — the entry's `changed` for keystrokes the spin has not
-/// committed yet, `value-changed` for arrows, Enter and focus-out — so the
-/// peer tracks live typing instead of only lock toggles, and a programmatic
-/// set never echoes back.
-fn link_resize_fields(
+/// Links a dialog's width and height fields to its aspect lock: editing one
+/// recomputes the other from the `cw`:`ch` ratio the dialog opened at. Both
+/// commit paths funnel through one guard — the entry's `changed` for
+/// keystrokes the spin has not committed yet, `value-changed` for arrows,
+/// Enter and focus-out — so the peer tracks live typing instead of only lock
+/// toggles, and a programmatic set never echoes back. The returned setter
+/// writes both fields at once, for a caller that already holds a matched pair:
+/// the import picker's resolution presets, whose own rounding the link would
+/// otherwise undo.
+fn link_aspect_fields(
     width: &gtk::SpinButton,
     height: &gtk::SpinButton,
     lock: &adw::SwitchRow,
     cw: u32,
     ch: u32,
-) {
+) -> Rc<dyn Fn(u32, u32)> {
     // A programmatic set fires its own handler, so guard the echo.
     let syncing = Rc::new(Cell::new(false));
     for (edited, peer, edited_other, fixed_other) in
@@ -6125,18 +6175,26 @@ fn link_resize_fields(
         edited.connect_value_changed(move |_| commit());
     }
     {
-        let (width, height) = (width.clone(), height.clone());
+        let (width, height, syncing) = (width.clone(), height.clone(), syncing.clone());
         lock.connect_active_notify(move |lock| {
             if !lock.is_active() {
                 return;
             }
             // Re-locking re-anchors the ratio at the field last touched: the
-            // height follows the width back onto the canvas ratio.
+            // height follows the width back onto the ratio.
             syncing.set(true);
-            height.set_value(paired_dimension(width.value() as u32, cw, ch) as f64);
+            set_paired_dimension(&height, width.value() as u32, cw, ch);
             syncing.set(false);
         });
     }
+
+    let (width, height) = (width.clone(), height.clone());
+    Rc::new(move |w, h| {
+        syncing.set(true);
+        width.set_value(w as f64);
+        height.set_value(h as f64);
+        syncing.set(false);
+    })
 }
 
 /// Builds the resize dialog and its live widgets: the size fields seeded from
@@ -6220,7 +6278,7 @@ fn resize_dialog(
 ) {
     let (dialog, width, height, lock, summary) =
         build_resize_dialog(cw, ch, frames, oper_max, total_max);
-    link_resize_fields(&width, &height, &lock, cw, ch);
+    link_aspect_fields(&width, &height, &lock, cw, ch);
     for spin in [&width, &height] {
         let (dialog, summary, width, height) = (
             dialog.clone(),
@@ -7974,6 +8032,7 @@ mod tests {
         the_fit_chooser_maps_one_radio_to_each_mode();
         the_resize_dialog_offers_cancel_and_apply();
         linked_resize_fields_track_each_other_live();
+        linked_import_fields_stay_even_and_in_range();
     }
 
     /// Regression: the resize rewrite built the fields but never added the
@@ -8023,7 +8082,7 @@ mod tests {
         lock.set_active(true);
         width.set_value(480.0);
         height.set_value(270.0);
-        link_resize_fields(&width, &height, &lock, 480, 270);
+        link_aspect_fields(&width, &height, &lock, 480, 270);
         width.set_value(960.0);
         assert_eq!(
             height.value() as u32,
@@ -8060,6 +8119,42 @@ mod tests {
             height.value() as u32,
             56,
             "re-locking snaps the height back onto the canvas ratio"
+        );
+    }
+
+    /// The import picker's size fields step by two and stop at the source, so
+    /// the shared link has to fit the peer's own adjustment: an odd ratio
+    /// lands on an even number rather than one the decode would round away, a
+    /// preset pair is written whole instead of re-derived off its own
+    /// rounding, and a typed absurdity is read back clamped.
+    fn linked_import_fields_stay_even_and_in_range() {
+        let width = size_spin(1920, 1920);
+        let height = size_spin(1080, 1080);
+        let lock = adw::SwitchRow::builder().build();
+        lock.set_active(true);
+        let set_pair = link_aspect_fields(&width, &height, &lock, 1920, 1080);
+        height.set_value(480.0);
+        assert_eq!(
+            width.value() as u32,
+            854,
+            "16:9 at 480 high is 853.3 wide, and the field only takes even numbers"
+        );
+        set_pair(852, 480);
+        assert_eq!(
+            (width.value() as u32, height.value() as u32),
+            (852, 480),
+            "a preset pair is written as it stands"
+        );
+        width.set_text("4000");
+        assert_eq!(
+            height.value() as u32,
+            1080,
+            "the peer stops at the source height"
+        );
+        assert_eq!(
+            requested_dimension(&width),
+            1920,
+            "a typed absurdity reads back as what the source can give"
         );
     }
 

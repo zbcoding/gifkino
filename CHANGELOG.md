@@ -15,6 +15,17 @@
   have to put back, is under "Recording, and why it is not here" in
   `docs/design.md`.
 
+### Import
+
+- The oversize import picker's custom size carries the resize dialog's "Keep
+  aspect ratio" switch, linked the same way: typing in one field recomputes
+  the other from the source's ratio as the keystrokes land, not only when the
+  field commits, and the memory and GIF preview follow the same live number.
+  The paired value is fitted to the field it lands in, so it stays even and
+  inside the source size rather than showing a figure the decode would round
+  away. The switch greys out with the fields while a preset resolution is
+  picked, since a preset already carries its own pair.
+
 ## 0.1.0 — 2026-09-05
 
 ### Canvas
