@@ -24,9 +24,11 @@ finish-args:
   - --device=dri
   # File > Open goes through the portal, so no filesystem permission is needed.
   # A path handed to the app on the command line or by a file manager is the
-  # other direction: the `@@ %f @@` markers in the desktop Exec line are what
-  # make flatpak forward those files into the sandbox. --file-forwarding is not
-  # a build-finish option and belongs nowhere in this list.
+  # other direction: flatpak's exporter turns the desktop Exec line's %f into
+  # its own `@@ %f @@` markers and adds --file-forwarding to the command it
+  # writes, which is what forwards those files into the sandbox. Neither the
+  # markers nor --file-forwarding belong in this repository: the markers make
+  # `flatpak install` fail, and --file-forwarding is not a build-finish option.
   # The screen recorder is not implemented yet. When it lands it needs
   # --socket=pipewire and the ScreenCast portal, not a capture permission.
 

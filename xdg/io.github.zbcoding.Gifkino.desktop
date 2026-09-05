@@ -3,7 +3,10 @@ Type=Application
 Name=Gifkino
 GenericName=Animated GIF Editor
 Comment=Edit animated GIFs along the time axis
-Exec=gifkino @@ %f @@
+# Exec carries a plain %f. flatpak rewrites this line on export and generates
+# the `@@ %f @@` file-forwarding markers itself; shipping them here makes it
+# reject the app with "Invalid Exec argument @@" at install time instead.
+Exec=gifkino %f
 TryExec=gifkino
 Icon=io.github.zbcoding.Gifkino
 Terminal=false

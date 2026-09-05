@@ -155,10 +155,9 @@ fn integrator_owns_it(applications: &Path) -> bool {
     })
 }
 
-/// Point the entry at the AppImage. The packaged `Exec` reads
-/// `gifkino @@ %f @@`, where the `@@` markers are flatpak's file-forwarding
-/// syntax and mean nothing outside a flatpak - left in place they would reach
-/// the app as literal arguments.
+/// Point the entry at the AppImage. The packaged `Exec` reads `gifkino %f`,
+/// naming a binary that is only on `PATH` inside a flatpak, so an AppImage
+/// needs the line rewritten to the image's own absolute path.
 ///
 /// `Exec` and `TryExec` are not the same kind of value and must not be written
 /// the same way. `Exec` is a command line, so a path containing a space has to
@@ -288,7 +287,7 @@ mod tests {
     const TEMPLATE: &str = "[Desktop Entry]\n\
                             Type=Application\n\
                             Name=Gifkino\n\
-                            Exec=gifkino @@ %f @@\n\
+                            Exec=gifkino %f\n\
                             TryExec=gifkino\n\
                             Icon=io.github.zbcoding.Gifkino\n\
                             Categories=Graphics;\n";
@@ -301,7 +300,7 @@ mod tests {
     }
 
     #[test]
-    fn the_entry_points_at_the_appimage_and_drops_the_flatpak_markers() {
+    fn the_entry_points_at_the_appimage_wherever_it_sits() {
         let entry = rewrite_entry(TEMPLATE, Path::new("/opt/My Apps/Gifkino.AppImage"));
 
         assert!(
@@ -312,10 +311,6 @@ mod tests {
             entry.contains("TryExec=/opt/My Apps/Gifkino.AppImage\n"),
             "TryExec is a bare path looked up as-is; quoting it makes the whole \
              entry invalid and the taskbar stops matching it: {entry}"
-        );
-        assert!(
-            !entry.contains("@@"),
-            "flatpak's file-forwarding markers mean nothing here: {entry}"
         );
         // Everything else is the packaged entry, verbatim.
         for line in [
@@ -456,6 +451,25 @@ mod tests {
             "<svg> starts at byte {at}, past the {SNIFF_WINDOW} bytes a loader \
              reads before deciding this is not an image; keep prose inside the \
              element"
+        );
+    }
+
+    // flatpak's exporter rewrites this Exec line and writes the `@@ %f @@`
+    // file-forwarding markers itself, rejecting an app that ships them with
+    // "Invalid Exec argument @@" - and it does that at install time, after a
+    // ten-minute build. The AppImage takes the same line as-is.
+    #[test]
+    fn the_packaged_exec_leaves_file_forwarding_to_flatpak() {
+        let entry = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("xdg/{APP_ID}.desktop"));
+        let entry = std::fs::read_to_string(&entry).unwrap();
+
+        let exec = entry
+            .lines()
+            .find(|line| line.starts_with("Exec="))
+            .expect("the entry needs an Exec line");
+        assert_eq!(
+            exec, "Exec=gifkino %f",
+            "a bare %f is the only form flatpak accepts and the one it expands"
         );
     }
 }

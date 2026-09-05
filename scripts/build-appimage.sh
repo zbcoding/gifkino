@@ -34,10 +34,9 @@ mkdir -p "$appdir/usr/bin" "$appdir/usr/share/applications" \
 cargo build --release --manifest-path "$repo/Cargo.toml"
 
 # --- 2. Desktop entry, metainfo, translations -------------------------------
-# The @@ markers in Exec are flatpak's file-forwarding syntax; outside a
-# sandbox they would reach the binary as literal arguments.
-sed 's/^Exec=.*/Exec=gifkino %f/' "$repo/xdg/$app_id.desktop" \
-  > "$appdir/usr/share/applications/$app_id.desktop"
+# The packaged Exec is already `gifkino %f`, which is what an AppImage wants;
+# only flatpak's exporter rewrites it, and it does that on its own side.
+cp "$repo/xdg/$app_id.desktop" "$appdir/usr/share/applications/"
 cp "$repo/xdg/$app_id.metainfo.xml" "$appdir/usr/share/metainfo/"
 # i18n.rs reads .po files directly; AppRun points GIFKINO_PO_DIR here. The
 # rest of po/ is translator tooling and has no business in the image.
