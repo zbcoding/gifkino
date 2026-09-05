@@ -290,3 +290,17 @@
   because nothing reading it is obliged to rasterize an SVG. The build fails if
   it is ever not a plain PNG again, since the cost is only a wrong icon on one
   file and no build would otherwise notice.
+- The desktop entry's `Exec` carries a plain `%f`. flatpak's exporter is what
+  writes the `@@ %f @@` file-forwarding markers: it rewrites the line, adds
+  `--file-forwarding` to the command it generates, and refuses to install an
+  app that ships the markers itself ("Invalid Exec argument @@"). Carrying them
+  also handed a literal `@@` to the binary as the file to open for anyone whose
+  entry came from `scripts/install-user.sh`, which copies it to the user prefix
+  verbatim.
+- The icon's own notes sit inside its `<svg>` element rather than above it.
+  gdk-pixbuf identifies an image by sniffing the head of the file for the
+  opening tag — 256 bytes on Ubuntu 24.04 — so a comment block in front of it
+  made `appstreamcli compose` read a valid icon as an unrecognized format and
+  fail the flatpak build ten minutes in. Every direct librsvg consumer,
+  `rsvg-convert` in the AppImage build included, had taken the same file
+  happily, which is why only one of the two packages ever complained.
