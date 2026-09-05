@@ -241,3 +241,18 @@
   `target/` gets a placeholder icon in the taskbar: the desktop matches a
   window by its app_id to an installed desktop file, and from there to an
   installed icon, so with nothing installed there is nothing to match.
+- An AppImage run installs its own desktop entry and icons into
+  `~/.local/share` on first launch, so the window carries this application's
+  name and icon instead of a placeholder. `--uninstall-desktop` removes them,
+  `--install-desktop` does it on demand, and `GIFKINO_NO_DESKTOP_INTEGRATION`
+  turns the first-run step off. Moving or renaming the AppImage rewrites the
+  entry on the next run rather than leaving one that launches nothing.
+
+  A Wayland client can hand its icon straight to the compositor, but GTK only
+  implements xdg-toplevel-icon from 4.20 and the AppImage bundles Ubuntu
+  24.04's GTK 4.14, so that route is closed to it - and the compositor cannot
+  read the icon inside the AppDir, being a different process. X11 sessions
+  never had the problem: GTK 4.14 sets `_NET_WM_ICON` from the icon theme,
+  which resolves in-process because AppRun puts the AppDir's share tree on
+  `XDG_DATA_DIRS`. The flatpak never had it either, since flatpak exports the
+  entry and the icon to the host itself.
