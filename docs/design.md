@@ -1,18 +1,20 @@
 # Design
 
-A GIF editor and screen recorder for Linux. GTK4 + Rust, distributed as a
-flatpak and as an AppImage.
+A GIF editor for Linux. GTK4 + Rust, distributed as a flatpak and as an
+AppImage.
 
 This document records the decisions and the reasoning behind them, so that a
 decision can be reversed deliberately rather than drifted away from.
 
 ## What this is
 
-Three jobs in one app:
+Two jobs in one app:
 
-1. **Record** a screen region to a video file.
-2. **Import** that recording, or any video, or an existing GIF, as a frame list.
-3. **Edit** the frame list along the time axis, then export an optimized GIF.
+1. **Import** any video or an existing GIF as a frame list.
+2. **Edit** the frame list along the time axis, then export an optimized GIF.
+
+Recording a screen was the third, and is not built. See
+[Recording, and why it is not here](#recording-and-why-it-is-not-here).
 
 Editing means overlays (text, shapes, images), transforms, crop, resize, and
 frame-list operations. It does not mean painting. See
@@ -110,10 +112,10 @@ Rust, gtk4-rs, libadwaita, Relm4. Flatpak on the GNOME runtime.
 GTK4 was not chosen for the canvas. There is no scene graph and no hit-testing;
 a snapshot surface is all you get, and that is equally true of Iced, Slint, and
 egui. What GTK4 gives you is everything around the canvas that would otherwise
-have to be rebuilt: portal file dialogs, HiDPI, IME, accessibility, GStreamer
-availability for the recorder, and a flatpak runtime that already ships all of
-it. egui would make the canvas somewhat easier and everything else worse. Tauri
-would drag WebKitGTK into the flatpak for a canvas that can be painted directly.
+have to be rebuilt: portal file dialogs, HiDPI, IME, accessibility, and a
+flatpak runtime that already ships all of it. egui would make the canvas
+somewhat easier and everything else worse. Tauri would drag WebKitGTK into the
+flatpak for a canvas that can be painted directly.
 
 Two builds ship. The flatpak carries the GNOME runtime, so which GTK it gets is
 a free choice that can move forward on its own schedule. The AppImage cannot
@@ -176,30 +178,36 @@ feature set, and each is time-aware in a way a paint tool is not.
 ## Pipeline
 
 ```
-record  → ashpd portal → ffmpeg → mp4
-import  → ffmpeg → raw RGBA + delays        (same path for recordings)
+import  → ffmpeg → raw RGBA + delays
 edit    → overlay model + external handoff
 play    → frame strip doubles as scrubber
 export  → NeuQuant → gif crate → gifsicle -O3
 ```
 
-### Recording
+### Recording, and why it is not here
 
-Record to a video file, then open it through the normal import path. Capturing
-frames straight into the document is what makes ScreenToGif memory-hungry, and
-it means maintaining two decode paths instead of one.
+Not built, and not planned. Every desktop already has a screen recorder that
+writes an mp4 — GNOME's built-in one, OBS, wf-recorder, SimpleScreenRecorder —
+and this app imports mp4, webm and animated GIF, resizing a large capture down
+on the way in. Building a second recorder buys a user nothing they cannot
+already do, and it costs a ScreenCast portal handshake, a PipeWire path, an X11
+fallback, a capture-source probe and a setup sheet, all of it in the way of the
+editing that is the actual product.
 
-On Wayland, `ashpd` performs the ScreenCast portal handshake and returns a
-PipeWire node id, which ffmpeg's `pipewiregrab` source consumes. Verify the
-ffmpeg in the GNOME runtime carries it, since it is a recent addition;
-GStreamer's `pipewiresrc` is the fallback and costs nothing extra in flatpak
-because the runtime already ships GStreamer. X11 is `-f x11grab`.
+What the design would have been, kept because the reasoning survives the
+decision: record to a video file and open it through the normal import path,
+never capturing frames straight into the document — that is what makes
+ScreenToGif memory-hungry, and it means maintaining two decode paths instead of
+one. On Wayland, `ashpd` performs the ScreenCast portal handshake and returns a
+PipeWire node id for ffmpeg's `pipewiregrab` source, with GStreamer's
+`pipewiresrc` as the fallback; X11 is `-f x11grab`. Region selection would be
+the portal's own picker rather than a custom overlay, because GNOME does not
+permit arbitrary overlay surfaces, and cursor capture would be the portal's
+`cursor_mode: embedded`.
 
-Two portal facts shape the UI before any of it is designed. Region selection is
-the portal's picker, not a custom overlay, because GNOME does not permit
-arbitrary overlay surfaces; using the picker everywhere means writing no overlay
-code and matching what users already know. Cursor capture is the portal's
-`cursor_mode: embedded` option rather than something composited by hand.
+Reversing this means restoring `Caps::record_blocker` and the capture-source
+probe removed alongside it, adding `--socket=pipewire` to the manifest, and
+putting `Screen Recorder` back in the desktop entry's `Keywords`.
 
 ### Import
 
@@ -263,9 +271,9 @@ edit scope is the product. This is the window plan that keeps all three.
 There is no menu bar. GNOME applications do not ship one (Loupe, Papers, Text
 Editor), ScreenToGif's File/Edit/View row is a Windows convention, and the
 duties of a "File" menu here are small. The empty main window is the welcome
-state, with Record and Open as large actions plus drag-and-drop anywhere; the
-primary menu (hamburger, upper right) holds New recording…, Open…, Keyboard
-shortcuts (Ctrl+?), and About.
+state, with Open as the one large action plus drag-and-drop anywhere; the
+primary menu (hamburger, upper right) holds Open…, Keyboard shortcuts
+(Ctrl+?), and About.
 
 ```
 [ Undo  Redo ]            foo.gif                       [ Export ]  ☰
@@ -413,20 +421,6 @@ selected: count, one delay field applying to the whole selection, delete, and
 duration, frame count. Build each as an `AdwPreferencesGroup` so the rows come
 out consistent for free.
 
-### Recording
-
-The portal picker replaces the crosshair overlay, so options come before it.
-A setup sheet offers fps chips (10/15/25/30, default 30) and a cursor toggle
-(`cursor_mode: embedded`), and repeats the centisecond fact: anything above
-50 fps is fiction in a GIF. Then the picker runs, then a small control window
-with the elapsed timer and Stop — a normal toplevel, because Wayland offers no
-keep-above to fight for, and GNOME's top-bar recording indicator is the
-fallback signal. Stop feeds the mp4 through the normal import path.
-
-No pause in v1. A paused portal stream is dropped samples, and compensating
-frame delays across the gap is untested math; a short take does the same job.
-A stop hotkey through the GlobalShortcuts portal is a cheap later addition.
-
 ### Export dialog
 
 An AdwDialog with size chips (100% / 480w / 640w / 800w / custom width), speed
@@ -437,10 +431,10 @@ The size readout runs the real pipeline — NeuQuant, gif crate, gifsicle -O3 �
 into memory, debounced ~300 ms after any change, on a worker thread with a
 spinner in the readout slot. No amount of debouncing makes a 300-frame encode
 safe on the main loop. The comparison reads `2.4 MB → 840 KB`, where the left
-side is the source artifact — the mp4 that was recorded, or the GIF that was
-imported — and stays fixed while the settings move. A last-encode-versus-new-
-encode delta churns on every tweak and reads as noise; the source size is the
-number "what does this cost me" is actually asking.
+side is the source artifact — the mp4 or the GIF that was imported — and stays
+fixed while the settings move. A last-encode-versus-new-encode delta churns on
+every tweak and reads as noise; the source size is the number "what does this
+cost me" is actually asking.
 
 Color count and dither are the two settings nobody can judge from a number, so
 they preview on the current frame. The preview quantizes against the same
@@ -473,16 +467,13 @@ thumbnails first, then finishes the rest in the background. The user waits for
 two frames instead of two hundred, and it is less plumbing than making a modal
 busy state cancelable.
 
-Capabilities are probed once at startup, not at the moment of use: whether the
-runtime ffmpeg carries `pipewiregrab` (with `pipewiresrc` as the fallback),
-whether gifsicle is present, whether the ScreenCast portal answers. A missing
-piece disables the affected action with the reason attached to it. Discovering
-that recording is unavailable after picking a region is the worst possible time
-to find out.
+Capabilities are probed once at startup, not at the moment of use: whether
+ffmpeg and ffprobe run, and whether gifsicle is present. A missing piece
+disables the affected action with the reason attached to it. Discovering that
+import is unavailable after picking a file is the worst possible time to find
+out.
 
-Failures say what happened and what to do. A denied portal request is "Screen
-recording needs permission to capture the screen", with the action to try
-again, not an error code.
+Failures say what happened and what to do, not an error code.
 
 ### Keyboard map
 
@@ -603,7 +594,7 @@ history, and translations. Impasto is a Pinta fork and a working GTK4 image edit
 this project were considered and rejected.
 
 We considered adding animated GIF editing to Impasto but Impasto wouldn't have the room for streamlined GIF operations people expect
-(e.g. screen record video convert-to-gif, quickly adding text to all frames)
+(e.g. video convert-to-gif, quickly adding text to all frames)
 It needs two host changes the add-in documentation
 already flags: file-format registration does not dedupe by extension and can
 remove built-in formats, and there is no extension point for dock pads, which a
@@ -642,8 +633,3 @@ tested logic rather than as UI.
 8. Export path with NeuQuant and the gifsicle pass.
 9. Frame-list optimizations.
 10. External editor handoff.
-11. Screen recording.
-
-Recording is last because it produces files the rest of the app has to handle
-correctly anyway, and because `wf-recorder` and `gpu-screen-recorder` already
-cover the gap until then.

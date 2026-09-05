@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Scope
+
+- Screen recording is out of scope rather than pending. The welcome screen's
+  disabled Record button is gone, and with it `Caps::record_blocker`, the
+  ffmpeg capture-source probe behind it, `Screen Recorder` and `Capture` in the
+  desktop entry's keywords, and three translated strings. Every desktop already
+  ships a recorder that writes an mp4, and this app imports mp4, webm and
+  animated GIF — a large capture included, since import asks how it should fit
+  and resizes it on the way in. A second recorder inside the editor would
+  duplicate software the user has. The reasoning, and what a reversal would
+  have to put back, is under "Recording, and why it is not here" in
+  `docs/design.md`.
+
 ## 0.1.0 — 2026-09-05
 
 ### Canvas

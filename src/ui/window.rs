@@ -4560,15 +4560,6 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
         open_button.set_sensitive(false);
         open_button.set_tooltip_text(Some(t(reason)));
     }
-    let record_button = gtk::Button::with_label(t("Record"));
-    record_button.add_css_class("pill");
-    record_button.set_sensitive(false);
-    // Translators: Screen recording. Not implemented yet, so the button is disabled.
-    record_button.set_tooltip_text(Some(t(model
-        .caps
-        .record_blocker()
-        .unwrap_or(n("Screen recording is not wired up yet")))));
-    welcome_buttons.append(&record_button);
     welcome_buttons.append(&open_button);
 
     // The decode and the frame work run off the main thread, so without a bar

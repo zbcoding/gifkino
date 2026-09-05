@@ -57,8 +57,7 @@ cargo test                 # whole suite, well under a minute
 
 ## Status
 
-0.1.0 is the first release. Screen recording has a button on the welcome
-screen, but it is disabled: recording is not wired up yet.
+0.1.0 is the first release.
 
 ## License
 

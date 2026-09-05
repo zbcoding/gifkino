@@ -285,7 +285,7 @@ Unless noted, focus more on feature addition, less on time consuming verificatio
 
 # Project Overview
 
-this gif editor (name TBD) should have screen recording (to mp4, then convert to gif), import video to gif, gif editing, quick gif image frame edits like Adding text, adding overlay images, and streamlined gif operations like crop, resize, optimize, drop every 1 in N frames.
+this gif editor should import video to gif, gif editing, quick gif image frame edits like Adding text, adding overlay images, and streamlined gif operations like crop, resize, optimize, drop every 1 in N frames. Screen recording is out of scope: other software records mp4, and this app imports it.
 
 ## Quick Build & Run
 
@@ -309,8 +309,8 @@ testable without a display. `ui::text` needs a font stack, not a display.
 External binaries are looked up at startup by `pipeline::caps`, never at the
 moment of use:
 
-- **ffmpeg / ffprobe** — required to import anything that is not a GIF, and to
-  record. Without them the Open action is disabled with the reason attached.
+- **ffmpeg / ffprobe** — required to import anything that is not a GIF.
+  Without them the Open action is disabled with the reason attached.
 - **gifsicle** — optional. Its absence skips the `-O3` pass; the export is a
   larger but valid GIF.
 

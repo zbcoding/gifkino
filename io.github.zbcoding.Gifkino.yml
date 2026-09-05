@@ -29,8 +29,8 @@ finish-args:
   # writes, which is what forwards those files into the sandbox. Neither the
   # markers nor --file-forwarding belong in this repository: the markers make
   # `flatpak install` fail, and --file-forwarding is not a build-finish option.
-  # The screen recorder is not implemented yet. When it lands it needs
-  # --socket=pipewire and the ScreenCast portal, not a capture permission.
+  # No screen-capture permission either: recording is out of scope, so there is
+  # no --socket=pipewire and no ScreenCast portal to grant.
 
 modules:
   # The GNOME runtime ships the libav* libraries but not the ffmpeg and ffprobe

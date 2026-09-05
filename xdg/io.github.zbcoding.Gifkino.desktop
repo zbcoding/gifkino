@@ -13,5 +13,5 @@ Terminal=false
 StartupNotify=true
 StartupWMClass=io.github.zbcoding.Gifkino
 Categories=Graphics;2DGraphics;RasterGraphics;GTK;
-Keywords=GIF;Animation;Frame;Timeline;Screen Recorder;Capture;Video;Editor;
+Keywords=GIF;Animation;Frame;Timeline;Video;Editor;
 MimeType=image/gif;video/mp4;video/webm;video/x-matroska;video/quicktime;video/x-msvideo;
