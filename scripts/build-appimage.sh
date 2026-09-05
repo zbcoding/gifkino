@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build GifEditor-x86_64.AppImage from a release cargo build.
+# Build Gifkino-x86_64.AppImage from a release cargo build.
 #
 # Build host decides the floor. Cargo.toml gates the bindings at GTK 4.14 /
 # libadwaita 1.5, which is exactly what Ubuntu 24.04 ships, so building there
@@ -16,7 +16,7 @@
 # reproducible build matters more than tracking upstream fixes.
 set -euo pipefail
 
-app_id=io.github.zbcoding.GifEditor
+app_id=io.github.zbcoding.Gifkino
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 work=${1:-$repo/appimage-build}
 tools=$work/tools
@@ -28,7 +28,7 @@ version=$(sed -n 's/^version = "\(.*\)"/\1/p' "$repo/Cargo.toml" | head -1)
 rm -rf "$appdir"
 mkdir -p "$appdir/usr/bin" "$appdir/usr/share/applications" \
          "$appdir/usr/share/metainfo" "$appdir/usr/share/glib-2.0/schemas" \
-         "$appdir/usr/share/icons" "$appdir/usr/share/gif-editor" "$tools"
+         "$appdir/usr/share/icons" "$appdir/usr/share/gifkino" "$tools"
 
 # --- 1. Build ---------------------------------------------------------------
 cargo build --release --manifest-path "$repo/Cargo.toml"
@@ -36,12 +36,12 @@ cargo build --release --manifest-path "$repo/Cargo.toml"
 # --- 2. Desktop entry, metainfo, translations -------------------------------
 # The @@ markers in Exec are flatpak's file-forwarding syntax; outside a
 # sandbox they would reach the binary as literal arguments.
-sed 's/^Exec=.*/Exec=gif-editor %f/' "$repo/xdg/$app_id.desktop" \
+sed 's/^Exec=.*/Exec=gifkino %f/' "$repo/xdg/$app_id.desktop" \
   > "$appdir/usr/share/applications/$app_id.desktop"
 cp "$repo/xdg/$app_id.metainfo.xml" "$appdir/usr/share/metainfo/"
-# i18n.rs reads .po files directly; AppRun points GIF_EDITOR_PO_DIR here. The
+# i18n.rs reads .po files directly; AppRun points GIFKINO_PO_DIR here. The
 # rest of po/ is translator tooling and has no business in the image.
-install -Dm644 "$repo"/po/*.po -t "$appdir/usr/share/gif-editor/po/"
+install -Dm644 "$repo"/po/*.po -t "$appdir/usr/share/gifkino/po/"
 
 # --- 3. Icons ---------------------------------------------------------------
 # The app icon is an SVG; rasterize the sizes a desktop actually indexes, and
@@ -111,7 +111,7 @@ for tool in ffmpeg ffprobe gifsicle; do
 done
 
 "$tools/linuxdeploy" --appdir "$appdir" \
-  --executable "$repo/target/release/gif-editor" \
+  --executable "$repo/target/release/gifkino" \
   --desktop-file "$appdir/usr/share/applications/$app_id.desktop" \
   --icon-file "$icon" \
   "${helpers[@]}" "${libs[@]}"
@@ -122,7 +122,7 @@ done
 # the user can get the corresponding source. Copy each bundled library's distro
 # copyright file when the host is Debian-family; always leave a pointer to
 # unmodified upstream sources.
-docdir=$appdir/usr/share/doc/gif-editor
+docdir=$appdir/usr/share/doc/gifkino
 mkdir -p "$docdir/third-party"
 cp "$repo/LICENSE" "$docdir/"
 if command -v dpkg-query >/dev/null 2>&1; then
@@ -137,7 +137,7 @@ fi
 cat > "$docdir/THIRD-PARTY.AppImage.md" <<'EOF'
 # Bundled software
 
-GIF Editor itself is MIT (see ./LICENSE). This AppImage additionally carries
+Gifkino itself is MIT (see ./LICENSE). This AppImage additionally carries
 the GTK 4 / libadwaita runtime it links against and the supporting stack
 (GLib, Pango, Cairo, gdk-pixbuf, Graphene, HarfBuzz, librsvg, FreeType,
 Fontconfig, pixman and the usual image codecs), plus the ffmpeg, ffprobe and
@@ -150,13 +150,13 @@ is the matching `deb-src` entry for Ubuntu 24.04 (noble).
 The GTK stack is LGPL and ffmpeg as Ubuntu builds it is GPL. Both are separate
 files inside the image rather than linked into the editor. To use your own
 build of one: extract the AppImage
-(`./GifEditor-x86_64.AppImage --appimage-extract`), replace the file under
+(`./Gifkino-x86_64.AppImage --appimage-extract`), replace the file under
 `squashfs-root/usr/lib/` or `squashfs-root/usr/bin/`, and repack with
 `appimagetool squashfs-root`.
 EOF
 
 # --- 8. AppRun + pack -------------------------------------------------------
-# linuxdeploy left AppRun as a symlink to usr/bin/gif-editor; drop it so the
+# linuxdeploy left AppRun as a symlink to usr/bin/gifkino; drop it so the
 # heredoc writes a real file instead of overwriting the binary through it.
 rm -f "$appdir/AppRun"
 cat > "$appdir/AppRun" <<'EOF'
@@ -165,7 +165,7 @@ here=$(dirname "$(readlink -f "$0")")
 export LD_LIBRARY_PATH="$here/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export GSETTINGS_SCHEMA_DIR="$here/usr/share/glib-2.0/schemas"
 export XDG_DATA_DIRS="$here/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
-export GIF_EDITOR_PO_DIR="$here/usr/share/gif-editor/po"
+export GIFKINO_PO_DIR="$here/usr/share/gifkino/po"
 # The bundled ffmpeg/ffprobe/gifsicle win over the host's, which may be absent.
 export PATH="$here/usr/bin:$PATH"
 loader_cache="$here/usr/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache"
@@ -173,17 +173,17 @@ if [ -f "$loader_cache" ]; then
   export GDK_PIXBUF_MODULEDIR="$here/usr/lib/gdk-pixbuf-2.0/2.10.0/loaders"
   export GDK_PIXBUF_MODULE_FILE="$loader_cache"
 fi
-exec "$here/usr/bin/gif-editor" "$@"
+exec "$here/usr/bin/gifkino" "$@"
 EOF
 chmod +x "$appdir/AppRun"
 
 # Guard against the binary being clobbered (e.g. a heredoc following the AppRun
 # symlink linuxdeploy leaves) - the AppImage would still build and only fail
 # when a user runs it.
-file "$appdir/usr/bin/gif-editor" | grep -q ELF \
-  || { echo "usr/bin/gif-editor is not an ELF binary" >&2; exit 1; }
+file "$appdir/usr/bin/gifkino" | grep -q ELF \
+  || { echo "usr/bin/gifkino is not an ELF binary" >&2; exit 1; }
 file "$appdir/AppRun" | grep -q 'shell script' \
   || { echo "AppRun is not a script" >&2; exit 1; }
 
-ARCH=x86_64 "$tools/appimagetool" "$appdir" "$repo/GifEditor-x86_64.AppImage"
-echo "built: $repo/GifEditor-x86_64.AppImage  (version $version)"
+ARCH=x86_64 "$tools/appimagetool" "$appdir" "$repo/Gifkino-x86_64.AppImage"
+echo "built: $repo/Gifkino-x86_64.AppImage  (version $version)"

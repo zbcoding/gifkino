@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Extract and merge gettext catalogs for gif-editor.
+"""Extract and merge gettext catalogs for gifkino.
 
 Impasto drives this with `make updatepotfiles` and `make updatepot`; there is no
 Makefile here, so the same two jobs live in one script:
@@ -162,9 +162,9 @@ def extract():
     return found
 
 
-HEADER = '''# Translation template for gif-editor.
+HEADER = '''# Translation template for gifkino.
 # Copyright (C) {year}
-# This file is distributed under the same license as the gif-editor package.
+# This file is distributed under the same license as the gifkino package.
 #
 # PO translation metadata:
 # Translations must include a descriptive translator note.
@@ -180,7 +180,7 @@ HEADER = '''# Translation template for gif-editor.
 #, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: gif-editor\\n"
+"Project-Id-Version: gifkino\\n"
 "Report-Msgid-Bugs-To: \\n"
 "POT-Creation-Date: {stamp}\\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\\n"
@@ -303,7 +303,7 @@ def po_header(path, lang):
     return (
         HEADER.format(year=datetime.now().year, stamp=stamp)
         .replace('"Language: \\n"', f'"Language: {lang}\\n"')
-        .replace("Translation template for gif-editor.", f"{lang} translation for gif-editor.")
+        .replace("Translation template for gifkino.", f"{lang} translation for gifkino.")
     )
 
 

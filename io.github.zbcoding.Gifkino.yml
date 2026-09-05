@@ -2,20 +2,20 @@
 #
 #   flatpak install flathub org.gnome.Sdk//50 org.gnome.Platform//50 \
 #     org.freedesktop.Sdk.Extension.rust-stable//25.08
-#   flatpak-builder --user --install --force-clean build-dir io.github.zbcoding.GifEditor.yml
-#   flatpak run io.github.zbcoding.GifEditor
+#   flatpak-builder --user --install --force-clean build-dir io.github.zbcoding.Gifkino.yml
+#   flatpak run io.github.zbcoding.Gifkino
 #
 # The app only calls GTK 4.14 / libadwaita 1.5 APIs (the feature gates in
 # Cargo.toml enforce that at compile time), so it builds against any newer
 # runtime. The runtime travels inside the flatpak, so the choice costs users
 # nothing; take the current one and move up when it goes end-of-life.
-id: io.github.zbcoding.GifEditor
+id: io.github.zbcoding.Gifkino
 runtime: org.gnome.Platform
 runtime-version: '50'
 sdk: org.gnome.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
-command: gif-editor
+command: gifkino
 
 finish-args:
   - --socket=wayland
@@ -60,12 +60,12 @@ modules:
         url: https://www.lcdf.org/gifsicle/gifsicle-1.96.tar.gz
         sha256: fd23d279681a6dfe3c15264e33f344045b3ba473da4d19f49e67a50994b077fb
 
-  - name: gif-editor
+  - name: gifkino
     buildsystem: simple
     build-options:
       append-path: /usr/lib/sdk/rust-stable/bin
       env:
-        CARGO_HOME: /run/build/gif-editor/cargo
+        CARGO_HOME: /run/build/gifkino/cargo
       # ponytail: cargo fetches crates during the build instead of the manifest
       # listing every crate as a source. A store that builds offline (Flathub)
       # would refuse this; generating cargo-sources.json from Cargo.lock with
@@ -74,12 +74,12 @@ modules:
         - --share=network
     build-commands:
       - cargo build --release
-      - install -Dm755 target/release/gif-editor /app/bin/gif-editor
+      - install -Dm755 target/release/gifkino /app/bin/gifkino
       - install -Dm644 xdg/$FLATPAK_ID.desktop -t /app/share/applications/
       - install -Dm644 xdg/$FLATPAK_ID.metainfo.xml -t /app/share/metainfo/
       - install -Dm644 xdg/$FLATPAK_ID.svg -t /app/share/icons/hicolor/scalable/apps/
       # i18n.rs looks here for the catalogs; they are read as .po, not compiled.
-      - install -Dm644 po/*.po -t /app/share/gif-editor/po/
+      - install -Dm644 po/*.po -t /app/share/gifkino/po/
     sources:
       # Builds whatever is checked out. For a release build from a tag, swap in
       # `type: git` with `url:` and `tag:`.

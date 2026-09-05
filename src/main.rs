@@ -16,6 +16,6 @@ use relm4::RelmApp;
 fn main() {
     let path = std::env::args_os().nth(1).map(PathBuf::from);
     // The path is ours to open, not GApplication's.
-    let app = RelmApp::new("io.github.zbcoding.GifEditor").with_args(Vec::new());
+    let app = RelmApp::new("io.github.zbcoding.Gifkino").with_args(Vec::new());
     app.run::<ui::window::App>(path);
 }

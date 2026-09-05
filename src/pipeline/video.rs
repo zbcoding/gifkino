@@ -350,7 +350,7 @@ mod tests {
             eprintln!("skipping {name}: no ffmpeg");
             return None;
         }
-        let path = std::env::temp_dir().join(format!("gif-editor-{name}.mp4"));
+        let path = std::env::temp_dir().join(format!("gifkino-{name}.mp4"));
         let status = Command::new("ffmpeg")
             .args(["-v", "error", "-y", "-f", "lavfi", "-i"])
             .arg(format!(

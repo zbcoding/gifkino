@@ -128,10 +128,10 @@ fn load_catalog() -> HashMap<String, String> {
 /// while the catalogs are being written.
 fn search_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
-    if let Some(dir) = std::env::var_os("GIF_EDITOR_PO_DIR") {
+    if let Some(dir) = std::env::var_os("GIFKINO_PO_DIR") {
         dirs.push(PathBuf::from(dir));
     }
-    // target/debug/gif-editor and target/debug/deps/gif_editor-abc123 both
+    // target/debug/gifkino and target/debug/deps/gifkino-abc123 both
     // reach the repository root inside four steps.
     if let Ok(exe) = std::env::current_exe() {
         let mut dir = exe.parent().map(Path::to_path_buf);
@@ -142,13 +142,13 @@ fn search_dirs() -> Vec<PathBuf> {
         }
     }
     if let Some(data) = std::env::var_os("XDG_DATA_HOME") {
-        dirs.push(PathBuf::from(data).join("gif-editor/po"));
+        dirs.push(PathBuf::from(data).join("gifkino/po"));
     }
     if let Some(home) = std::env::var_os("HOME") {
-        dirs.push(PathBuf::from(home).join(".local/share/gif-editor/po"));
+        dirs.push(PathBuf::from(home).join(".local/share/gifkino/po"));
     }
-    dirs.push(PathBuf::from("/usr/share/gif-editor/po"));
-    dirs.push(PathBuf::from("/app/share/gif-editor/po"));
+    dirs.push(PathBuf::from("/usr/share/gifkino/po"));
+    dirs.push(PathBuf::from("/app/share/gifkino/po"));
     dirs
 }
 
@@ -295,15 +295,15 @@ msgstr "Öffnen…"
     #[test]
     fn fuzzy_entries_are_used_rather_than_dropped() {
         let catalog = parse_po(
-            "#. Translators: window title\n\
+            "#. Translators: Optimize menu item\n\
              #. AI-generated translation; human review requested.\n\
              #, fuzzy\n\
-             msgid \"GIF Editor\"\n\
-             msgstr \"GIF-Editor\"\n",
+             msgid \"Crop all frames…\"\n\
+             msgstr \"Alle Bilder zuschneiden…\"\n",
         );
         assert_eq!(
-            catalog.get("GIF Editor").map(String::as_str),
-            Some("GIF-Editor")
+            catalog.get("Crop all frames…").map(String::as_str),
+            Some("Alle Bilder zuschneiden…")
         );
     }
 

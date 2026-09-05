@@ -75,7 +75,7 @@ pub fn path() -> Option<PathBuf> {
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
-    Some(base.join("gif-editor").join("settings.conf"))
+    Some(base.join("gifkino").join("settings.conf"))
 }
 
 /// Leave a commented default behind on first run, so the file is discoverable
@@ -89,7 +89,7 @@ fn write_template(path: &std::path::Path) {
     let _ = std::fs::write(
         path,
         format!(
-            "# gif-editor settings\n\
+            "# gifkino settings\n\
              \n\
              # Most memory an import may use for decoded frames, in MB.\n\
              # Videos that need more are refused until you choose a smaller\n\
@@ -151,7 +151,7 @@ mod tests {
     fn the_config_path_follows_xdg() {
         let Some(path) = path() else { return };
         assert!(
-            path.ends_with("gif-editor/settings.conf"),
+            path.ends_with("gifkino/settings.conf"),
             "{}",
             path.display()
         );

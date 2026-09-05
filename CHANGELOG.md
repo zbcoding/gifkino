@@ -195,15 +195,33 @@
   killed, the GIF decoder stops reading — and nothing is loaded; a cancelled
   import is not a failure, so it says nothing.
 
+### Name
+
+- The application is called **Gifkino**, and the crate, the binary, the
+  application ID, the config directory and the catalog directory all spell it
+  the same way. `Gifkino` is a closed compound built the way `Daumenkino` is,
+  so it reads as a name rather than as the phrase "a GIF editor"; the German
+  form would hyphenate after the initialism (`GIF-Kino`), which a binary name
+  cannot use.
+- The window title is now the literal `Gifkino` rather than a translated
+  string. A proper noun has no translation, and the old msgid let a locale
+  rename the application — `de` shipped "GIF-Editor", `ja` "GIF エディター".
+  "GIF" and "editor" stay searchable through the desktop entry's
+  `GenericName`, `Keywords` and the metainfo summary, which do get translated.
+- Old state does not carry over: settings move from
+  `~/.config/gif-editor/settings.conf` to `~/.config/gifkino/`, and the same
+  for `keybindings.conf`. Nothing has shipped, so there is no migration path
+  and none is written.
+
 ### Packaging
 
 - The app ships as a flatpak and as an AppImage, built by
   `.github/workflows/release.yml` and attached to a `v*` tag. Both carry
   ffmpeg, ffprobe and gifsicle, so import and the optimized export work on a
   machine that has none of them installed.
-- The application ID is now `io.github.zbcoding.GifEditor`. The old
-  `io.github.gif_editor` named a GitHub account that does not exist, which
-  Flathub review rejects; the icon resource prefix moved with it.
+- The application ID is `io.github.zbcoding.Gifkino`, and the icon resource
+  prefix moved with it. The first ID, `io.github.gif_editor`, named a GitHub
+  account that does not exist, which Flathub review rejects.
 - The flatpak builds on the GNOME 50 runtime. Only GTK 4.14 and libadwaita 1.5
   APIs are called, gated by the feature flags in `Cargo.toml`, so the runtime
   can move forward without the code following.

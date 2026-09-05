@@ -304,7 +304,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "gif-editor"
+name = "gifkino"
 version = "0.1.0"
 dependencies = [
  "anyhow",

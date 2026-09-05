@@ -1,14 +1,14 @@
 [Desktop Entry]
 Type=Application
-Name=GIF Editor
+Name=Gifkino
 GenericName=Animated GIF Editor
 Comment=Edit animated GIFs along the time axis
-Exec=gif-editor @@ %f @@
-TryExec=gif-editor
-Icon=io.github.zbcoding.GifEditor
+Exec=gifkino @@ %f @@
+TryExec=gifkino
+Icon=io.github.zbcoding.Gifkino
 Terminal=false
 StartupNotify=true
-StartupWMClass=io.github.zbcoding.GifEditor
+StartupWMClass=io.github.zbcoding.Gifkino
 Categories=Graphics;2DGraphics;RasterGraphics;GTK;
-Keywords=GIF;Animation;Frame;Timeline;Screen Recorder;Capture;Video;
+Keywords=GIF;Animation;Frame;Timeline;Screen Recorder;Capture;Video;Editor;
 MimeType=image/gif;video/mp4;video/webm;video/x-matroska;video/quicktime;video/x-msvideo;

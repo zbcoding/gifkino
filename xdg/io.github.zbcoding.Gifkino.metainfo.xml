@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>io.github.zbcoding.GifEditor</id>
+  <id>io.github.zbcoding.Gifkino</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
 
-  <name>GIF Editor</name>
+  <name>Gifkino</name>
   <summary>Edit animated GIFs along the time axis</summary>
 
   <description>
@@ -27,18 +27,18 @@
     </ul>
   </description>
 
-  <launchable type="desktop-id">io.github.zbcoding.GifEditor.desktop</launchable>
+  <launchable type="desktop-id">io.github.zbcoding.Gifkino.desktop</launchable>
   <provides>
-    <binary>gif-editor</binary>
+    <binary>gifkino</binary>
   </provides>
 
   <developer id="io.github.zbcoding">
     <name>zbcoding</name>
   </developer>
 
-  <url type="homepage">https://github.com/zbcoding/gif-editor</url>
-  <url type="bugtracker">https://github.com/zbcoding/gif-editor/issues</url>
-  <url type="vcs-browser">https://github.com/zbcoding/gif-editor</url>
+  <url type="homepage">https://github.com/zbcoding/gifkino</url>
+  <url type="bugtracker">https://github.com/zbcoding/gifkino/issues</url>
+  <url type="vcs-browser">https://github.com/zbcoding/gifkino</url>
 
   <!-- No <screenshots>: a software centre shows the entry without one, and a
        block pointing at an image that is not published yet only makes

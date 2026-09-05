@@ -527,7 +527,7 @@ impl Keymap {
 
     pub fn to_text(&self) -> String {
         let mut out = String::from(
-            "# gif-editor keybindings\n\
+            "# gifkino keybindings\n\
              # One action per line. Separate alternatives with a comma;\n\
              # leave the right side empty to unbind.\n\n",
         );

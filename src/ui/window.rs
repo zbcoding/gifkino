@@ -106,7 +106,7 @@ fn register_tool_icons() {
     let resource = gio::Resource::from_data(&bytes).expect("icons.gresource is well-formed");
     gio::resources_register(&resource);
     let display = gdk::Display::default().expect("a default display");
-    gtk::IconTheme::for_display(&display).add_resource_path("/io/github/zbcoding/GifEditor/icons");
+    gtk::IconTheme::for_display(&display).add_resource_path("/io/github/zbcoding/Gifkino/icons");
 }
 
 #[derive(Debug)]
@@ -874,7 +874,9 @@ impl Component for App {
 
     fn init_root() -> Self::Root {
         adw::ApplicationWindow::builder()
-            .title(t("GIF Editor"))
+            // A proper noun, not a phrase: not marked for translation, so no
+            // locale can rename the application.
+            .title("Gifkino")
             .default_width(1100)
             .default_height(760)
             .build()

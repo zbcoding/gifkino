@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 env:
-  APP_ID: io.github.zbcoding.GifEditor
+  APP_ID: io.github.zbcoding.Gifkino
   # GNOME 50 gives GTK 4.20, well above the 4.14 the bindings are gated at. The
   # extension branch has to match the runtime's freedesktop base.
   RUNTIME_VERSION: '50'
@@ -58,11 +58,11 @@ jobs:
     # missing library or a bad AppRun.
     - name: Smoke-test the AppImage
       run: |
-        ./GifEditor-x86_64.AppImage --appimage-extract >/dev/null
+        ./Gifkino-x86_64.AppImage --appimage-extract >/dev/null
         squashfs-root/usr/bin/ffmpeg -version | head -1
-        test -f squashfs-root/usr/share/gif-editor/po/de.po
+        test -f squashfs-root/usr/share/gifkino/po/de.po
         set +e
-        xvfb-run --auto-servernum timeout 25 ./GifEditor-x86_64.AppImage
+        xvfb-run --auto-servernum timeout 25 ./Gifkino-x86_64.AppImage
         code=$?
         set -e
         case $code in
@@ -72,8 +72,8 @@ jobs:
         esac
     - uses: actions/upload-artifact@v4
       with:
-        name: GifEditor-x86_64.AppImage
-        path: GifEditor-x86_64.AppImage
+        name: Gifkino-x86_64.AppImage
+        path: Gifkino-x86_64.AppImage
         if-no-files-found: error
 
   flatpak:
@@ -97,28 +97,28 @@ jobs:
     - uses: actions/cache@v4
       with:
         path: .flatpak-builder
-        key: flatpak-builder-${{ hashFiles('io.github.zbcoding.GifEditor.yml') }}
+        key: flatpak-builder-${{ hashFiles('io.github.zbcoding.Gifkino.yml') }}
         restore-keys: flatpak-builder-
     - name: Build
       run: |
         flatpak-builder --user --repo=repo --force-clean \
           build-dir "$APP_ID.yml"
-        flatpak build-bundle repo "GifEditor.flatpak" "$APP_ID" \
+        flatpak build-bundle repo "Gifkino.flatpak" "$APP_ID" \
           --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo
 
     # No display needed for either of these, and both catch a bundle that built
     # but shipped nothing useful.
     - name: Check the bundled helpers and catalogs
       run: |
-        flatpak install --user -y --noninteractive --bundle GifEditor.flatpak
+        flatpak install --user -y --noninteractive --bundle Gifkino.flatpak
         flatpak run --command=ffmpeg "$APP_ID" -version | head -1
         flatpak run --command=ffprobe "$APP_ID" -version | head -1
         flatpak run --command=gifsicle "$APP_ID" --version | head -1
-        flatpak run --command=ls "$APP_ID" /app/share/gif-editor/po
+        flatpak run --command=ls "$APP_ID" /app/share/gifkino/po
     - uses: actions/upload-artifact@v4
       with:
-        name: GifEditor.flatpak
-        path: GifEditor.flatpak
+        name: Gifkino.flatpak
+        path: Gifkino.flatpak
         if-no-files-found: error
 
   release:
@@ -140,11 +140,11 @@ jobs:
         cat > notes.md <<'EOF'
         ## Downloads
 
-        - **Flatpak** (`GifEditor.flatpak`) — carries its own GTK and the ffmpeg,
+        - **Flatpak** (`Gifkino.flatpak`) — carries its own GTK and the ffmpeg,
           ffprobe and gifsicle programs the editor drives, so it runs anywhere
           flatpak does, Ubuntu 22.04 included. Install with
-          `flatpak install --bundle GifEditor.flatpak`.
-        - **AppImage** (`GifEditor-x86_64.AppImage`) — built against glibc 2.39,
+          `flatpak install --bundle Gifkino.flatpak`.
+        - **AppImage** (`Gifkino-x86_64.AppImage`) — built against glibc 2.39,
           so it needs Ubuntu 24.04, Debian 13, Fedora 40 or newer. Bundles the
           same helper programs. `chmod +x` it and run it.
         EOF
@@ -152,4 +152,4 @@ jobs:
           --repo "${GITHUB_REPOSITORY}" \
           --title "${GITHUB_REF_NAME}" \
           --notes-file notes.md \
-          GifEditor-x86_64.AppImage GifEditor.flatpak
+          Gifkino-x86_64.AppImage Gifkino.flatpak

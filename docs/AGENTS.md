@@ -229,7 +229,7 @@ a long msgid may still wrap across source lines.
 
 Locale comes from the `language` key in `settings.conf`, then `LANGUAGE`,
 `LC_ALL`, `LC_MESSAGES`, `LANG`. `de_DE` falls back to `de.po`. Set
-`GIF_EDITOR_PO_DIR` to point at a catalog directory while testing; otherwise the
+`GIFKINO_PO_DIR` to point at a catalog directory while testing; otherwise the
 source tree's `po/` is found by walking up from the executable, so `cargo run`
 picks up an edit with no install.
 
@@ -251,7 +251,7 @@ plus `Modal` and `Mods` for the modifiers held during a canvas drag (rotate,
 keep aspect, resize from center) — a chord needs a key, and those are the
 modifier alone. Every action lives in `keymap::ACTIONS`; adding one means an
 entry there and an arm in `window::message_for`. Every canvas modifier lives in
-`keymap::MODALS` and is read where the drag is handled. The file is `~/.config/gif-editor/keybindings.conf`
+`keymap::MODALS` and is read where the drag is handled. The file is `~/.config/gifkino/keybindings.conf`
 — flat `action = Ctrl+Z` text rather than JSON, because the whole map is two
 dozen readable lines and serde would be a dependency for what `split_once('=')`
 already does. Import and export in the shortcuts window are a file copy.
