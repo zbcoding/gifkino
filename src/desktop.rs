@@ -355,7 +355,10 @@ mod tests {
         )
         .unwrap();
         for (size, ext) in [("scalable", "svg"), ("128x128", "png"), ("48x48", "png")] {
-            let dir = appdir.join("usr/share/icons/hicolor").join(size).join("apps");
+            let dir = appdir
+                .join("usr/share/icons/hicolor")
+                .join(size)
+                .join("apps");
             std::fs::create_dir_all(&dir).unwrap();
             std::fs::write(dir.join(format!("{APP_ID}.{ext}")), b"icon").unwrap();
         }
@@ -363,9 +366,7 @@ mod tests {
         let appimage = root.join("Gifkino-x86_64.AppImage");
         let written = install(&appdir, &appimage, &data).unwrap();
 
-        let entry = data
-            .join("applications")
-            .join(format!("{APP_ID}.desktop"));
+        let entry = data.join("applications").join(format!("{APP_ID}.desktop"));
         assert!(entry.is_file(), "the entry is what the taskbar matches on");
         assert!(
             std::fs::read_to_string(&entry)
@@ -418,7 +419,11 @@ mod tests {
         );
 
         // Another AppImage's integrated entry says nothing about this one.
-        std::fs::write(apps.join("appimagekit_abc123-org.example.Other.desktop"), "").unwrap();
+        std::fs::write(
+            apps.join("appimagekit_abc123-org.example.Other.desktop"),
+            "",
+        )
+        .unwrap();
         assert!(!integrator_owns_it(&apps));
 
         // The md5 in the middle varies with the AppImage's path, so only the
