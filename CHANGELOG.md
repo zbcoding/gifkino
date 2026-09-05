@@ -235,3 +235,9 @@
   `hicolor/scalable/apps` and the AppImage build rasterizes it at 512, 256,
   128, 64 and 48. The K is stroked geometry rather than `<text>`, because
   nothing rasterizing the icon is guaranteed the font.
+- `scripts/install-user.sh` installs the desktop entry, metainfo and icon into
+  `~/.local/share` and symlinks `~/.local/bin/gifkino` at the release build,
+  with `--uninstall` to undo it. A development build run straight out of
+  `target/` gets a placeholder icon in the taskbar: the desktop matches a
+  window by its app_id to an installed desktop file, and from there to an
+  installed icon, so with nothing installed there is nothing to match.
