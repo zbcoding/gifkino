@@ -94,6 +94,35 @@ impl Document {
         }
     }
 
+    /// Splice frames from another file in at `at` without letting the
+    /// overlays around the seam grow over them: an imported clip arrives with
+    /// no captions on it, and inheriting the one that happened to end where it
+    /// landed would paint somebody else's text on it. `insert_frames_at` is
+    /// the other rule, for a duplicate or a paste of the document's own
+    /// frames. An overlay the run lands *inside* still spans it, the same way
+    /// `move_frame` leaves a frame dropped into the middle of a band covered.
+    pub fn insert_foreign_frames_at(&mut self, at: usize, frames: Vec<Frame>) {
+        let at = at.min(self.frames.len());
+        let added = frames.len();
+        if added == 0 {
+            return;
+        }
+        self.frames.splice(at..at, frames);
+        for o in &mut self.overlays {
+            let start = if o.range.start >= at {
+                o.range.start + added
+            } else {
+                o.range.start
+            };
+            let end = if o.range.end > at {
+                o.range.end + added
+            } else {
+                o.range.end
+            };
+            o.range = start..end;
+        }
+    }
+
     /// Move `id` directly above or below `other` in the z-order, leaving
     /// every other overlay's relative order alone. Restacking is a step next
     /// to a *named* neighbour rather than a swap with the adjacent list

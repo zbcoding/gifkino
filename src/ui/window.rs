@@ -19,17 +19,18 @@ use gtk4 as gtk;
 use libadwaita as adw;
 use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt};
 
+use crate::core::fit::{self, Splice};
 use crate::core::render::{self, TextRasterizer};
 use crate::core::{
-    Change, Document, Editor, Frame, OverlayId, OverlayKind, Scope, Shape, ShapeOverlay, TextAlign,
-    TextOverlay, Transform,
+    Change, Document, Editor, FitMode, Frame, OverlayId, OverlayKind, Scope, Shape, ShapeOverlay,
+    TextAlign, TextOverlay, Transform,
 };
 use crate::i18n::{fill, lookup, n, t, tn};
 use crate::keymap::{Action, Chord, Keymap, MODALS, Modal, Mods};
 use crate::pipeline::caps::Caps;
 use crate::pipeline::gif::{Encodable, ExportSettings};
 use crate::pipeline::video::{self, ImportOptions, ImportPlan};
-use crate::pipeline::{gif as gif_pipeline, import_any};
+use crate::pipeline::{self as pipeline, gif as gif_pipeline, import_any};
 use crate::settings::Settings;
 use crate::ui::text::rasterize;
 
@@ -48,6 +49,10 @@ const STRIP_ZOOM_STEP: f64 = 1.2;
 /// stop moving rather than chasing every keystroke.
 const MEASURE_DEBOUNCE: std::time::Duration = std::time::Duration::from_secs(5);
 const BAND_H: f64 = 18.0;
+/// "Splice at the end of the timeline", clamped to the frame count when the
+/// import lands. The file menu's Add frames has no frame under the pointer to
+/// aim at, unlike a frame's own context menu.
+const AT_END: usize = usize::MAX;
 
 pub const CSS: &str = "
 .canvas-frame { border: 1px solid alpha(currentColor, 0.15); }
@@ -216,17 +221,21 @@ pub enum Msg {
     DropEveryNth(usize),
     SmartDrop(usize),
     Resize(u32, u32),
-    /// A frame's own context menu: splice a decoded image in right after it.
-    InsertImageFrame(usize, PathBuf),
-    /// A still image chosen from "Add frames from file": decode it and append
-    /// one frame, fitted to the canvas. Videos and animations take the async
-    /// `LoadAppend` path instead.
-    AppendImageFrame(PathBuf),
-    /// Pick another clip or image from "Add frames from file".
-    ImportMore,
-    /// Like `Load`, but appends the decoded frames instead of replacing the
-    /// document — `import_append` carries the mode across the async decode.
-    LoadAppend(PathBuf),
+    /// Pick a file to splice in at this index. The frame context menu and the
+    /// file menu are the same operation at two different indices.
+    ImportInto(usize),
+    /// Like `Load`, but the decoded frames splice in at this index instead of
+    /// replacing the document — `import_at` carries the target across the
+    /// async decode.
+    LoadInto(PathBuf, usize),
+    /// The fit chooser answered. Carries the decoded frames rather than the
+    /// path: they are already in memory, and re-decoding the file to answer a
+    /// dialog would decode it twice.
+    SpliceFrames {
+        at: usize,
+        frames: Vec<Frame>,
+        fit: FitMode,
+    },
     /// Reorder: pull the frame at `.0` out and reinsert it at `.1`.
     MoveFrame(usize, usize),
     /// A frame's own context menu: ask where to move it.
@@ -253,7 +262,7 @@ impl Msg {
             self,
             Msg::Load(_)
                 | Msg::LoadConfirmed(_, _)
-                | Msg::LoadAppend(_)
+                | Msg::LoadInto(_, _)
                 | Msg::Undo
                 | Msg::Redo
                 | Msg::DeleteSelection
@@ -271,8 +280,7 @@ impl Msg {
                 | Msg::DropEveryNth(_)
                 | Msg::SmartDrop(_)
                 | Msg::Resize(_, _)
-                | Msg::InsertImageFrame(_, _)
-                | Msg::AppendImageFrame(_)
+                | Msg::SpliceFrames { .. }
                 | Msg::MoveFrame(_, _)
         )
     }
@@ -287,7 +295,7 @@ impl Msg {
                     | Msg::Export
                     | Msg::CropAllDialog
                     | Msg::DelayAllDialog
-                    | Msg::ImportMore
+                    | Msg::ImportInto(_)
             )
     }
 
@@ -320,8 +328,7 @@ impl Msg {
                 | Msg::DropEveryNth(_)
                 | Msg::SmartDrop(_)
                 | Msg::Resize(_, _)
-                | Msg::InsertImageFrame(_, _)
-                | Msg::AppendImageFrame(_)
+                | Msg::SpliceFrames { .. }
                 | Msg::MoveFrame(_, _)
         )
     }
@@ -454,6 +461,9 @@ enum BusyKind {
     Zoom,
     Shrink,
     Crop,
+    /// Resampling a splice onto one canvas — the incoming frames, and every
+    /// frame the document already had if the canvas grew to meet them.
+    Fit,
 }
 
 /// A frame-heavy operation the worker thread runs against the document as it
@@ -554,6 +564,9 @@ pub enum Cmd {
     Estimated(u64, Result<usize, String>),
     /// A finished resize or zoom, or a worker panic reported back to the UI.
     Worked(Result<Box<WorkDone>, &'static str>),
+    /// A finished splice: incoming frames and, when the canvas grew, the
+    /// document's own, all resampled onto one canvas.
+    Spliced(Result<Box<Splice>, &'static str>),
     Imported(Box<ImportOutcome>),
     Exported(Result<(PathBuf, u64), String>),
 }
@@ -606,10 +619,10 @@ pub struct App {
     /// the thumbnails when it actually changed.
     strip_zoom_shown: Cell<f64>,
     rev: u64,
-    /// Set right before a `Load`/`LoadAppend` starts and consumed when
-    /// `Cmd::Imported` lands: whether the decode should replace the document
-    /// or append its frames to the end of the current one.
-    import_append: bool,
+    /// Set right before a `Load`/`LoadInto` starts and consumed when
+    /// `Cmd::Imported` lands: where the decoded frames go. `None` replaces the
+    /// document; `Some(i)` splices them in at `i`.
+    import_at: Option<usize>,
     /// Cut or copied frames, waiting for a paste. App-local rather than the
     /// system clipboard: what a paste needs is the frame with its delay and
     /// its cached thumbnail, and a GIF frame has no interchange format that
@@ -914,7 +927,7 @@ impl Component for App {
             strip_pitch: Rc::new(Cell::new(cell_pitch(THUMB_BOX, 1.0))),
             strip_zoom_shown: Cell::new(1.0),
             rev: 0,
-            import_append: false,
+            import_at: None,
             clipboard: Vec::new(),
         };
 
@@ -931,7 +944,11 @@ impl Component for App {
     fn update(&mut self, msg: Msg, sender: ComponentSender<Self>, root: &Self::Root) {
         let blocked = self.busy.as_ref().is_some_and(|busy| match busy.kind {
             BusyKind::Import => msg.requires_idle() || msg.edits_document(),
-            BusyKind::Resize | BusyKind::Zoom | BusyKind::Shrink | BusyKind::Crop => {
+            BusyKind::Resize
+            | BusyKind::Zoom
+            | BusyKind::Shrink
+            | BusyKind::Crop
+            | BusyKind::Fit => {
                 msg.requires_idle()
                     && !(matches!(msg, Msg::DeleteSelection) && self.selected_overlay.is_some())
             }
@@ -958,56 +975,23 @@ impl Component for App {
                 });
             }
             Msg::Load(path) => {
-                self.import_append = false;
-                let cancel = Arc::new(AtomicBool::new(false));
-                self.busy = Some(Busy {
-                    kind: BusyKind::Import,
-                    done: 0,
-                    total: None,
-                    cancel: Some(cancel.clone()),
-                });
-                plan_import(path, self.import_options(), cancel, &sender);
+                self.import_at = None;
+                self.start_import(path, &sender);
             }
-            Msg::LoadAppend(path) => {
+            Msg::LoadInto(path, at) => {
                 if self.frame_count() == 0 {
-                    // Nothing to append to: behave like a normal open.
+                    // Nothing to splice into: behave like a normal open.
                     sender.input(Msg::Load(path));
                     return;
                 }
-                self.import_append = true;
-                let cancel = Arc::new(AtomicBool::new(false));
-                self.busy = Some(Busy {
-                    kind: BusyKind::Import,
-                    done: 0,
-                    total: None,
-                    cancel: Some(cancel.clone()),
-                });
-                plan_import(path, self.import_options(), cancel, &sender);
+                self.import_at = Some(at.min(self.frame_count()));
+                self.start_import(path, &sender);
             }
-            Msg::ImportMore => {
-                let dialog = gtk::FileDialog::builder()
-                    .title(t("Add frames from a file"))
-                    .build();
-                let filter = gtk::FileFilter::new();
-                filter.set_name(Some(t("Images, videos and GIFs")));
-                filter.add_mime_type("image/*");
-                filter.add_mime_type("video/*");
-                let filters = gio::ListStore::new::<gtk::FileFilter>();
-                filters.append(&filter);
-                dialog.set_filters(Some(&filters));
-
-                let sender = sender.clone();
-                dialog.open(Some(root), gio::Cancellable::NONE, move |res| {
-                    if let Some(path) = res.ok().and_then(|f| f.path()) {
-                        // Still images splice in directly; anything that might
-                        // carry motion goes through the async import pipeline.
-                        sender.input(if is_still_image(&path) {
-                            Msg::AppendImageFrame(path)
-                        } else {
-                            Msg::LoadAppend(path)
-                        });
-                    }
-                });
+            Msg::ImportInto(at) => {
+                pick_import_file(root, at, &sender);
+            }
+            Msg::SpliceFrames { at, frames, fit } => {
+                self.start_splice(at, frames, fit, &sender);
             }
             Msg::LoadConfirmed(path, plan) => {
                 let cancel = Arc::new(AtomicBool::new(false));
@@ -1320,22 +1304,6 @@ impl Component for App {
                 if let Some(change) = self.move_picked(&picked, to) {
                     self.toast_if_document_wide(&sender, &change, self.frame_count());
                 }
-            }
-            Msg::InsertImageFrame(index, path) => {
-                let delay = self.editor.doc.frames.get(index).map_or(10, |f| f.delay_cs);
-                let Some(frame) = self.decode_image_frame(&path, delay) else {
-                    sender.input(Msg::Toast(t("Could not read that image.").into()));
-                    return;
-                };
-                self.splice_frame((index + 1).min(self.frame_count()), frame, &sender);
-            }
-            Msg::AppendImageFrame(path) => {
-                let delay = self.editor.doc.frames.last().map_or(10, |f| f.delay_cs);
-                let Some(frame) = self.decode_image_frame(&path, delay) else {
-                    sender.input(Msg::Toast(t("Could not read that image.").into()));
-                    return;
-                };
-                self.splice_frame(self.frame_count(), frame, &sender);
             }
             Msg::MoveFrame(from, to) => {
                 let total = self.frame_count();
@@ -1778,6 +1746,43 @@ impl Component for App {
             self.toast_if_document_wide(&sender, &change, self.frame_count());
             return;
         }
+        if let Cmd::Spliced(result) = msg {
+            self.busy = None;
+            let splice = match result {
+                Ok(splice) => *splice,
+                Err(error) => {
+                    sender.input(Msg::Toast(t(error).to_string()));
+                    return;
+                }
+            };
+            let at = splice.at;
+            let (fx, fy) = splice.overlays.scale;
+            let (dx, dy) = splice.overlays.offset;
+            let added = splice.incoming.len();
+            let label = if added == 1 {
+                n("Frame added")
+            } else {
+                n("Frames added")
+            };
+            let (change, _) = self.editor.edit(label, added, |d| splice.apply(d));
+            // `scale_in_flight_canvas` subtracts the origin the pixels moved
+            // to; padding moves them the other way, so the margin goes in
+            // negative.
+            scale_in_flight_canvas(
+                &mut self.drag,
+                &mut self.crop_rect,
+                fx,
+                fy,
+                -(dx as f32),
+                -(dy as f32),
+            );
+            self.playhead = at.min(self.frame_count().saturating_sub(1));
+            self.after_edit();
+            // Always toasted, unlike a scoped edit: the frames land off the
+            // playhead's frame, and a grown canvas redrew every one of them.
+            sender.input(Msg::Toast(change.message()));
+            return;
+        }
         if let Cmd::Estimated(rev, result) = msg {
             if let Ok(bytes) = result {
                 self.estimate = Some((rev, bytes));
@@ -1815,6 +1820,7 @@ impl Component for App {
             Cmd::ImportProgress(..)
             | Cmd::WorkProgress(..)
             | Cmd::Worked(..)
+            | Cmd::Spliced(..)
             | Cmd::Planned(..)
             | Cmd::Estimated(..) => {
                 unreachable!("handled above")
@@ -1823,21 +1829,11 @@ impl Component for App {
                 // An import ends the bar it started; an export never owns the
                 // bar, so its result leaves whatever is running alone.
                 self.busy = None;
-                let append = std::mem::take(&mut self.import_append);
-                match *outcome {
-                    ImportOutcome::Loaded(path, frames) if append => {
-                        if !frames.is_empty() {
-                            let frames = resize_frames_to(frames, self.editor.doc.size());
-                            let touched = frames.len();
-                            let (change, _) = self.editor.edit(n("Frames added"), touched, |d| {
-                                d.frames.extend(frames);
-                            });
-                            self.after_edit();
-                            sender.input(Msg::Toast(change.message()));
-                        }
-                        let _ = path;
+                match (self.import_at.take(), *outcome) {
+                    (Some(at), ImportOutcome::Loaded(path, frames)) => {
+                        self.ask_fit(root, &path, at.min(self.frame_count()), frames, &sender);
                     }
-                    ImportOutcome::Loaded(path, frames) => {
+                    (None, ImportOutcome::Loaded(path, frames)) => {
                         self.editor = Editor::new(Document::from_frames(frames));
                         self.path = Some(path);
                         self.playhead = 0;
@@ -1846,8 +1842,8 @@ impl Component for App {
                         self.scope = ScopeChoice::ThisFrame;
                         self.after_edit();
                     }
-                    ImportOutcome::Cancelled => {}
-                    ImportOutcome::Failed(e) => sender.input(Msg::Toast(e)),
+                    (_, ImportOutcome::Cancelled) => {}
+                    (_, ImportOutcome::Failed(e)) => sender.input(Msg::Toast(e)),
                 }
             }
             Cmd::Exported(Ok((path, size))) => {
@@ -1927,6 +1923,9 @@ impl Component for App {
                         BusyKind::Shrink => t("Cropping this frame…"),
                         // Translators: Progress while every frame is being cropped; both values are frame counts.
                         BusyKind::Crop => t("Cropping… {done} / {total} frames"),
+                        // Translators: Progress while frames being spliced in are resized to
+                        // one canvas; both values are frame counts.
+                        BusyKind::Fit => t("Fitting… {done} / {total} frames"),
                     };
                     widgets.import_bar.set_text(Some(&fill(
                         label,
@@ -2691,28 +2690,84 @@ impl App {
         run_frame_work(&self.editor.doc, work, sender);
     }
 
-    /// Decode a still image and fit it to the canvas, ready to splice in as one
-    /// frame. `None` if the file will not decode (the caller toasts).
-    fn decode_image_frame(&self, path: &Path, delay_cs: u16) -> Option<Frame> {
-        let img = image::open(path).ok()?.to_rgba8();
-        let size = self.editor.doc.size();
-        let img = if size == (0, 0) || img.dimensions() == size {
-            img
-        } else {
-            image::imageops::resize(&img, size.0, size.1, image::imageops::FilterType::Triangle)
-        };
-        Some(Frame::new(img, delay_cs))
+    /// Probe and decode off the main thread. `import_at` has already been set
+    /// to say where the frames land.
+    fn start_import(&mut self, path: PathBuf, sender: &ComponentSender<Self>) {
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.busy = Some(Busy {
+            kind: BusyKind::Import,
+            done: 0,
+            total: None,
+            cancel: Some(cancel.clone()),
+        });
+        plan_import(path, self.import_options(), cancel, sender);
     }
 
-    /// Insert one frame at `at` as a single "Frame added" history step and move
-    /// the playhead onto it.
-    fn splice_frame(&mut self, at: usize, frame: Frame, sender: &ComponentSender<Self>) {
-        let (change, _) = self
-            .editor
-            .edit(n("Frame added"), 1, |d| d.insert_frame_at(at, frame));
-        self.playhead = at;
-        self.after_edit();
-        self.toast_if_document_wide(sender, &change, self.frame_count());
+    /// Frames decoded and headed for the timeline at `at`. A file that
+    /// already matches the canvas needs no decision, and neither does the
+    /// first file into an empty document; anything else is the user's call.
+    fn ask_fit(
+        &self,
+        root: &adw::ApplicationWindow,
+        path: &Path,
+        at: usize,
+        mut frames: Vec<Frame>,
+        sender: &ComponentSender<Self>,
+    ) {
+        let Some(arriving) = frames.first().map(|f| f.pixels.dimensions()) else {
+            return;
+        };
+        // A still image carries no timing of its own, and 10cs next to frames
+        // that hold for a second reads as a dropout rather than a frame.
+        if let [only] = frames.as_mut_slice() {
+            let neighbour = at
+                .checked_sub(1)
+                .and_then(|i| self.editor.doc.frames.get(i))
+                .or_else(|| self.editor.doc.frames.first());
+            if let Some(neighbour) = neighbour {
+                only.delay_cs = neighbour.delay_cs;
+            }
+        }
+        let canvas = self.editor.doc.size();
+        if canvas == (0, 0) || canvas == arriving {
+            sender.input(Msg::SpliceFrames {
+                at,
+                frames,
+                fit: FitMode::Stretch,
+            });
+            return;
+        }
+        fit_dialog(root, path, canvas, arriving, at, frames, sender);
+    }
+
+    /// The splice's resampling, threaded like a resize: the growing modes
+    /// redraw every frame the document already had, which at a few hundred
+    /// frames is seconds of work the window must stay alive through.
+    fn start_splice(
+        &mut self,
+        at: usize,
+        frames: Vec<Frame>,
+        fit: FitMode,
+        sender: &ComponentSender<Self>,
+    ) {
+        let Some(arriving) = frames.first().map(|f| f.pixels.dimensions()) else {
+            return;
+        };
+        let (w, h) = fit.canvas(self.editor.doc.size(), arriving);
+        let landing = self.frame_count() + frames.len();
+        if !resize_fits_budget(w, h, landing, self.settings.max_import_bytes) {
+            sender.input(Msg::Toast(
+                t("That resize would use more memory than the configured limit.").into(),
+            ));
+            return;
+        }
+        self.busy = Some(Busy {
+            kind: BusyKind::Fit,
+            done: 0,
+            total: None,
+            cancel: None,
+        });
+        run_splice(&self.editor.doc, at, frames, fit, sender);
     }
 
     /// Fill the canvas from the drawn crop box on `frames`, threaded like a
@@ -2762,77 +2817,53 @@ fn crop_changes_canvas((cw, ch): (u32, u32), (x, y, w, h): (u32, u32, u32, u32))
     cw > 0 && ch > 0 && !(x == 0 && y == 0 && w >= cw && h >= ch)
 }
 
-/// Fit imported frames onto an existing canvas before mixing them in — a
-/// second file rarely decodes at the same size, and appending frames the
-/// compositor cannot assume are uniform would break every op that reads
-/// `Document::size()` from the first frame. `(0, 0)` means the document was
-/// empty, so whatever the new frames decoded at becomes the canvas.
-fn resize_frames_to(frames: Vec<Frame>, (cw, ch): (u32, u32)) -> Vec<Frame> {
-    if cw == 0 || ch == 0 {
-        return frames;
-    }
-    frames
-        .into_iter()
-        .map(|frame| {
-            if frame.pixels.dimensions() == (cw, ch) {
-                return frame;
-            }
-            let pixels = image::imageops::resize(
-                frame.pixels.as_ref(),
-                cw,
-                ch,
-                image::imageops::FilterType::Triangle,
-            );
-            let mut resized = Frame::new(pixels, frame.delay_cs);
-            resized.detached = frame.detached;
-            resized
-        })
-        .collect()
-}
-
-/// Extensions "Add frames from file" splices in synchronously as one still
-/// frame. Anything else — video, GIF, animated WebP — goes through the async
-/// import pipeline so it gets probing, progress, cancel and the resize prompt.
-fn is_still_image(path: &Path) -> bool {
-    path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
-        matches!(
-            e.to_ascii_lowercase().as_str(),
-            "png"
-                | "jpg"
-                | "jpeg"
-                | "bmp"
-                | "tif"
-                | "tiff"
-                | "tga"
-                | "ico"
-                | "qoi"
-                | "ppm"
-                | "pgm"
-                | "pbm"
-                | "pnm"
-        )
-    })
-}
-
 /// Probe before decoding. ffprobe is cheap but it is still a subprocess, so it
-/// runs off the main thread like the decode does.
+/// runs off the main thread like the decode does. Only ffmpeg's inputs get
+/// probed: a GIF arrives frame-exact and small, and a still image is one
+/// frame, so neither has a cost to warn about.
 fn plan_import(
     path: PathBuf,
     options: ImportOptions,
     cancel: Arc<AtomicBool>,
     sender: &ComponentSender<App>,
 ) {
-    // GIFs arrive frame-exact and small; there is nothing to warn about.
-    if path
-        .extension()
-        .is_some_and(|e| e.eq_ignore_ascii_case("gif"))
-    {
+    if pipeline::has_extension(&path, "gif") || pipeline::is_still_image(&path) {
         load(path, None, options, cancel, sender);
         return;
     }
     sender.spawn_command(move |out| {
         let plan = video::plan(&path, &options).map_err(|e| e.to_string());
         out.emit(Cmd::Planned(path, Box::new(plan)));
+    });
+}
+
+/// The heavy half of a splice, threaded exactly like `run_frame_work`: the
+/// resampling happens on a worker against a snapshot of the document, and the
+/// finished `Splice` comes back as one `Cmd::Spliced` to land as one history
+/// step.
+fn run_splice(
+    doc: &Document,
+    at: usize,
+    frames: Vec<Frame>,
+    fit: FitMode,
+    sender: &ComponentSender<App>,
+) {
+    let doc = doc.clone();
+    sender.spawn_command(move |out| {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut next = std::time::Instant::now();
+            let mut progress = |done, total| {
+                let now = std::time::Instant::now();
+                if now < next {
+                    return;
+                }
+                next = now + std::time::Duration::from_millis(80);
+                let _ = out.send(Cmd::WorkProgress(done, total));
+            };
+            Box::new(fit::plan_splice(&doc, at, frames, fit, &mut progress))
+        }))
+        .map_err(|_| n("The frame operation failed."));
+        out.emit(Cmd::Spliced(result));
     });
 }
 
@@ -3114,6 +3145,167 @@ fn oversize_body(name: &str, plan: &ImportPlan) -> String {
            gives a better GIF and a much faster import."
         )
     )
+}
+
+/// One file chooser for every splice, whether it was asked for from the file
+/// menu or from a frame's own context menu — the only difference is `at`.
+fn pick_import_file(root: &impl IsA<gtk::Window>, at: usize, sender: &ComponentSender<App>) {
+    let dialog = gtk::FileDialog::builder()
+        .title(t("Add frames from a file"))
+        .build();
+    let filter = gtk::FileFilter::new();
+    filter.set_name(Some(t("Images, videos and GIFs")));
+    filter.add_mime_type("image/*");
+    filter.add_mime_type("video/*");
+    let filters = gio::ListStore::new::<gtk::FileFilter>();
+    filters.append(&filter);
+    dialog.set_filters(Some(&filters));
+
+    let sender = sender.clone();
+    dialog.open(Some(root), gio::Cancellable::NONE, move |res| {
+        if let Some(path) = res.ok().and_then(|f| f.path()) {
+            sender.input(Msg::LoadInto(path, at));
+        }
+    });
+}
+
+/// A GIF has one canvas, so frames arriving at another size cannot all be
+/// kept as they are. Which side gives way is a composition decision, not
+/// something to guess at: the four answers are laid out with what each one
+/// costs, and the frames wait in the closure until one is picked.
+fn fit_dialog(
+    root: &adw::ApplicationWindow,
+    path: &Path,
+    canvas: (u32, u32),
+    arriving: (u32, u32),
+    at: usize,
+    frames: Vec<Frame>,
+    sender: &ComponentSender<App>,
+) {
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| path.display().to_string());
+    let dialog = adw::AlertDialog::new(
+        Some(t("Sizes do not match")),
+        Some(&fill(
+            // Translators: {file} is a filename; {arriving} and {canvas} are sizes like "800 × 600".
+            t("{file} is {arriving}, and this animation is {canvas}. Pick how they fit together."),
+            &[
+                ("file", &name),
+                ("arriving", &size_pair(arriving)),
+                ("canvas", &size_pair(canvas)),
+            ],
+        )),
+    );
+    dialog.set_content_width(520);
+
+    let (group, buttons) = fit_options(canvas, arriving);
+    dialog.set_extra_child(Some(&group));
+
+    dialog.add_response("cancel", t("Cancel"));
+    // Translators: Confirms the fit chooser and splices the frames in.
+    dialog.add_response("add", t("Add frames"));
+    dialog.set_response_appearance("add", adw::ResponseAppearance::Suggested);
+    dialog.set_default_response(Some("add"));
+    dialog.set_close_response("cancel");
+
+    // The decoded frames are megabytes and the response fires once, so they
+    // wait in a cell rather than being cloned into the closure.
+    let waiting = RefCell::new(Some(frames));
+    let sender = sender.clone();
+    dialog.choose(Some(root), gio::Cancellable::NONE, move |response| {
+        let Some(frames) = waiting.borrow_mut().take() else {
+            return;
+        };
+        if response != "add" {
+            return;
+        }
+        let picked = buttons
+            .iter()
+            .position(|radio| radio.is_active())
+            .unwrap_or(0);
+        sender.input(Msg::SpliceFrames {
+            at,
+            frames,
+            fit: FitMode::ALL[picked],
+        });
+    });
+}
+
+/// One row per fit, radio-grouped, in `FitMode::ALL` order — so the index of
+/// the active button is the mode that was picked. Built apart from the dialog
+/// because that is the half worth testing.
+fn fit_options(
+    canvas: (u32, u32),
+    arriving: (u32, u32),
+) -> (adw::PreferencesGroup, Vec<gtk::CheckButton>) {
+    let group = adw::PreferencesGroup::new();
+    let mut buttons: Vec<gtk::CheckButton> = Vec::new();
+    for mode in FitMode::ALL {
+        let (title, subtitle) = fit_labels(mode, canvas, arriving);
+        let row = adw::ActionRow::builder()
+            .title(&title)
+            .subtitle(&subtitle)
+            .build();
+        let radio = gtk::CheckButton::new();
+        radio.set_valign(gtk::Align::Center);
+        match buttons.first() {
+            Some(first) => radio.set_group(Some(first)),
+            // The first row is the default: it changes the least — only what
+            // is coming in, and only its aspect ratio.
+            None => radio.set_active(true),
+        }
+        row.add_prefix(&radio);
+        row.set_activatable_widget(Some(&radio));
+        group.add(&row);
+        buttons.push(radio);
+    }
+    (group, buttons)
+}
+
+fn size_pair((w, h): (u32, u32)) -> String {
+    format!("{w} × {h}")
+}
+
+/// What each fit does, said in terms of the two sizes in front of the user.
+fn fit_labels(mode: FitMode, canvas: (u32, u32), arriving: (u32, u32)) -> (String, String) {
+    let (canvas, arriving) = (size_pair(canvas), size_pair(arriving));
+    match mode {
+        FitMode::Stretch => (
+            t("Stretch what is coming in").into(),
+            fill(
+                // Translators: {canvas} is a size like "480 × 320".
+                t("Fills {canvas}, changing its aspect ratio."),
+                &[("canvas", &canvas)],
+            ),
+        ),
+        FitMode::Pad => (
+            t("Scale what is coming in to fit").into(),
+            fill(
+                t("Keeps its aspect ratio inside {canvas}; transparency fills the rest."),
+                &[("canvas", &canvas)],
+            ),
+        ),
+        FitMode::GrowPad => (
+            t("Resize this animation to fit").into(),
+            fill(
+                // Translators: {arriving} is the size of the file being added.
+                t(
+                    "The canvas becomes {arriving}; every existing frame keeps its aspect \
+                   ratio, with transparency around it.",
+                ),
+                &[("arriving", &arriving)],
+            ),
+        ),
+        FitMode::GrowStretch => (
+            t("Resize this animation and stretch it").into(),
+            fill(
+                t("The canvas becomes {arriving}; every existing frame is stretched to it."),
+                &[("arriving", &arriving)],
+            ),
+        ),
+    }
 }
 
 /// Even values only, which is what every scaler downstream wants.
@@ -3484,7 +3676,7 @@ fn rebuild_strip(
     move_section.append(Some(t("Move later")), Some("frame.move-later"));
     move_section.append(Some(t("Move to position…")), Some("frame.move-to"));
     let import_section = gio::Menu::new();
-    import_section.append(Some(t("Add frame from image…")), Some("frame.add-image"));
+    import_section.append(Some(t("Insert frames from file…")), Some("frame.add-image"));
     let menu = gio::Menu::new();
     menu.append_section(None, &edit_section);
     menu.append_section(None, &move_section);
@@ -3586,22 +3778,11 @@ fn rebuild_strip(
     {
         let (sender, target, strip) = (sender.clone(), target.clone(), strip.clone());
         add_image.connect_activate(move |_, _| {
-            let dialog = gtk::FileDialog::builder()
-                .title(t("Add frame from image"))
-                .build();
-            let filter = gtk::FileFilter::new();
-            filter.set_name(Some(t("Images")));
-            filter.add_mime_type("image/*");
-            let filters = gio::ListStore::new::<gtk::FileFilter>();
-            filters.append(&filter);
-            dialog.set_filters(Some(&filters));
-            let window = strip.root().and_downcast::<gtk::Window>();
-            let (sender, index) = (sender.clone(), target.get());
-            dialog.open(window.as_ref(), gio::Cancellable::NONE, move |res| {
-                if let Some(path) = res.ok().and_then(|f| f.path()) {
-                    sender.input(Msg::InsertImageFrame(index, path));
-                }
-            });
+            let Some(window) = strip.root().and_downcast::<gtk::Window>() else {
+                return;
+            };
+            // Directly after the frame that was right-clicked.
+            pick_import_file(&window, target.get() + 1, &sender);
         });
     }
     group.add_action(&add_image);
@@ -5062,7 +5243,7 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
     let import_more = gio::SimpleAction::new("import-more", None);
     {
         let sender = sender.clone();
-        import_more.connect_activate(move |_, _| sender.input(Msg::ImportMore));
+        import_more.connect_activate(move |_, _| sender.input(Msg::ImportInto(AT_END)));
     }
     actions.add_action(&import_more);
     root.insert_action_group("win", Some(&actions));
@@ -6235,7 +6416,7 @@ mod tests {
             strip_pitch: Rc::new(Cell::new(cell_pitch(THUMB_BOX, 1.0))),
             strip_zoom_shown: Cell::new(1.0),
             rev: 0,
-            import_append: false,
+            import_at: None,
             clipboard: Vec::new(),
         }
     }
@@ -6797,23 +6978,23 @@ mod tests {
         );
     }
 
-    /// "Add frames from file" routes still images to the synchronous one-frame
-    /// splice and everything with possible motion to the async import pipeline.
+    /// A still image decodes through the `image` crate as one frame; anything
+    /// that can animate has to reach a decoder that sees every frame.
     #[test]
-    fn still_images_bypass_the_import_pipeline() {
+    fn still_images_are_the_ones_with_no_motion_to_decode() {
         for ext in ["png", "jpg", "jpeg", "PNG", "bmp", "tiff", "webp.png"] {
             assert!(
-                is_still_image(Path::new(&format!("x.{ext}"))),
+                pipeline::is_still_image(Path::new(&format!("x.{ext}"))),
                 "{ext} is a still image"
             );
         }
         for ext in ["gif", "mp4", "mov", "webm", "webp", "mkv", "apng", ""] {
             assert!(
-                !is_still_image(Path::new(&format!("x.{ext}"))),
-                "{ext} must take the async LoadAppend path"
+                !pipeline::is_still_image(Path::new(&format!("x.{ext}"))),
+                "{ext} must reach a multi-frame decoder"
             );
         }
-        assert!(!is_still_image(Path::new("noextension")));
+        assert!(!pipeline::is_still_image(Path::new("noextension")));
     }
 
     /// Regression: a band's row used to be its index in the overlay list, so
@@ -7109,7 +7290,7 @@ mod tests {
         // Frame-moving edits: blocked in every kind of work.
         for msg in [
             Msg::Load(PathBuf::new()),
-            Msg::LoadAppend(PathBuf::new()),
+            Msg::LoadInto(PathBuf::new(), 0),
             Msg::Undo,
             Msg::Redo,
             Msg::DeleteSelection,
@@ -7126,7 +7307,11 @@ mod tests {
             Msg::DropEveryNth(2),
             Msg::SmartDrop(30),
             Msg::Resize(10, 10),
-            Msg::InsertImageFrame(0, PathBuf::new()),
+            Msg::SpliceFrames {
+                at: 0,
+                frames: Vec::new(),
+                fit: FitMode::Stretch,
+            },
             Msg::MoveFrame(0, 1),
         ] {
             assert!(msg.changes_frames(), "{msg:?} must wait");
@@ -7140,7 +7325,7 @@ mod tests {
             Msg::Export,
             Msg::CropAllDialog,
             Msg::DelayAllDialog,
-            Msg::ImportMore,
+            Msg::ImportInto(AT_END),
         ] {
             assert!(!msg.changes_frames(), "{msg:?} does not move frames itself");
             assert!(msg.requires_idle(), "{msg:?} must wait");
@@ -7361,8 +7546,37 @@ mod tests {
         thumb_children_skips_the_frames_popover();
         the_layer_list_is_bounded_by_its_own_row_height();
         the_layer_list_bounds_survive_the_list_emptying();
-        strip_cells_sit_at_the_pitch_the_bands_are_drawn_at();
         the_strip_viewport_does_not_chase_the_focus();
+        the_fit_chooser_maps_one_radio_to_each_mode();
+    }
+
+    /// The splice reads the picked mode off the button index, so the rows have
+    /// to be one radio group in `FitMode::ALL` order with exactly one active:
+    /// two groups would let two modes be picked and the first one would win.
+    fn the_fit_chooser_maps_one_radio_to_each_mode() {
+        let (_group, buttons) = fit_options((480, 320), (800, 600));
+        assert_eq!(buttons.len(), FitMode::ALL.len());
+        let active = |buttons: &[gtk::CheckButton]| -> Vec<usize> {
+            buttons
+                .iter()
+                .enumerate()
+                .filter(|(_, radio)| radio.is_active())
+                .map(|(i, _)| i)
+                .collect()
+        };
+        assert_eq!(active(&buttons), vec![0], "the least destructive fit");
+        buttons[2].set_active(true);
+        assert_eq!(
+            active(&buttons),
+            vec![2],
+            "picking one clears the rest, so they share a group"
+        );
+        let (title, subtitle) = fit_labels(FitMode::GrowPad, (480, 320), (800, 600));
+        assert!(!title.is_empty());
+        assert!(
+            subtitle.contains("800 × 600"),
+            "a growing fit names the size the canvas becomes: {subtitle}"
+        );
     }
 
     /// Regression: the frame menu is a popover parented to the strip, and

@@ -45,6 +45,10 @@
 
 ### Fixes
 
+- Adding a frame from an image works at all. The `image` dependency was built
+  with no format features, so every PNG, JPEG and everything else answered
+  "Could not read that image" — there was no decoder compiled in for any of
+  the formats the file filter offered.
 - Duplicating a frame no longer throws the timeline to another spot. The
   scroller's viewport follows the keyboard focus by default, and closing the
   frame menu — a popover parented to the strip, so a duplicate, delete or paste
@@ -119,9 +123,20 @@
 
 ### Import
 
-- "Add frames from file…" in the File menu decodes another video or GIF and
-  appends its frames to the end of the current timeline, resizing them to the
-  open document's canvas first — two clips can now be mixed into one.
+- "Add frames from file…" in the File menu, and "Insert frames from file…" in a
+  frame's own context menu, splice another file's frames into the timeline —
+  images, GIFs and videos alike, at the end or directly after the frame that
+  was right-clicked. Two clips can be mixed into one.
+- A file that is not the canvas size asks how the two should fit rather than
+  silently stretching what comes in. Four answers: stretch what is coming in,
+  scale it to fit with transparency around it, or grow the canvas to the file
+  and fit or stretch every frame already in the document onto it. Overlays
+  follow the frames they were drawn on through all four. The resampling runs
+  off the main thread with the same progress bar a resize uses, so growing a
+  300-frame document to a bigger canvas does not freeze the window.
+- Still images decode through the same entry point as GIFs and videos, so they
+  splice in on a build with no ffmpeg and get progress and the fit chooser
+  like everything else.
 
 ### Crop and zoom
 
