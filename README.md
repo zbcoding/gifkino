@@ -52,11 +52,6 @@ cargo run -- path/to.gif   # open a GIF or video directly
 cargo test                 # whole suite, well under a minute
 ```
 
-`scripts/build-appimage.sh` bundles a release AppImage (build on Ubuntu 24.04
-so the glibc floor stays low); the Flatpak manifest is
-`io.github.zbcoding.Gifkino.yml`. Pushing a `v*` tag builds both in CI and
-attaches them to a GitHub release.
-
 ## Status
 
 0.1.0 is the first release. Screen recording has a button on the welcome
