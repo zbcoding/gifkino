@@ -8,10 +8,11 @@ Bias: caution over speed on non-trivial work. Use judgment on trivial tasks.
 Bias: user testing the application - more code writing, adding regression tests to automate app testing, and checking commit history, less opening the app for screenshots
 
 ## Use Git for version management - use worktrees, because two or more agents can code at the same time
-`main` is the shared trunk, kept checked out in the primary repo directory
-(`../ImpastoPaint`). Never commit directly onto `main`, never work
-from a detached HEAD, and never do task edits in the primary checkout — it stays on `main` so
-`dotnet run --project Impasto` there always tests the landed tip.
+`main` is the shared trunk, kept checked out in the primary repo directory — the
+checkout that git worktrees are added from, named for the project rather than for
+a branch. Never commit directly onto `main`, never work from a detached HEAD, and
+never do task edits in the primary checkout — it stays on `main` so
+`cargo run` and `cargo test` there always exercise the landed tip.
 
 **One worktree per agent per task.** Multiple agents can edit the same files for different
 features at once, each isolated in its own checkout on its own branch:
