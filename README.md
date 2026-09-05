@@ -25,13 +25,13 @@ being retyped on every frame it should cover.
 - **Translated UI:** English, German and Japanese.
 - **Optimized GIF export.**
 
-## Download
+## Download and install
 
-Two builds, both self-contained: each carries the ffmpeg, ffprobe and gifsicle
-programs the editor drives as subprocesses, so import and the optimized export
-work on a machine that has none of them installed. Pick either from the
-[releases page](https://github.com/zbcoding/gifkino/releases/latest) —
-`Gifkino.flatpak` or `Gifkino-x86_64.AppImage`.
+[**Download the latest release**](https://github.com/zbcoding/gifkino/releases/latest)
+— grab `Gifkino.flatpak` or `Gifkino-x86_64.AppImage`. Both builds are
+self-contained: each carries the ffmpeg, ffprobe and gifsicle programs the
+editor drives as subprocesses, so import and the optimized export work on a
+machine that has none of them installed.
 
 - **Flatpak** also brings its own GTK, so it runs anywhere flatpak does,
   Ubuntu 22.04 included: `flatpak install --bundle Gifkino.flatpak`.
