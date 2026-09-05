@@ -116,6 +116,24 @@ done
   --icon-file "$icon" \
   "${helpers[@]}" "${libs[@]}"
 
+# The AppDir spec wants .DirIcon to be a PNG in a standard size (128 or 256):
+# it is what file managers and thumbnailers read to draw the AppImage file
+# itself, and they are not required to rasterize an SVG. linuxdeploy makes it a
+# symlink to the scalable icon regardless of the --icon-file above, so replace
+# it with the real bytes of the 256px raster from step 3 - a plain file, so no
+# reader has to follow a link out of the archive to find a PNG.
+#
+# rsvg-convert already produced that PNG and stays the rasterizer here.
+# ImageMagick would be a second way to do the same thing: its SVG support is
+# librsvg either linked in or shelled out to as the `svg =>` delegate, so
+# `magick` would call rsvg-convert for us in exchange for another host
+# dependency.
+rm -f "$appdir/.DirIcon"
+cp "$appdir/usr/share/icons/hicolor/256x256/apps/$app_id.png" "$appdir/.DirIcon"
+# A silent revert here would cost only the icon on the file and fail no build.
+[ ! -L "$appdir/.DirIcon" ] && file -b "$appdir/.DirIcon" | grep -q 'PNG image' \
+  || { echo ".DirIcon is not a plain PNG file" >&2; exit 1; }
+
 # --- 7. Third-party licenses ------------------------------------------------
 # The GTK/GLib/Pango/gdk-pixbuf/librsvg stack is LGPL and the bundled ffmpeg is
 # GPL: shipping the binaries is fine as long as the notices travel with them and

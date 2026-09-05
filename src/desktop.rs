@@ -102,6 +102,15 @@ pub fn uninstall(data_home: &Path) -> Result<Vec<PathBuf>> {
 /// moved it to another directory, and a stale `Exec` is an entry that launches
 /// nothing. Best effort by design: a read-only or full home is not a reason to
 /// refuse to open a GIF, so a failure is reported and the app carries on.
+///
+/// Doing this in the application at all is a deviation from the AppImage
+/// convention, where the image only carries the entry and an integrator -
+/// AppImageLauncher, appimaged, a software centre - copies it onto the host.
+/// The convention leaves a plain double-click with a placeholder icon, which is
+/// the whole problem, so the first run covers for a missing integrator and then
+/// gets out of the way of a present one: an entry an integrator already wrote
+/// means this app has nothing to add, and adding one anyway would put the
+/// application in the menu twice.
 pub fn integrate(appimage: &Path) {
     if std::env::var_os("GIFKINO_NO_DESKTOP_INTEGRATION").is_some() {
         return;
@@ -109,6 +118,10 @@ pub fn integrate(appimage: &Path) {
     let (Some(appdir), Some(data_home)) = (appdir(), data_home()) else {
         return;
     };
+    let applications = data_home.join("applications");
+    if integrator_owns_it(&applications) {
+        return;
+    }
     let entry = entry_path(&data_home);
     if let Ok(existing) = std::fs::read_to_string(&entry)
         && existing.contains(&appimage.to_string_lossy().to_string())
@@ -124,6 +137,22 @@ pub fn integrate(appimage: &Path) {
         ),
         Err(err) => eprintln!("gifkino: could not install the desktop entry: {err:#}"),
     }
+}
+
+/// Whether an AppImage integrator has already installed an entry for this
+/// application. Both AppImageLauncher and appimaged name what they write
+/// `appimagekit_<md5 of the path>-<entry name>`, and the md5 is why the name
+/// cannot simply be matched in full: it changes with the AppImage's location.
+fn integrator_owns_it(applications: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(applications) else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| name.starts_with("appimagekit") && name.contains(APP_ID))
+    })
 }
 
 /// Point the entry at the AppImage. The packaged `Exec` reads
@@ -378,5 +407,29 @@ mod tests {
         assert!(pairs[0].0.ends_with(format!("{APP_ID}.png")));
 
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn an_entry_written_by_an_integrator_is_left_to_it() {
+        let apps = scratch("integrator");
+        assert!(
+            !integrator_owns_it(&apps),
+            "an empty applications directory owns nothing"
+        );
+
+        // Another AppImage's integrated entry says nothing about this one.
+        std::fs::write(apps.join("appimagekit_abc123-org.example.Other.desktop"), "").unwrap();
+        assert!(!integrator_owns_it(&apps));
+
+        // The md5 in the middle varies with the AppImage's path, so only the
+        // prefix and the app id can be matched.
+        std::fs::write(
+            apps.join(format!("appimagekit_deadbeef-{APP_ID}.desktop")),
+            "",
+        )
+        .unwrap();
+        assert!(integrator_owns_it(&apps));
+
+        std::fs::remove_dir_all(&apps).unwrap();
     }
 }

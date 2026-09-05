@@ -247,6 +247,14 @@
   `--install-desktop` does it on demand, and `GIFKINO_NO_DESKTOP_INTEGRATION`
   turns the first-run step off. Moving or renaming the AppImage rewrites the
   entry on the next run rather than leaving one that launches nothing.
+  Installing it from the application is a deviation from the AppImage
+  convention, where the image only carries these files and an integrator
+  (AppImageLauncher, appimaged, a software centre) copies them onto the host.
+  Following the convention alone is what leaves a double-clicked AppImage with
+  a placeholder, so the first run covers for a missing integrator and defers to
+  a present one: an `appimagekit_*` entry for this application means the
+  integrator owns it and the app adds nothing, rather than putting Gifkino in
+  the menu twice.
 
   A Wayland client can hand its icon straight to the compositor, but GTK only
   implements xdg-toplevel-icon from 4.20 and the AppImage bundles Ubuntu
@@ -256,3 +264,10 @@
   which resolves in-process because AppRun puts the AppDir's share tree on
   `XDG_DATA_DIRS`. The flatpak never had it either, since flatpak exports the
   entry and the icon to the host itself.
+- The AppImage's `.DirIcon` is a real 256px PNG rather than a symlink to the
+  scalable icon, which is what linuxdeploy leaves behind whatever
+  `--icon-file` says. It is the icon a file manager draws for the `.AppImage`
+  file itself, and the AppDir specification asks for a PNG in a standard size
+  because nothing reading it is obliged to rasterize an SVG. The build fails if
+  it is ever not a plain PNG again, since the cost is only a wrong icon on one
+  file and no build would otherwise notice.
