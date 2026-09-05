@@ -389,6 +389,92 @@ msgstr "Öffnen…"
         }
     }
 
+    /// The test above only reports entries a catalog is *missing*, so a msgid
+    /// can outlive the string it came from: delete a feature, skip
+    /// `scripts/i18n.py`, and the template keeps the entry while every catalog
+    /// keeps a translation for a string the app can no longer show. Dropping
+    /// screen recording left three behind exactly that way.
+    ///
+    /// The template stores each literal as it was written, escapes and all, so
+    /// the file it was extracted from has to still contain it verbatim.
+    #[test]
+    fn no_template_entry_outlives_the_string_it_came_from() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let potfiles = std::fs::read_to_string(root.join("po/POTFILES.in")).unwrap();
+        let mut sources = String::new();
+        for name in potfiles
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        {
+            let text = std::fs::read_to_string(root.join(name)).expect(name);
+            sources.push_str(&join_rustfmt_continuations(&text));
+        }
+
+        let template =
+            std::fs::read_to_string(root.join("po/messages.pot")).expect("run scripts/i18n.py pot");
+        let stale: Vec<String> = template_msgids(&template)
+            .into_iter()
+            .filter(|id| !sources.contains(id))
+            .collect();
+        assert!(
+            stale.is_empty(),
+            "run scripts/i18n.py pot && scripts/i18n.py merge; \
+             no source in POTFILES.in marks {stale:?}"
+        );
+    }
+
+    /// rustfmt breaks a literal too long for one line with a trailing `\`,
+    /// which Rust reads as neither the newline nor the next line's indentation
+    /// being part of the string. Undo that, so a joined msgid can be looked
+    /// for as plain text. `scripts/i18n.py` joins the same seam from the other
+    /// side, which is how seven msgids once fell out of the template.
+    fn join_rustfmt_continuations(source: &str) -> String {
+        let mut out = String::with_capacity(source.len());
+        let mut chars = source.chars().peekable();
+        while let Some(ch) = chars.next() {
+            if ch != '\\' || chars.peek() != Some(&'\n') {
+                out.push(ch);
+                continue;
+            }
+            chars.next();
+            while chars.next_if(|c| *c == ' ' || *c == '\t').is_some() {}
+        }
+        out
+    }
+
+    /// Every msgid in a template, still carrying gettext's escapes and with the
+    /// continuation lines of a long entry joined back together. `parse_po` is
+    /// no use here: it unescapes, and it drops an entry whose msgstr is empty,
+    /// which in a template is all of them.
+    fn template_msgids(template: &str) -> Vec<String> {
+        let inner = |line: &str| {
+            line.trim()
+                .trim_start_matches('"')
+                .trim_end_matches('"')
+                .to_string()
+        };
+        let mut ids = Vec::new();
+        let mut current: Option<String> = None;
+        for line in template.lines() {
+            if let Some(rest) = line.strip_prefix("msgid ") {
+                current = Some(inner(rest));
+            } else if line.starts_with('"') {
+                if let Some(id) = current.as_mut() {
+                    id.push_str(&inner(line));
+                }
+            } else if let Some(id) = current.take() {
+                // A blank line, a msgstr or a comment ends the entry. The
+                // header's msgid is empty and is not a string anyone marked.
+                if !id.is_empty() {
+                    ids.push(id);
+                }
+            }
+        }
+        ids.extend(current.filter(|id| !id.is_empty()));
+        ids
+    }
+
     /// A translation that loses a placeholder renders `{count}` to the user, or
     /// silently drops a number. Cheaper to catch here than in a screenshot.
     #[test]
