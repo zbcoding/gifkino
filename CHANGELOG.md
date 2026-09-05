@@ -171,6 +171,10 @@
 - `canvas-rotate`, `canvas-keep-aspect` and `canvas-from-center` join
   `keybindings.conf` and the shortcuts window, under a Canvas group that
   captures a held modifier rather than a chord.
+- A frame's right-click menu shows the shortcut beside each item it shares with
+  the keymap — delete, duplicate, cut, copy, paste — and a rebind moves what it
+  shows, the same as the tooltips. An unbound action shows nothing rather than
+  an empty column.
 
 ### Translations
 

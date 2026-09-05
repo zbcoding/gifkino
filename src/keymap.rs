@@ -339,6 +339,30 @@ impl Chord {
         out.push_str(&pretty(&self.key));
         out
     }
+
+    /// GTK accelerator syntax (`<Control>z`) for a menu item's "accel"
+    /// attribute, which is how a `PopoverMenu` is told about a shortcut it does
+    /// not own: ours belong to one capture-phase key controller keyed by this
+    /// keymap (`window::install_shortcuts`), not to a `GtkApplication` accel
+    /// table, so GTK cannot find them by action name. `None` for a key name GDK
+    /// does not know, where `gtk_accelerator_parse` would fail and the item
+    /// would show nothing rather than a wrong label.
+    pub fn accel(&self) -> Option<String> {
+        let key = gdk_key_name(&self.key)?;
+        let mut out = String::new();
+        if self.ctrl {
+            out.push_str("<Control>");
+        }
+        if self.alt {
+            out.push_str("<Alt>");
+        }
+        // Same rule as `display`: no phantom Shift on a punctuation key.
+        if self.shift && self.shift_matters() {
+            out.push_str("<Shift>");
+        }
+        out.push_str(&key);
+        Some(out)
+    }
 }
 
 fn normalize(name: &str) -> String {
@@ -356,14 +380,37 @@ fn pretty(key: &str) -> String {
         "question" => "?".into(),
         "space" => "Space".into(),
         k if k.chars().count() == 1 => k.to_ascii_uppercase(),
-        k => {
-            let mut c = k.chars();
-            match c.next() {
-                Some(first) => first.to_ascii_uppercase().to_string() + c.as_str(),
-                None => String::new(),
-            }
-        }
+        k => capitalize(k),
     }
+}
+
+fn capitalize(word: &str) -> String {
+    let mut chars = word.chars();
+    match chars.next() {
+        Some(first) => first.to_ascii_uppercase().to_string() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
+/// GDK's own spelling of a stored key name. A chord lowercases the name so that
+/// a hand-edited file and a keypress compare equal, but `gdk_keyval_from_name`
+/// is a case-sensitive lookup and GDK writes named keys mixed case (`Delete`,
+/// `Page_Up`, `KP_Add`). Letters, digits and punctuation are lowercase there
+/// too, so the stored name is tried first and the capitalized one second.
+fn gdk_key_name(key: &str) -> Option<String> {
+    if gdk::Key::from_name(key).is_some() {
+        return Some(key.to_string());
+    }
+    let name = key
+        .split('_')
+        .map(|part| match part {
+            // The prefixes GDK writes in caps rather than capitalized.
+            "kp" | "iso" => part.to_ascii_uppercase(),
+            part => capitalize(part),
+        })
+        .collect::<Vec<_>>()
+        .join("_");
+    gdk::Key::from_name(name.as_str()).map(|_| name)
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -604,6 +651,32 @@ mod tests {
         let help = Chord::parse("Ctrl+?").unwrap();
         assert!(help.matches(&Chord::new(true, true, false, "question")));
         assert_eq!(help.display(), "Ctrl+?", "no phantom Shift in the tooltip");
+    }
+
+    /// The frame context menu shows a shortcut by handing GTK an accelerator
+    /// string, which only parses with GDK's own spelling of the key name — and
+    /// chords store that name lowercased.
+    #[test]
+    fn chords_render_as_gtk_accelerators() {
+        let accel = |text: &str| Chord::parse(text).unwrap().accel();
+        assert_eq!(accel("Ctrl+Z").as_deref(), Some("<Control>z"));
+        assert_eq!(accel("Ctrl+Shift+Z").as_deref(), Some("<Control><Shift>z"));
+        assert_eq!(accel("Ctrl+Alt+R").as_deref(), Some("<Control><Alt>r"));
+        assert_eq!(accel("Ctrl+0").as_deref(), Some("<Control>0"));
+        assert_eq!(accel("Ctrl+plus").as_deref(), Some("<Control>plus"));
+        assert_eq!(accel("Space").as_deref(), Some("space"));
+        // Named keys are where the casing matters: GDK knows Delete, not delete.
+        assert_eq!(accel("Delete").as_deref(), Some("Delete"));
+        assert_eq!(accel("Ctrl+Up").as_deref(), Some("<Control>Up"));
+        assert_eq!(accel("Ctrl+Page_Up").as_deref(), Some("<Control>Page_Up"));
+        assert_eq!(accel("Ctrl+KP_Add").as_deref(), Some("<Control>KP_Add"));
+        // Punctuation: no phantom Shift, the same as the tooltip.
+        assert_eq!(accel("Ctrl+?").as_deref(), Some("<Control>question"));
+        assert_eq!(
+            Chord::new(false, false, false, "nonsense").accel(),
+            None,
+            "a key GDK cannot name gets no accelerator rather than a bad one"
+        );
     }
 
     #[test]

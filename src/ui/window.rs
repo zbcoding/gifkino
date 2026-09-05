@@ -220,6 +220,9 @@ pub enum Msg {
     ApplyShrink,
     DropEveryNth(usize),
     SmartDrop(usize),
+    /// Open the resize dialog. Seeded from the live canvas size like
+    /// `CropAllDialog` — action closures do not know it.
+    ResizeDialog,
     Resize(u32, u32),
     /// Pick a file to splice in at this index. The frame context menu and the
     /// file menu are the same operation at two different indices.
@@ -294,6 +297,7 @@ impl Msg {
                 Msg::Open
                     | Msg::Export
                     | Msg::CropAllDialog
+                    | Msg::ResizeDialog
                     | Msg::DelayAllDialog
                     | Msg::ImportInto(_)
             )
@@ -1634,6 +1638,23 @@ impl Component for App {
             Msg::CropAll(x, y, w, h) => {
                 self.start_crop((x, y, w, h), &sender);
             }
+            Msg::ResizeDialog => {
+                let (cw, ch) = self.editor.doc.size();
+                if cw == 0 || ch == 0 {
+                    return;
+                }
+                let (oper_max, total_max) =
+                    (self.settings.max_oper_bytes, self.settings.max_total_bytes);
+                resize_dialog(
+                    root,
+                    cw,
+                    ch,
+                    self.frame_count(),
+                    oper_max,
+                    total_max,
+                    &sender,
+                );
+            }
             Msg::DropEveryNth(every) => {
                 if self.frame_count() == 0 || every < 2 {
                     return;
@@ -1665,10 +1686,20 @@ impl Component for App {
                 if self.frame_count() == 0 || (w, h) == self.editor.doc.size() {
                     return;
                 }
-                // The import budget doubles as the resize-output budget: the
-                // old frames stay resident in undo history either way, so the
-                // peak equals the post-landing steady state.
-                if !resize_fits_budget(w, h, self.frame_count(), self.settings.max_import_bytes) {
+                // The operation budget caps the new frames and the total caps
+                // old plus new: the old frames stay resident in undo history
+                // while the worker holds the new ones.
+                let (cw, ch) = self.editor.doc.size();
+                let fits = resize_fits_budgets(
+                    cw,
+                    ch,
+                    w,
+                    h,
+                    self.frame_count(),
+                    self.settings.max_oper_bytes,
+                    self.settings.max_total_bytes,
+                );
+                if !fits {
                     // Translators: Shown when resized RGBA frames would exceed the configured memory limit.
                     sender.input(Msg::Toast(
                         t("That resize would use more memory than the configured limit.").into(),
@@ -1687,6 +1718,11 @@ impl Component for App {
             Msg::SetKeymap(map) => {
                 map.save();
                 *self.keymap.borrow_mut() = *map;
+                // The frame context menu shows its shortcuts, and the popover
+                // carrying it is built with the strip — so drop the cached
+                // frame list to make `update_view` rebuild both. A rebind is
+                // rare enough that the thumbnails' hitch does not matter.
+                self.strip_keys.borrow_mut().clear();
             }
             Msg::Toast(_) | Msg::Notice(_) => {}
             Msg::StripZoom(factor) => {
@@ -2151,16 +2187,17 @@ impl Component for App {
             }
         }
 
-        let keys = strip_keys(&self.editor.doc);
-        let rebuilt = *self.strip_keys.borrow() != keys;
+        let frame_keys = strip_keys(&self.editor.doc);
+        let rebuilt = *self.strip_keys.borrow() != frame_keys;
         if rebuilt {
-            *self.strip_keys.borrow_mut() = keys;
+            *self.strip_keys.borrow_mut() = frame_keys;
             rebuild_strip(
                 &widgets.strip,
                 &self.editor.doc,
                 &sender,
                 &widgets.scope_mirror,
                 &widgets.drop_dividers,
+                &self.keymap.borrow(),
             );
         }
         let zoom = self.strip_zoom.get();
@@ -2811,6 +2848,31 @@ fn resize_fits_budget(w: u32, h: u32, frames: usize, limit: usize) -> bool {
         .and_then(|pixels| pixels.checked_mul(4))
         .and_then(|bytes| bytes.checked_mul(frames))
         .is_some_and(|bytes| bytes <= limit)
+}
+
+/// Whether a resize fits both memory budgets: the new frames within the
+/// per-operation budget, and old frames plus new within the total — undo
+/// keeps the old ones while the worker holds the new, so the transient peak
+/// is the sum. Overflow anywhere refuses, like `resize_fits_budget`.
+fn resize_fits_budgets(
+    cw: u32,
+    ch: u32,
+    w: u32,
+    h: u32,
+    frames: usize,
+    oper_max: usize,
+    total_max: usize,
+) -> bool {
+    let bytes = |w: u32, h: u32| {
+        (w as usize)
+            .checked_mul(h as usize)?
+            .checked_mul(4)?
+            .checked_mul(frames)
+    };
+    let (Some(old), Some(new)) = (bytes(cw, ch), bytes(w, h)) else {
+        return false;
+    };
+    new <= oper_max && old.checked_add(new).is_some_and(|sum| sum <= total_max)
 }
 
 fn crop_changes_canvas((cw, ch): (u32, u32), (x, y, w, h): (u32, u32, u32, u32)) -> bool {
@@ -3642,6 +3704,21 @@ fn strip_keys(doc: &Document) -> Vec<(u64, bool)> {
     doc.frames.iter().map(|f| (f.key, f.detached)).collect()
 }
 
+/// A frame-menu item that shows whatever the keymap has bound to it. GTK finds
+/// a menu item's accelerator through a `GtkApplication` accel table or a
+/// shortcut controller in the item's own widget tree, and this app's shortcuts
+/// live in neither: `install_shortcuts` reads the keymap in one capture-phase
+/// key controller. So the chord is handed over as the item's "accel" attribute,
+/// which GTK prefers over its own lookup, and the strip — popover and all — is
+/// rebuilt on `Msg::SetKeymap` so a rebind moves what the menu shows.
+fn frame_item(label: &str, action: &str, keys: &Keymap, bound: Action) -> gio::MenuItem {
+    let item = gio::MenuItem::new(Some(label), Some(action));
+    if let Some(accel) = keys.chords(bound).first().and_then(Chord::accel) {
+        item.set_attribute_value("accel", Some(&accel.to_variant()));
+    }
+    item
+}
+
 /// ponytail: the strip rebuilds a widget per frame when the frame list changes.
 /// The thumbnails themselves are already built (see `Frame::new`), so this is a
 /// hitch rather than a freeze; swap in a virtualized list when someone imports
@@ -3652,6 +3729,7 @@ fn rebuild_strip(
     sender: &ComponentSender<App>,
     scope_mirror: &Rc<RefCell<Vec<usize>>>,
     drop_dividers: &Rc<RefCell<Vec<gtk::Widget>>>,
+    keys: &Keymap,
 ) {
     while let Some(child) = strip.first_child() {
         strip.remove(&child);
@@ -3665,11 +3743,36 @@ fn rebuild_strip(
     // scope-based either way, because a plain right-click outside the
     // selection seeks first, which resets the scope to that one frame.
     let edit_section = gio::Menu::new();
-    edit_section.append(Some(t("Delete this frame")), Some("frame.delete"));
-    edit_section.append(Some(t("Duplicate this frame")), Some("frame.duplicate"));
-    edit_section.append(Some(t("Cut this frame")), Some("frame.cut"));
-    edit_section.append(Some(t("Copy this frame")), Some("frame.copy"));
-    edit_section.append(Some(t("Paste frames")), Some("frame.paste"));
+    edit_section.append_item(&frame_item(
+        t("Delete this frame"),
+        "frame.delete",
+        keys,
+        Action::FrameDelete,
+    ));
+    edit_section.append_item(&frame_item(
+        t("Duplicate this frame"),
+        "frame.duplicate",
+        keys,
+        Action::FrameDuplicate,
+    ));
+    edit_section.append_item(&frame_item(
+        t("Cut this frame"),
+        "frame.cut",
+        keys,
+        Action::FrameCut,
+    ));
+    edit_section.append_item(&frame_item(
+        t("Copy this frame"),
+        "frame.copy",
+        keys,
+        Action::FrameCopy,
+    ));
+    edit_section.append_item(&frame_item(
+        t("Paste frames"),
+        "frame.paste",
+        keys,
+        Action::FramePaste,
+    ));
     edit_section.append(Some(t("Set delay…")), Some("frame.delay"));
     let move_section = gio::Menu::new();
     move_section.append(Some(t("Move earlier")), Some("frame.move-earlier"));
@@ -3682,14 +3785,36 @@ fn rebuild_strip(
     menu.append_section(None, &move_section);
     menu.append_section(None, &import_section);
     let selection_edit_section = gio::Menu::new();
-    selection_edit_section.append(Some(t("Delete selected frames")), Some("frame.delete"));
-    selection_edit_section.append(
-        Some(t("Duplicate selected frames")),
-        Some("frame.duplicate"),
-    );
-    selection_edit_section.append(Some(t("Cut selected frames")), Some("frame.cut"));
-    selection_edit_section.append(Some(t("Copy selected frames")), Some("frame.copy"));
-    selection_edit_section.append(Some(t("Paste frames")), Some("frame.paste"));
+    selection_edit_section.append_item(&frame_item(
+        t("Delete selected frames"),
+        "frame.delete",
+        keys,
+        Action::FrameDelete,
+    ));
+    selection_edit_section.append_item(&frame_item(
+        t("Duplicate selected frames"),
+        "frame.duplicate",
+        keys,
+        Action::FrameDuplicate,
+    ));
+    selection_edit_section.append_item(&frame_item(
+        t("Cut selected frames"),
+        "frame.cut",
+        keys,
+        Action::FrameCut,
+    ));
+    selection_edit_section.append_item(&frame_item(
+        t("Copy selected frames"),
+        "frame.copy",
+        keys,
+        Action::FrameCopy,
+    ));
+    selection_edit_section.append_item(&frame_item(
+        t("Paste frames"),
+        "frame.paste",
+        keys,
+        Action::FramePaste,
+    ));
     selection_edit_section.append(Some(t("Set delay…")), Some("frame.delay"));
     let selection_move_section = gio::Menu::new();
     selection_move_section.append(Some(t("Move earlier")), Some("frame.move-earlier"));
@@ -5214,20 +5339,26 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
     for (name, dialog) in [
         ("optimize-remove", OptimizeDialog::Remove),
         ("optimize-smart", OptimizeDialog::Smart),
-        ("optimize-resize", OptimizeDialog::Resize),
     ] {
         let action = gio::SimpleAction::new(name, None);
         let (sender, root) = (sender.clone(), root.clone());
         action.connect_activate(move |_, _| optimize_dialog(&root, dialog, &sender));
         actions.add_action(&action);
     }
-    // The crop-all dialog needs the live canvas size, so the model opens it.
+    // The crop-all and resize dialogs need the live canvas size, so the model
+    // opens them.
     let crop_all = gio::SimpleAction::new("optimize-crop", None);
     {
         let sender = sender.clone();
         crop_all.connect_activate(move |_, _| sender.input(Msg::CropAllDialog));
     }
     actions.add_action(&crop_all);
+    let resize = gio::SimpleAction::new("optimize-resize", None);
+    {
+        let sender = sender.clone();
+        resize.connect_activate(move |_, _| sender.input(Msg::ResizeDialog));
+    }
+    actions.add_action(&resize);
     let zoom_all = gio::SimpleAction::new("optimize-zoom-all", None);
     {
         let sender = sender.clone();
@@ -5817,11 +5948,10 @@ fn draw_canvas_overlay(
 enum OptimizeDialog {
     Remove,
     Smart,
-    Resize,
 }
 
-/// The optimize menu's three dialogs. One function because they are the same
-/// dialog with a different spin button in it.
+/// The optimize menu's two frame-drop dialogs. One function because they are
+/// the same dialog with a different spin button in it.
 fn optimize_dialog(
     root: &adw::ApplicationWindow,
     which: OptimizeDialog,
@@ -5842,10 +5972,6 @@ fn optimize_dialog(
                before a moving one does. Duration is preserved.",
             ),
         ),
-        OptimizeDialog::Resize => (
-            t("Resize"),
-            t("Scale every frame, and the overlays with them."),
-        ),
     };
     let dialog = adw::AlertDialog::new(Some(title), Some(body));
     dialog.set_content_width(440);
@@ -5854,22 +5980,16 @@ fn optimize_dialog(
     let spin = match which {
         OptimizeDialog::Remove => gtk::SpinButton::with_range(2.0, 60.0, 1.0),
         OptimizeDialog::Smart => gtk::SpinButton::with_range(5.0, 90.0, 5.0),
-        OptimizeDialog::Resize => gtk::SpinButton::with_range(16.0, 8192.0, 2.0),
     };
     spin.set_valign(gtk::Align::Center);
     spin.set_value(match which {
         OptimizeDialog::Remove => 2.0,
         OptimizeDialog::Smart => 30.0,
-        OptimizeDialog::Resize => 480.0,
     });
-    let height = gtk::SpinButton::with_range(16.0, 8192.0, 2.0);
-    height.set_valign(gtk::Align::Center);
-    height.set_value(270.0);
     let row = adw::ActionRow::builder()
         .title(match which {
             OptimizeDialog::Remove => t("Remove 1 frame in every"),
             OptimizeDialog::Smart => t("Remove this share of frames"),
-            OptimizeDialog::Resize => t("New size"),
         })
         .build();
     let suffix = gtk::Box::new(gtk::Orientation::Horizontal, 6);
@@ -5879,11 +5999,6 @@ fn optimize_dialog(
         // Translators: Unit after the "remove 1 frame in every N" field.
         OptimizeDialog::Remove => suffix.append(&gtk::Label::new(Some(t("frames")))),
         OptimizeDialog::Smart => suffix.append(&gtk::Label::new(Some("%"))),
-        OptimizeDialog::Resize => {
-            suffix.append(&gtk::Label::new(Some("×")));
-            suffix.append(&height);
-            suffix.append(&gtk::Label::new(Some(t("px"))));
-        }
     }
     row.add_suffix(&suffix);
     group.add(&row);
@@ -5904,8 +6019,237 @@ fn optimize_dialog(
         sender.input(match which {
             OptimizeDialog::Remove => Msg::DropEveryNth(value as usize),
             OptimizeDialog::Smart => Msg::SmartDrop(value as usize),
-            OptimizeDialog::Resize => Msg::Resize(value as u32, height.value() as u32),
         });
+    });
+}
+
+/// The paired dimension that keeps `from`'s aspect ratio against `fixed`:
+/// `edited * fixed_other / edited_other`, rounded to a pixel and clamped to
+/// the resize range. Pure so the linking has a unit test without a display.
+fn paired_dimension(edited: u32, edited_other: u32, fixed_other: u32) -> u32 {
+    if edited_other == 0 {
+        return edited.clamp(16, 8192);
+    }
+    ((edited as f64 * fixed_other as f64 / edited_other as f64).round() as u32).clamp(16, 8192)
+}
+
+/// Resize every frame, from the Optimize menu. Seeded from the live canvas so
+/// opening it on an untouched document offers a no-op, a "Keep aspect ratio"
+/// switch links the two fields live, and a memory estimate warns before a
+/// huge canvas on a long document becomes a stuck worker. `Document::resize`
+/// clamps whatever comes back. Built by `build_resize_dialog` so the widget
+/// test can hold it without showing it.
+/// Checked RGBA bytes a resize to `w × h` would need for `frames` frames, or
+/// `None` when the multiplication overflows — the same arithmetic
+/// `resize_fits_budget` gates Apply on.
+fn resize_bytes(w: u32, h: u32, frames: usize) -> Option<usize> {
+    (w as usize)
+        .checked_mul(h as usize)?
+        .checked_mul(4)?
+        .checked_mul(frames)
+}
+
+/// Refreshes the resize dialog's memory summary and whether Apply may run. A
+/// big canvas on a long document dwarfs the GIF itself, so the cost shows
+/// before the worker starts rather than as a toast after it refuses.
+fn refresh_resize_summary(
+    dialog: &adw::AlertDialog,
+    summary: &gtk::Label,
+    width: &gtk::SpinButton,
+    height: &gtk::SpinButton,
+    cw: u32,
+    ch: u32,
+    frames: usize,
+    oper_max: usize,
+    total_max: usize,
+) {
+    let (w, h) = (width.value() as u32, height.value() as u32);
+    let fits = resize_fits_budgets(cw, ch, w, h, frames, oper_max, total_max);
+    let mut text = match resize_bytes(w, h, frames) {
+        Some(bytes) => fill(t("{size} in memory"), &[("size", &size(bytes))]),
+        None => String::new(),
+    };
+    if !fits {
+        if !text.is_empty() {
+            text.push('\n');
+        }
+        text.push_str(t(
+            "That resize would use more memory than the configured limit.",
+        ));
+    }
+    summary.set_label(&text);
+    dialog.set_response_enabled("apply", fits);
+}
+
+/// Reads the entry text so keystrokes recompute the peer before the spin
+/// commits them. Reports whether the text was a number; a cleared field
+/// mid-edit links nothing.
+fn relink_from_text(
+    edited: &gtk::SpinButton,
+    peer: &gtk::SpinButton,
+    edited_other: u32,
+    fixed_other: u32,
+) -> bool {
+    let Ok(value) = edited.text().parse::<f64>() else {
+        return false;
+    };
+    if !value.is_finite() || value < 0.0 {
+        return false;
+    }
+    peer.set_value(paired_dimension(value as u32, edited_other, fixed_other) as f64);
+    true
+}
+
+/// Links the resize dialog's fields to the aspect lock: editing one field
+/// recomputes the other from the canvas ratio. Both commit paths funnel
+/// through one guard — the entry's `changed` for keystrokes the spin has not
+/// committed yet, `value-changed` for arrows, Enter and focus-out — so the
+/// peer tracks live typing instead of only lock toggles, and a programmatic
+/// set never echoes back.
+fn link_resize_fields(
+    width: &gtk::SpinButton,
+    height: &gtk::SpinButton,
+    lock: &adw::SwitchRow,
+    cw: u32,
+    ch: u32,
+) {
+    // A programmatic set fires its own handler, so guard the echo.
+    let syncing = Rc::new(Cell::new(false));
+    for (edited, peer, edited_other, fixed_other) in
+        [(width, height, cw, ch), (height, width, ch, cw)]
+    {
+        let (edited, peer, syncing) = (edited.clone(), peer.clone(), syncing.clone());
+        let lock = lock.clone();
+        let (e, p) = (edited.clone(), peer.clone());
+        let relink = Rc::new(move || {
+            if !lock.is_active() || syncing.get() {
+                return;
+            }
+            syncing.set(true);
+            relink_from_text(&e, &p, edited_other, fixed_other);
+            syncing.set(false);
+        });
+        let commit = relink.clone();
+        edited.connect_changed(move |_| relink());
+        edited.connect_value_changed(move |_| commit());
+    }
+    {
+        let (width, height) = (width.clone(), height.clone());
+        lock.connect_active_notify(move |lock| {
+            if !lock.is_active() {
+                return;
+            }
+            // Re-locking re-anchors the ratio at the field last touched: the
+            // height follows the width back onto the canvas ratio.
+            syncing.set(true);
+            height.set_value(paired_dimension(width.value() as u32, cw, ch) as f64);
+            syncing.set(false);
+        });
+    }
+}
+
+/// Builds the resize dialog and its live widgets: the size fields seeded from
+/// the canvas, the aspect lock, the memory summary, and the Cancel/Apply
+/// responses. Split out so the widget test can hold the dialog without
+/// showing it.
+fn build_resize_dialog(
+    cw: u32,
+    ch: u32,
+    frames: usize,
+    oper_max: usize,
+    total_max: usize,
+) -> (
+    adw::AlertDialog,
+    gtk::SpinButton,
+    gtk::SpinButton,
+    adw::SwitchRow,
+    gtk::Label,
+) {
+    let dialog = adw::AlertDialog::new(
+        Some(t("Resize")),
+        Some(t("Scale every frame, and the overlays with them.")),
+    );
+    dialog.set_content_width(440);
+
+    let width = gtk::SpinButton::with_range(16.0, 8192.0, 1.0);
+    width.set_valign(gtk::Align::Center);
+    width.set_value(cw as f64);
+    let height = gtk::SpinButton::with_range(16.0, 8192.0, 1.0);
+    height.set_valign(gtk::Align::Center);
+    height.set_value(ch as f64);
+    let row = adw::ActionRow::builder().title(t("New size")).build();
+    let spins = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    spins.set_valign(gtk::Align::Center);
+    spins.append(&width);
+    spins.append(&gtk::Label::new(Some("×")));
+    spins.append(&height);
+    // Translators: Abbreviation for pixels, shown after a pair of size fields.
+    spins.append(&gtk::Label::new(Some(t("px"))));
+    row.add_suffix(&spins);
+
+    let lock = adw::SwitchRow::builder()
+        .title(t("Keep aspect ratio"))
+        .build();
+    lock.set_active(true);
+
+    let group = adw::PreferencesGroup::new();
+    group.add(&row);
+    group.add(&lock);
+    let summary = gtk::Label::new(None);
+    summary.add_css_class("dim-label");
+    summary.set_xalign(0.0);
+    summary.set_wrap(true);
+    summary.set_margin_top(6);
+    let form = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    form.append(&group);
+    form.append(&summary);
+    dialog.set_extra_child(Some(&form));
+
+    dialog.add_response("cancel", t("Cancel"));
+    dialog.add_response("apply", t("Apply"));
+    dialog.set_response_appearance("apply", adw::ResponseAppearance::Suggested);
+    dialog.set_default_response(Some("apply"));
+    dialog.set_close_response("cancel");
+    refresh_resize_summary(
+        &dialog, &summary, &width, &height, cw, ch, frames, oper_max, total_max,
+    );
+    (dialog, width, height, lock, summary)
+}
+
+/// Shows the resize dialog: links the fields, keeps the memory summary live,
+/// and sends `Msg::Resize` for the size Apply leaves behind.
+fn resize_dialog(
+    root: &adw::ApplicationWindow,
+    cw: u32,
+    ch: u32,
+    frames: usize,
+    oper_max: usize,
+    total_max: usize,
+    sender: &ComponentSender<App>,
+) {
+    let (dialog, width, height, lock, summary) =
+        build_resize_dialog(cw, ch, frames, oper_max, total_max);
+    link_resize_fields(&width, &height, &lock, cw, ch);
+    for spin in [&width, &height] {
+        let (dialog, summary, width, height) = (
+            dialog.clone(),
+            summary.clone(),
+            width.clone(),
+            height.clone(),
+        );
+        spin.connect_value_changed(move |_| {
+            refresh_resize_summary(
+                &dialog, &summary, &width, &height, cw, ch, frames, oper_max, total_max,
+            );
+        });
+    }
+
+    let sender = sender.clone();
+    dialog.choose(Some(root), gio::Cancellable::NONE, move |response| {
+        if response != "apply" {
+            return;
+        }
+        sender.input(Msg::Resize(width.value() as u32, height.value() as u32));
     });
 }
 
@@ -7324,6 +7668,7 @@ mod tests {
             Msg::Open,
             Msg::Export,
             Msg::CropAllDialog,
+            Msg::ResizeDialog,
             Msg::DelayAllDialog,
             Msg::ImportInto(AT_END),
         ] {
@@ -7471,7 +7816,6 @@ mod tests {
             None
         );
     }
-
     #[test]
     fn resize_budget_uses_checked_rgba_size() {
         assert!(resize_fits_budget(100, 100, 10, 400_000));
@@ -7482,6 +7826,60 @@ mod tests {
             usize::MAX,
             usize::MAX
         ));
+    }
+
+    /// The aspect lock links the two resize fields: editing one width of a
+    /// 16:9 canvas recomputes the other, and extremes clamp to the range.
+    #[test]
+    fn paired_dimension_keeps_the_canvas_ratio() {
+        assert_eq!(paired_dimension(960, 480, 270), 540);
+        assert_eq!(paired_dimension(540, 270, 480), 960);
+        assert_eq!(paired_dimension(1, 480, 270), 16);
+        assert_eq!(paired_dimension(u32::MAX, 480, 270), 8192);
+    }
+
+    /// The dialog's memory estimate counts checked RGBA bytes, so an absurd
+    /// canvas reports unrepresentable instead of wrapping around to tiny.
+    #[test]
+    fn resize_bytes_counts_checked_rgba() {
+        assert_eq!(resize_bytes(480, 270, 300), Some(155_520_000));
+        assert_eq!(resize_bytes(u32::MAX, u32::MAX, usize::MAX), None);
+    }
+
+    /// A resize must fit the per-operation budget with its new frames and the
+    /// total with old plus new, since undo keeps the old ones while the
+    /// worker holds the new. 480×270×3 is 1,555,200 bytes a side.
+    #[test]
+    fn resize_budget_checks_output_and_total() {
+        assert!(resize_fits_budgets(
+            480,
+            270,
+            480,
+            270,
+            3,
+            usize::MAX,
+            usize::MAX
+        ));
+        assert!(
+            !resize_fits_budgets(480, 270, 8192, 8192, 300, 1, usize::MAX),
+            "an output over the operation budget refuses"
+        );
+        assert!(
+            !resize_fits_budgets(480, 270, 480, 270, 3, usize::MAX, 2_000_000),
+            "old plus new over the total refuses"
+        );
+        assert!(
+            !resize_fits_budgets(
+                u32::MAX,
+                u32::MAX,
+                u32::MAX,
+                u32::MAX,
+                usize::MAX,
+                usize::MAX,
+                usize::MAX
+            ),
+            "overflow refuses"
+        );
     }
 
     /// Regression: the sidebar sets its widgets from the model, and each setter
@@ -7523,6 +7921,41 @@ mod tests {
         assert!(!OverlayProp::Font("Serif".into()).changes(&shape));
     }
 
+    /// The context menu's shortcuts are read off the keymap, so a rebind moves
+    /// them; GTK takes them from the item's "accel" attribute, which is the
+    /// only channel it has for a shortcut owned by our own key controller.
+    #[test]
+    fn the_frame_menu_shows_what_the_keymap_binds() {
+        let accel_of = |item: &gio::MenuItem| {
+            item.attribute_value("accel", None)
+                .and_then(|value| value.str().map(str::to_string))
+        };
+        let mut keys = Keymap::default();
+        let cut = frame_item("Cut this frame", "frame.cut", &keys, Action::FrameCut);
+        assert_eq!(accel_of(&cut).as_deref(), Some("<Control>x"));
+
+        keys.set(
+            Action::FrameCut,
+            vec![Chord::parse("Ctrl+Shift+X").unwrap()],
+        );
+        let cut = frame_item("Cut this frame", "frame.cut", &keys, Action::FrameCut);
+        assert_eq!(
+            accel_of(&cut).as_deref(),
+            Some("<Control><Shift>x"),
+            "a rebind moves the menu's hint with it"
+        );
+
+        // Deleting frames ships unbound: no chord means no attribute, rather
+        // than an empty one GTK would try to parse.
+        let delete = frame_item(
+            "Delete this frame",
+            "frame.delete",
+            &keys,
+            Action::FrameDelete,
+        );
+        assert_eq!(accel_of(&delete), None);
+    }
+
     /// Regression: adding an overlay hung the app. `update_view` sets the
     /// outline colour before the outline width, so the colour button's handler
     /// read a width of zero and sent `Outline(None)` — which the model *did*
@@ -7548,6 +7981,95 @@ mod tests {
         the_layer_list_bounds_survive_the_list_emptying();
         the_strip_viewport_does_not_chase_the_focus();
         the_fit_chooser_maps_one_radio_to_each_mode();
+        the_resize_dialog_offers_cancel_and_apply();
+        linked_resize_fields_track_each_other_live();
+    }
+
+    /// Regression: the resize rewrite built the fields but never added the
+    /// responses, so the dialog showed with nothing to click. The fields come
+    /// seeded from the canvas with the lock on, and a document the budget
+    /// refuses disables Apply with the reason shown instead of a toast after.
+    fn the_resize_dialog_offers_cancel_and_apply() {
+        let (dialog, width, height, lock, summary) =
+            build_resize_dialog(480, 270, 3, usize::MAX, usize::MAX);
+        assert!(dialog.has_response("cancel"), "dismisses without resizing");
+        assert!(dialog.has_response("apply"), "sends Msg::Resize");
+        assert_eq!(dialog.default_response().as_deref(), Some("apply"));
+        assert_eq!(dialog.close_response(), "cancel");
+        assert_eq!(width.value() as u32, 480, "seeded from the live canvas");
+        assert_eq!(height.value() as u32, 270, "seeded from the live canvas");
+        assert!(lock.is_active(), "locked until the user says otherwise");
+        assert!(
+            dialog.is_response_enabled("apply"),
+            "a small document may resize"
+        );
+        assert!(
+            summary.label().contains("in memory"),
+            "the cost shows before the worker starts: {}",
+            summary.label()
+        );
+
+        let (too_big, _, _, _, too_big_summary) = build_resize_dialog(8192, 8192, 300, 1, 1);
+        assert!(
+            !too_big.is_response_enabled("apply"),
+            "an over-budget resize cannot be started"
+        );
+        assert!(
+            too_big_summary.label().contains("configured limit"),
+            "the reason shows in the dialog: {}",
+            too_big_summary.label()
+        );
+    }
+
+    /// Regression: with the lock on, editing one resize field left the other
+    /// alone until the lock was toggled — only committed values were wired,
+    /// not keystrokes. Both paths now funnel through one link, so the peer
+    /// tracks typing, arrows, unlock isolation and re-locking.
+    fn linked_resize_fields_track_each_other_live() {
+        let width = gtk::SpinButton::with_range(16.0, 8192.0, 1.0);
+        let height = gtk::SpinButton::with_range(16.0, 8192.0, 1.0);
+        let lock = adw::SwitchRow::builder().build();
+        lock.set_active(true);
+        width.set_value(480.0);
+        height.set_value(270.0);
+        link_resize_fields(&width, &height, &lock, 480, 270);
+        width.set_value(960.0);
+        assert_eq!(
+            height.value() as u32,
+            540,
+            "committed width recomputes height"
+        );
+        height.set_value(135.0);
+        assert_eq!(
+            width.value() as u32,
+            240,
+            "committed height recomputes width"
+        );
+        width.set_text("320".into());
+        assert_eq!(
+            height.value() as u32,
+            180,
+            "keystrokes recompute before the spin commits them"
+        );
+        width.set_text("".into());
+        assert_eq!(
+            height.value() as u32,
+            180,
+            "a cleared field mid-edit links nothing"
+        );
+        lock.set_active(false);
+        width.set_value(100.0);
+        assert_eq!(
+            height.value() as u32,
+            180,
+            "unlocked: the peer is untouched"
+        );
+        lock.set_active(true);
+        assert_eq!(
+            height.value() as u32,
+            56,
+            "re-locking snaps the height back onto the canvas ratio"
+        );
     }
 
     /// The splice reads the picked mode off the button index, so the rows have

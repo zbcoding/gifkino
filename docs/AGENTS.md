@@ -262,6 +262,15 @@ the accelerator in the string, which is what makes them follow a rebind.
 `Keymap::conflicts` is what the editor paints red; it excludes tool-on-tool
 clashes, which `install_shortcuts` turns into a cycle instead.
 
+Menu items carry theirs as the GMenuItem "accel" attribute, built by
+`window::frame_item` from `Chord::accel` — GTK looks a menu accelerator up in a
+`GtkApplication` accel table or a shortcut controller in the item's own tree,
+and ours are in neither, so it has to be handed over. `Chord::accel` speaks
+`gtk_accelerator_parse` syntax (`<Control>z`), which needs GDK's own casing of
+the key name where a chord stores it lowercased. `Msg::SetKeymap` drops the
+cached frame list so `update_view` rebuilds the strip, and with it the popover
+that carries the menu: that is what makes a rebind move the menu's hints.
+
 Ctrl+? opens `window::shortcuts_dialog`, which is both the shortcuts window and
 the keybinding editor: one list that shows what a key does and lets it be
 changed, rather than two screens saying the same things.

@@ -6,13 +6,21 @@
 
 use std::path::PathBuf;
 
-/// Frames live in RAM as RGBA, so this is the number that decides how much of a
-/// long video can be open at once. 1.2 GB is around 450 frames at 1280x720.
-const DEFAULT_MAX_IMPORT_BYTES: usize = 1_200 << 20;
+/// Frames live in RAM as RGBA, so these are the numbers that decide how much
+/// of a long video can be open at once. Three budgets: imports cap what one
+/// decode may land, operations cap what one edit (a resize, …) may produce,
+/// and the total caps old frames plus new — undo keeps the old ones while a
+/// worker holds the new, so the transient peak is the sum. 4 GB is around
+/// 1100 frames at 1280x720.
+const DEFAULT_MAX_IMPORT_BYTES: usize = 4_096 << 20;
+const DEFAULT_MAX_OPER_BYTES: usize = 4_096 << 20;
+const DEFAULT_MAX_TOTAL_BYTES: usize = 8_192 << 20;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Settings {
     pub max_import_bytes: usize,
+    pub max_oper_bytes: usize,
+    pub max_total_bytes: usize,
     /// Overrides the locale from the environment. `None` means follow LANGUAGE
     /// and friends, which is what a desktop user expects.
     pub language: Option<String>,
@@ -22,6 +30,8 @@ impl Default for Settings {
     fn default() -> Self {
         Settings {
             max_import_bytes: DEFAULT_MAX_IMPORT_BYTES,
+            max_oper_bytes: DEFAULT_MAX_OPER_BYTES,
+            max_total_bytes: DEFAULT_MAX_TOTAL_BYTES,
             language: None,
         }
     }
@@ -41,7 +51,6 @@ impl Settings {
         settings.apply(&text);
         settings
     }
-
     /// Anything missing or unparseable leaves the current value alone.
     fn apply(&mut self, text: &str) {
         for line in text.lines() {
@@ -58,6 +67,20 @@ impl Settings {
                         && mb > 0
                     {
                         self.max_import_bytes = mb << 20;
+                    }
+                }
+                "max_oper_memory_mb" => {
+                    if let Ok(mb) = value.trim().parse::<usize>()
+                        && mb > 0
+                    {
+                        self.max_oper_bytes = mb << 20;
+                    }
+                }
+                "max_total_memory_mb" => {
+                    if let Ok(mb) = value.trim().parse::<usize>()
+                        && mb > 0
+                    {
+                        self.max_total_bytes = mb << 20;
                     }
                 }
                 "language" => {
@@ -96,10 +119,19 @@ fn write_template(path: &std::path::Path) {
              # size or a lower frame rate in the import dialog.\n\
              max_import_memory_mb = {}\n\
              \n\
+             # Most memory one frame operation (a resize, …) may produce, in MB.\n\
+             max_oper_memory_mb = {}\n\
+             \n\
+             # Most memory frames may hold in total, in MB: the document plus\n\
+             # what the operation produces, since undo keeps the old frames.\n\
+             max_total_memory_mb = {}\n\
+             \n\
              # Interface language, as a po/ catalog name such as de or ja.\n\
              # Leave empty to follow LANGUAGE, LC_ALL, LC_MESSAGES or LANG.\n\
              language =\n",
-            DEFAULT_MAX_IMPORT_BYTES >> 20
+            DEFAULT_MAX_IMPORT_BYTES >> 20,
+            DEFAULT_MAX_OPER_BYTES >> 20,
+            DEFAULT_MAX_TOTAL_BYTES >> 20,
         ),
     );
 }
@@ -126,6 +158,14 @@ mod tests {
             parse("  max_import_memory_mb=64  ").max_import_bytes,
             64 << 20
         );
+        assert_eq!(
+            parse("max_oper_memory_mb = 2048").max_oper_bytes,
+            2048 << 20
+        );
+        assert_eq!(
+            parse("max_total_memory_mb = 10240").max_total_bytes,
+            10240 << 20
+        );
 
         assert_eq!(parse("language = de").language.as_deref(), Some("de"));
         assert_eq!(
@@ -134,16 +174,27 @@ mod tests {
             "empty means follow the environment"
         );
 
-        let default = Settings::default().max_import_bytes;
+        let default = Settings::default();
         for junk in [
             "",
             "# max_import_memory_mb = 512",
             "max_import_memory_mb = 0",
             "max_import_memory_mb = lots",
+            "max_oper_memory_mb = 0",
+            "max_total_memory_mb = lots",
             "nonsense",
             "other_key = 4",
         ] {
-            assert_eq!(parse(junk).max_import_bytes, default, "on {junk:?}");
+            let parsed = parse(junk);
+            assert_eq!(
+                parsed.max_import_bytes, default.max_import_bytes,
+                "on {junk:?}"
+            );
+            assert_eq!(parsed.max_oper_bytes, default.max_oper_bytes, "on {junk:?}");
+            assert_eq!(
+                parsed.max_total_bytes, default.max_total_bytes,
+                "on {junk:?}"
+            );
         }
     }
 
