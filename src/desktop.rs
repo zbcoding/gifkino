@@ -437,4 +437,25 @@ mod tests {
 
         std::fs::remove_dir_all(&apps).unwrap();
     }
+
+    // The flatpak build hands this icon to appstreamcli compose, and gdk-pixbuf
+    // identifies an image by sniffing the head of the file for an opening tag -
+    // 256 bytes on Ubuntu 24.04, which is what the release workflow runs on.
+    // Notes in front of <svg> that push it past that window turn a valid icon
+    // into an "unrecognized image file format" and fail the build ten minutes
+    // in, which is why the icon's own notes sit inside the element.
+    #[test]
+    fn the_app_icon_announces_itself_before_the_sniffers_give_up() {
+        const SNIFF_WINDOW: usize = 256;
+        let icon = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("xdg/{APP_ID}.svg"));
+        let svg = std::fs::read_to_string(&icon).unwrap();
+
+        let at = svg.find("<svg").expect("the icon needs an <svg> element");
+        assert!(
+            at <= SNIFF_WINDOW,
+            "<svg> starts at byte {at}, past the {SNIFF_WINDOW} bytes a loader \
+             reads before deciding this is not an image; keep prose inside the \
+             element"
+        );
+    }
 }
