@@ -215,6 +215,13 @@ fn unquote(raw: &str) -> String {
         .strip_prefix('"')
         .and_then(|r| r.strip_suffix('"'))
         .unwrap_or(raw);
+    unescape(inner)
+}
+
+/// Undo gettext's escapes on the inside of a quoted string. Separate from
+/// `unquote` because a msgid assembled from continuation lines has already
+/// lost its quotes.
+fn unescape(inner: &str) -> String {
     let mut out = String::with_capacity(inner.len());
     let mut chars = inner.chars();
     while let Some(c) = chars.next() {
@@ -359,21 +366,31 @@ msgstr "Öffnen…"
     /// The shipped catalogs, parsed for real. Catches a mangled `.po`, a msgid
     /// renamed in the source without `scripts/i18n.py merge`, and an escape the
     /// parser and the writer disagree about.
+    ///
+    /// The msgids come from `template_msgids`, which joins an entry written
+    /// across continuation lines. Reading only the lines that start `msgid `
+    /// dropped those: a long entry's first line is `msgid ""`, which looks
+    /// exactly like the header and was filtered out with it, so the two
+    /// multi-line strings in the template went unchecked in every catalog.
     #[test]
     fn every_shipped_catalog_covers_every_marked_string() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
         let template =
             std::fs::read_to_string(root.join("po/messages.pot")).expect("run scripts/i18n.py pot");
-        // The template's msgstrs are empty, so read its msgids off the source.
-        let wanted: Vec<String> = template
-            .lines()
-            .filter_map(|line| line.strip_prefix("msgid "))
-            .map(unquote)
-            .filter(|id| !id.is_empty())
+        // The template stores escapes; a parsed catalog's keys do not.
+        let wanted: Vec<String> = template_msgids(&template)
+            .iter()
+            .map(|id| unescape(id))
             .collect();
         assert!(
             wanted.len() > 100,
             "only {} strings extracted",
+            wanted.len()
+        );
+        assert!(
+            wanted.iter().any(|id| id.contains('\n')),
+            "no multi-line entry among the {} extracted, so this test would \
+             not notice losing them again",
             wanted.len()
         );
 
