@@ -63,6 +63,34 @@
   in the header: the fields are in front of the user and the preview prices
   them.
 
+### Fixes
+
+- The window stops at 480×400 instead of shrinking under its own chrome.
+  Dragging it narrow took it below the width the content needs, and libadwaita
+  answered with a warning per frame — "AdwToastOverlay exceeds
+  AdwApplicationWindow width: requested 465 px, 360 px available" — while the
+  toolbar painted clipped. Measured on the assembled tree, the editor's chrome
+  needs 465×210 and the window with the import dialog over it 458×104. The
+  floor goes out as a size request, which is what reaches the compositor, so a
+  resize is clamped there rather than allowed past it.
+
+### Translations
+
+- The catalog coverage test reads the entries gettext wrapped across two lines.
+  It took its msgids from lines starting `msgid `, so an entry whose first line
+  is the empty `msgid ""` was discarded along with the header, and both
+  multi-line strings in the template — the two canvas grip tooltips — were
+  checked against no catalog at all. An added assertion fails if the template
+  ever stops carrying a multi-line entry, which is what would quietly make that
+  coverage meaningless again.
+- A msgid that outlives the string it came from now fails a test. Coverage ran
+  one way only, reporting entries a catalog was missing: delete a feature, skip
+  `scripts/i18n.py`, and the template keeps an entry every catalog goes on
+  translating for a string the app can no longer show. Dropping screen
+  recording left three behind exactly that way. The new test reads
+  `po/POTFILES.in` and requires every template msgid to still appear in a file
+  that marks it.
+
 ## 0.1.0 — 2026-09-05
 
 ### Canvas
