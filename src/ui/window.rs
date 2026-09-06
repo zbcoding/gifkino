@@ -53,6 +53,14 @@ const MEASURE_DEBOUNCE: std::time::Duration = std::time::Duration::from_secs(5);
 /// `usize::MAX` so the arithmetic that turns a budget into a frame cap has
 /// room to multiply without wrapping.
 const NO_IMPORT_LIMIT: usize = 1 << 60;
+/// Smallest the window may be dragged to. The editor's own chrome needs
+/// 465x210 — the header's buttons beside the import row — and the window with
+/// the import dialog over it needs 458x104, both measured on the assembled
+/// tree; libadwaita warns once per frame while a window is narrower than its
+/// content and paints the toolbar clipped, so the floor is stated here and
+/// handed to the compositor as a size request.
+const MIN_WINDOW_W: i32 = 480;
+const MIN_WINDOW_H: i32 = 400;
 const BAND_H: f64 = 18.0;
 /// "Splice at the end of the timeline", clamped to the frame count when the
 /// import lands. The file menu's Add frames has no frame under the pointer to
@@ -908,13 +916,20 @@ impl Component for App {
     type Widgets = Widgets;
 
     fn init_root() -> Self::Root {
-        adw::ApplicationWindow::builder()
+        let window = adw::ApplicationWindow::builder()
             // A proper noun, not a phrase: not marked for translation, so no
             // locale can rename the application.
             .title("Gifkino")
             .default_width(1100)
             .default_height(760)
-            .build()
+            .build();
+        // A floor, so a drag stops at the width the editor needs instead of
+        // squeezing past it: below this the toolbar and the import row are
+        // wider than the window that holds them, which libadwaita reports as
+        // a warning per frame and paints as clipped chrome. The dialogs are
+        // narrower than this, so they fit inside whatever it allows.
+        window.set_size_request(MIN_WINDOW_W, MIN_WINDOW_H);
+        window
     }
 
     fn init(
@@ -8464,6 +8479,27 @@ mod tests {
         linked_resize_fields_track_each_other_live();
         linked_import_fields_stay_even_and_in_range();
         the_advanced_import_rows_explain_themselves_without_crowding();
+        the_window_refuses_to_shrink_under_its_own_chrome();
+    }
+
+    /// Regression: the window had no minimum, so a drag could take it under
+    /// the width its own chrome needs — 465 px for the header and the import
+    /// row — and libadwaita answered with a warning per frame
+    /// ("AdwToastOverlay exceeds AdwApplicationWindow width: requested 465
+    /// px, 360 px available") while the toolbar painted clipped. The floor is
+    /// what the compositor is told, so the drag stops there instead.
+    fn the_window_refuses_to_shrink_under_its_own_chrome() {
+        let window = App::init_root();
+        assert_eq!(
+            (window.width_request(), window.height_request()),
+            (MIN_WINDOW_W, MIN_WINDOW_H),
+            "the floor is a size request, which is what reaches the compositor"
+        );
+        // The measured minimum of the assembled editor is 465x210, and of the
+        // window with the import dialog over it 458x104; the floor clears
+        // both. It is stated in `MIN_WINDOW_W`/`MIN_WINDOW_H` rather than
+        // asserted here, because a comparison between two constants is
+        // checked by reading them, not by running them.
     }
 
     /// Regression: the resize rewrite built the fields but never added the
