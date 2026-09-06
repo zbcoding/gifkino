@@ -25,6 +25,33 @@
   inside the source size rather than showing a figure the decode would round
   away. The switch greys out with the fields while a preset resolution is
   picked, since a preset already carries its own pair.
+- Memory is the only ceiling an import has. A second, hidden one capped every
+  import at 2000 frames whatever it cost, so a long low-resolution clip was
+  refused with a message blaming memory while the figure beside it read 6 MB —
+  and "pick a smaller size", the advice it gave, could not help, since a
+  smaller frame does not change a frame count. `ImportOptions::max_frames` is
+  gone; `cap` is what the configured budget buys at the planned size, which is
+  what the refusal has always claimed to be about.
+- Every video import goes through the import dialog now, not only one that has
+  to be shrunk: it is where the size, the rate and the new advanced options are
+  chosen, and a clip that fits has the same questions to answer as one that
+  does not.
+- The dialog has an Advanced section, collapsed until asked for:
+  - **Trim.** Import only part of the file, given either as timecodes
+    (`00:01.50`) or as frame numbers, both ends included. Times round to a
+    whole centisecond, which is as fine as a GIF's frame delays can be. The
+    decode seeks with `-ss` ahead of the input, so the part before the cut is
+    never decoded.
+  - **Drop one frame in every N.** The Optimize menu's drop, done on the way
+    in: the dropped frames never cost the memory the budget is counting, and
+    the frames kept still cover the same stretch of time.
+  - **Ignore the memory limit.** For this one import; the configured limit is
+    left alone, and the raised ceiling also covers the splice the decoded
+    frames land in.
+  Each row explains itself through a question mark beside its label, on click
+  or tap rather than as a hover tooltip. The live preview sits above the form
+  so it stays visible while the section is open, and it now reports the span
+  the trim leaves and the rate the frames will actually play at.
 
 ## 0.1.0 — 2026-09-05
 

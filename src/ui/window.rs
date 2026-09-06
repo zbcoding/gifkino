@@ -29,7 +29,7 @@ use crate::i18n::{fill, lookup, n, t, tn};
 use crate::keymap::{Action, Chord, Keymap, MODALS, Modal, Mods};
 use crate::pipeline::caps::Caps;
 use crate::pipeline::gif::{Encodable, ExportSettings};
-use crate::pipeline::video::{self, ImportOptions, ImportPlan};
+use crate::pipeline::video::{self, ImportOptions, ImportPlan, Trim};
 use crate::pipeline::{self as pipeline, gif as gif_pipeline, import_any};
 use crate::settings::Settings;
 use crate::ui::text::rasterize;
@@ -48,6 +48,11 @@ const STRIP_ZOOM_STEP: f64 = 1.2;
 /// measurement spawns ffmpeg and encodes for real, so it waits for the user to
 /// stop moving rather than chasing every keystroke.
 const MEASURE_DEBOUNCE: std::time::Duration = std::time::Duration::from_secs(5);
+/// The ceiling an import runs under when the user switches the memory limit
+/// off for one file: an exabyte, which no decode can reach, chosen over
+/// `usize::MAX` so the arithmetic that turns a budget into a frame cap has
+/// room to multiply without wrapping.
+const NO_IMPORT_LIMIT: usize = 1 << 60;
 const BAND_H: f64 = 18.0;
 /// "Splice at the end of the timeline", clamped to the frame count when the
 /// import lands. The file menu's Add frames has no frame under the pointer to
@@ -120,8 +125,10 @@ pub enum Msg {
     /// Probe first, then import; the user gets a say if the file is too big to
     /// come in whole.
     Load(PathBuf),
-    /// Import at the settings the dialog came back with.
-    LoadConfirmed(PathBuf, Box<ImportPlan>),
+    /// Import at the settings the dialog came back with, under the memory
+    /// budget it was allowed: the dialog can raise the configured one for a
+    /// single import.
+    LoadConfirmed(PathBuf, Box<ImportPlan>, usize),
     /// The user pressed the X beside the import progress bar.
     CancelImport,
     /// Debounced: measure the export size for this document revision, unless
@@ -264,7 +271,7 @@ impl Msg {
         matches!(
             self,
             Msg::Load(_)
-                | Msg::LoadConfirmed(_, _)
+                | Msg::LoadConfirmed(..)
                 | Msg::LoadInto(_, _)
                 | Msg::Undo
                 | Msg::Redo
@@ -627,6 +634,11 @@ pub struct App {
     /// `Cmd::Imported` lands: where the decoded frames go. `None` replaces the
     /// document; `Some(i)` splices them in at `i`.
     import_at: Option<usize>,
+    /// A memory budget the import dialog raised for one import, replacing
+    /// `settings.max_import_bytes` until that import lands. The frames it
+    /// decodes have to survive the splice too, so the landing check reads the
+    /// same number the plan was measured against.
+    import_budget: Option<usize>,
     /// Cut or copied frames, waiting for a paste. App-local rather than the
     /// system clipboard: what a paste needs is the frame with its delay and
     /// its cached thumbnail, and a GIF frame has no interchange format that
@@ -751,10 +763,16 @@ impl App {
         &rasterize
     }
 
-    /// Import options carrying the user's memory budget.
+    /// The memory budget an import runs under: what the settings allow, or
+    /// what the dialog raised it to for the import in flight.
+    fn import_budget(&self) -> usize {
+        self.import_budget.unwrap_or(self.settings.max_import_bytes)
+    }
+
+    /// Import options carrying that budget.
     fn import_options(&self) -> ImportOptions {
         ImportOptions {
-            max_bytes: self.settings.max_import_bytes,
+            max_bytes: self.import_budget(),
             ..Default::default()
         }
     }
@@ -932,6 +950,7 @@ impl Component for App {
             strip_zoom_shown: Cell::new(1.0),
             rev: 0,
             import_at: None,
+            import_budget: None,
             clipboard: Vec::new(),
         };
 
@@ -997,14 +1016,18 @@ impl Component for App {
             Msg::SpliceFrames { at, frames, fit } => {
                 self.start_splice(at, frames, fit, &sender);
             }
-            Msg::LoadConfirmed(path, plan) => {
+            Msg::LoadConfirmed(path, plan, budget) => {
                 let cancel = Arc::new(AtomicBool::new(false));
                 self.busy = Some(Busy {
                     kind: BusyKind::Import,
                     done: 0,
-                    total: None,
+                    total: plan.frames(),
                     cancel: Some(cancel.clone()),
                 });
+                // Only for this import, and only upwards from the configured
+                // budget: the plan was measured against it, and the frames it
+                // lands still have to pass the splice's own check.
+                self.import_budget = (budget > self.settings.max_import_bytes).then_some(budget);
                 load(path, Some(*plan), self.import_options(), cancel, &sender);
             }
             Msg::CancelImport => {
@@ -1828,27 +1851,17 @@ impl Component for App {
             }
             return;
         }
-        // The probe answered; either go straight on or put the cost to the user.
+        // The probe answered. Every video stops here: the dialog is where the
+        // size, the rate, the trim, the frame drop and this import's memory
+        // budget are chosen, and a clip that already fits has the same
+        // questions to answer as one that does not.
         if let Cmd::Planned(path, plan) = msg {
+            self.busy = None;
             match *plan {
-                Ok(plan) if plan.is_reduced() => {
-                    self.busy = None;
-                    confirm_oversize(root, &path, &plan, self.settings.max_import_bytes, &sender);
-                }
-                // The probe never checks the flag, so a click during the probe
-                // still stands: this is the same flag the load was seeded with.
                 Ok(plan) => {
-                    let cancel = self
-                        .busy
-                        .as_ref()
-                        .and_then(|busy| busy.cancel.clone())
-                        .expect("import in flight");
-                    load(path, Some(plan), self.import_options(), cancel, &sender);
+                    confirm_oversize(root, &path, &plan, self.settings.max_import_bytes, &sender)
                 }
-                Err(e) => {
-                    self.busy = None;
-                    sender.input(Msg::Toast(e));
-                }
+                Err(e) => sender.input(Msg::Toast(e)),
             }
             return;
         }
@@ -2737,6 +2750,12 @@ impl App {
             total: None,
             cancel: Some(cancel.clone()),
         });
+        // A new import starts from the configured budget. The raise the last
+        // dialog asked for belonged to the file it was asked about, and it has
+        // to outlive the decode itself — the fit chooser's own landing check
+        // runs after it — so this is where it expires rather than on the way
+        // out of `Cmd::Imported`.
+        self.import_budget = None;
         plan_import(path, self.import_options(), cancel, sender);
     }
 
@@ -2792,7 +2811,7 @@ impl App {
         };
         let (w, h) = fit.canvas(self.editor.doc.size(), arriving);
         let landing = self.frame_count() + frames.len();
-        if !resize_fits_budget(w, h, landing, self.settings.max_import_bytes) {
+        if !resize_fits_budget(w, h, landing, self.import_budget()) {
             sender.input(Msg::Toast(
                 t("That resize would use more memory than the configured limit.").into(),
             ));
@@ -2991,8 +3010,12 @@ fn confirm_oversize(
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| path.display().to_string());
     let dialog = adw::AlertDialog::new(
-        Some(t("This video is large")),
-        Some(&oversize_body(&name, plan)),
+        Some(if plan.over_budget() {
+            t("This video is large")
+        } else {
+            t("Import video")
+        }),
+        Some(&import_body(&name, plan)),
     );
     dialog.set_body_use_markup(true);
 
@@ -3035,6 +3058,10 @@ fn confirm_oversize(
         .build();
     lock.set_active(true);
 
+    // ---- Advanced: what part of the file comes in, how much of it is kept,
+    // and how much memory this one import may spend.
+    let (advanced, trim_units, start, end, drop_nth, ignore_limit) = advanced_import_rows();
+
     let rate_row = adw::ActionRow::builder().title(t("Frame rate")).build();
     rate.set_valign(gtk::Align::Center);
     let rate_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
@@ -3048,22 +3075,29 @@ fn confirm_oversize(
     presets.set_valign(gtk::Align::Center);
     size_row.add_suffix(&presets);
 
+    // Above the form, not under it: with Advanced open the form is taller
+    // than the dialog and scrolls, and the preview is the number every one of
+    // those fields is being steered by. Centred, because it reads as the last
+    // line of the body it sits under.
     let summary = gtk::Label::new(None);
     summary.add_css_class("dim-label");
-    summary.set_xalign(0.0);
+    summary.set_justify(gtk::Justification::Center);
     summary.set_wrap(true);
-    summary.set_margin_top(6);
+    summary.set_margin_bottom(12);
 
-    dialog.set_content_width(480);
+    // Wide enough for a preference row's title and its control to share a
+    // line: the advanced rows say what they do in words, not abbreviations.
+    dialog.set_content_width(560);
 
     let group = adw::PreferencesGroup::new();
     group.add(&size_row);
     group.add(&custom_row);
     group.add(&lock);
     group.add(&rate_row);
+    group.add(&advanced);
     let form = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    form.append(&group);
     form.append(&summary);
+    form.append(&group);
     dialog.set_extra_child(Some(&form));
 
     // The plan the Import response will run, rebuilt on every change so the
@@ -3108,30 +3142,68 @@ fn confirm_oversize(
         }
     });
 
+    // The budget the plan is measured against and the import will run under:
+    // whatever the memory field says, in bytes.
+    let chosen_budget = Rc::new(Cell::new(max_bytes));
+
     let refresh = {
         let (source, chosen, summary) = (source.clone(), chosen.clone(), summary.clone());
         let dialog = dialog.clone();
         let (width, height, rate) = (width.clone(), height.clone(), rate.clone());
+        let (trim_units, start, end) = (trim_units.clone(), start.clone(), end.clone());
+        let (drop_nth, ignore_limit) = (drop_nth.clone(), ignore_limit.clone());
         let (generation, measure) = (generation.clone(), measure.clone());
+        let chosen_budget = chosen_budget.clone();
         move || {
             generation.set(generation.get() + 1);
             let started_at = generation.get();
 
+            let in_frames = trim_units.selected() == 1;
+            let trim = read_trim(in_frames, &start.text(), &end.text());
+            // A half-typed field is not a reason to preview something nobody
+            // asked for, so the field says so and Import waits for it.
+            for entry in [&start, &end] {
+                entry.remove_css_class("error");
+            }
+            if let TrimInput::Invalid = trim {
+                for entry in [&start, &end] {
+                    if !entry.text().trim().is_empty() {
+                        entry.add_css_class("error");
+                    }
+                }
+            }
+
+            // Switched off, the configured budget stands. Switched on, the
+            // ceiling is set past anything a decode could reach rather than
+            // removed: `cap` is still what stops a stream with no duration,
+            // and `usize::MAX` would overflow the arithmetic that derives it.
+            let bytes = if ignore_limit.is_active() {
+                NO_IMPORT_LIMIT
+            } else {
+                max_bytes
+            };
+            chosen_budget.set(bytes);
             let target = (requested_dimension(&width), requested_dimension(&height));
             let options = ImportOptions {
                 target: Some(target),
                 fps: Some(rate.value()),
-                max_bytes,
+                trim: trim.trim(),
+                drop_nth: Some(drop_nth.value() as usize),
+                max_bytes: bytes,
                 ..Default::default()
             };
             let plan = video::plan_for(source.clone(), &options);
             summary.set_label(&plan_summary(&plan, None));
-            let fits = !plan.over_budget();
+            // A file whose container names no duration has no count to
+            // extrapolate a GIF size from, and the preview says so instead —
+            // so the ffmpeg spawns behind the measurement would be thrown away.
+            let fits = !plan.over_budget() && !matches!(trim, TrimInput::Invalid);
+            let worth_measuring = fits && plan.frames().is_some();
             *chosen.borrow_mut() = plan;
             dialog.set_response_enabled("import", fits);
 
             // No point spending ffmpeg on settings that cannot be imported.
-            if fits {
+            if worth_measuring {
                 let (generation, measure) = (generation.clone(), measure.clone());
                 glib::timeout_add_local_once(MEASURE_DEBOUNCE, move || {
                     if generation.get() == started_at {
@@ -3186,33 +3258,202 @@ fn confirm_oversize(
         let refresh = refresh.clone();
         rate.connect_value_changed(move |_| refresh());
     }
+    {
+        // Both commit paths, like the size fields: a typed drop count moves
+        // the preview as it is typed, not only when the field commits.
+        let refresh = refresh.clone();
+        let commit = refresh.clone();
+        drop_nth.connect_changed(move |_| refresh());
+        drop_nth.connect_value_changed(move |_| commit());
+    }
+    {
+        let refresh = refresh.clone();
+        ignore_limit.connect_active_notify(move |_| refresh());
+    }
+    for entry in [&start, &end] {
+        let refresh = refresh.clone();
+        entry.connect_changed(move |_| refresh());
+    }
+    {
+        let refresh = refresh.clone();
+        let (start, end) = (start.clone(), end.clone());
+        trim_units.connect_selected_notify(move |units| {
+            // The example follows the unit: a timecode reads as nonsense in a
+            // field that wants a frame number.
+            set_trim_examples(&start, &end, units.selected() == 1);
+            refresh();
+        });
+    }
 
     let sender = sender.clone();
     let path = path.to_path_buf();
     dialog.choose(Some(root), gio::Cancellable::NONE, move |response| {
         if response == "import" {
-            sender.input(Msg::LoadConfirmed(path, Box::new(chosen.borrow().clone())));
+            sender.input(Msg::LoadConfirmed(
+                path,
+                Box::new(chosen.borrow().clone()),
+                chosen_budget.get(),
+            ));
         }
     });
 }
 
-/// The dialog's opening line: what the file is, and why it cannot come in as
-/// it stands. The numbers for a given choice live in the live summary instead.
+/// The import dialog's advanced section: which part of the file comes in, how
+/// many of its frames are kept, and how much memory this one import may
+/// spend. Full-width preference rows rather than an action row with the
+/// control hung off the end — a title long enough to say what a field does
+/// and a field wide enough to type into do not fit on one line together, and
+/// cramming them squeezes the title to an ellipsis. Built apart from the
+/// dialog so the widget test can hold the rows without showing them.
+fn advanced_import_rows() -> (
+    adw::ExpanderRow,
+    gtk::DropDown,
+    gtk::Entry,
+    gtk::Entry,
+    gtk::SpinButton,
+    gtk::Switch,
+) {
+    // The same control the resolution picker uses, in the same kind of row:
+    // one dropdown style across the dialog rather than two that differ only
+    // in which widget happened to be reached for.
+    let trim_units = gtk::DropDown::from_strings(&[t("Seconds"), t("Frames")]);
+    trim_units.set_valign(gtk::Align::Center);
+    // Translators: Help for the trim fields. A GIF's delays are whole centiseconds, so hundredths are the finest a cut can be.
+    let trim_help = t(
+        "Leave both blank for the whole clip. Seconds read 0:01.12 — a GIF holds \
+        hundredths, so that is as fine as a cut gets. Frames counts frame numbers, both ends included.",
+    );
+    let trim_row = helped_row(t("Trim by"), trim_help);
+    trim_row.add_suffix(&trim_units);
+
+    // A label on the left and an input on the right, the way a web form does
+    // it: the example lives in the placeholder alone, where it disappears the
+    // moment the field has something in it. `AdwEntryRow` would put its title
+    // over that placeholder and show the format twice.
+    let (start, end) = (trim_entry(), trim_entry());
+    set_trim_examples(&start, &end, false);
+    let start_row = adw::ActionRow::builder().title(t("From")).build();
+    start_row.add_suffix(&start);
+    let end_row = adw::ActionRow::builder().title(t("To")).build();
+    end_row.add_suffix(&end);
+
+    // The same optimization the Optimize menu offers, done on the way in:
+    // the frames dropped here never cost the memory the budget is counting.
+    let drop_nth = gtk::SpinButton::with_range(1.0, 60.0, 1.0);
+    drop_nth.set_valign(gtk::Align::Center);
+    drop_nth.set_width_chars(3);
+    drop_nth.set_max_width_chars(3);
+    let drop_help = t(
+        "1 keeps every frame. More drops one frame in every N on the way in, so \
+        those frames never cost memory and the ones kept still cover the same stretch of time.",
+    );
+    let drop_row = helped_row(t("Drop one frame in every"), drop_help);
+    drop_row.add_suffix(&drop_nth);
+
+    // Not a figure in megabytes: the limit is there to stop an accidental
+    // 30 GB import, and the answer to "I meant it" is one switch. Nobody can
+    // estimate the number that would have been typed here anyway.
+    let ignore_limit = gtk::Switch::new();
+    ignore_limit.set_valign(gtk::Align::Center);
+    let limit_help = t(
+        "Frames are held uncompressed in memory while you edit, which is what the \
+        limit counts. This lets one import past it; the configured limit is left alone.",
+    );
+    let limit_row = helped_row(t("Ignore the memory limit"), limit_help);
+    limit_row.add_suffix(&ignore_limit);
+
+    let advanced = adw::ExpanderRow::builder().title(t("Advanced")).build();
+    for row in [
+        trim_row.upcast_ref::<gtk::Widget>(),
+        start_row.upcast_ref(),
+        end_row.upcast_ref(),
+        drop_row.upcast_ref(),
+        limit_row.upcast_ref(),
+    ] {
+        advanced.add_row(row);
+    }
+    (advanced, trim_units, start, end, drop_nth, ignore_limit)
+}
+
+/// A preference row whose label carries its own question mark, right after
+/// the words it explains rather than out at the far edge where it reads as
+/// one more control. `AdwActionRow` has no slot inside its title, so the
+/// label and the button share the row's prefix and the title stays empty.
+fn helped_row(title: &str, explanation: &str) -> adw::ActionRow {
+    let label = gtk::Label::new(Some(title));
+    label.set_xalign(0.0);
+    let heading = gtk::Box::new(gtk::Orientation::Horizontal, 3);
+    heading.set_valign(gtk::Align::Center);
+    heading.append(&label);
+    heading.append(&help_button(explanation));
+
+    let row = adw::ActionRow::new();
+    row.add_prefix(&heading);
+    row
+}
+
+/// A question mark beside a field, explaining it when clicked or tapped. One
+/// way in, not two: a tooltip that says the same thing as the popover fires
+/// on the way to the control and covers the row it is explaining.
+fn help_button(explanation: &str) -> gtk::MenuButton {
+    let label = gtk::Label::builder()
+        .label(explanation)
+        .wrap(true)
+        .max_width_chars(38)
+        .xalign(0.0)
+        .build();
+    let popover = gtk::Popover::builder().child(&label).build();
+    let button = gtk::MenuButton::builder()
+        .icon_name("help-about-symbolic")
+        .popover(&popover)
+        .valign(gtk::Align::Center)
+        .build();
+    button.add_css_class("flat");
+    button.add_css_class("circular");
+    // Nothing on hover, but a screen reader still has to be able to say what
+    // the button is for.
+    button.update_property(&[gtk::accessible::Property::Label(t("Help"))]);
+    button
+}
+
+/// One end of the trim, sized for a timecode.
+fn trim_entry() -> gtk::Entry {
+    gtk::Entry::builder()
+        .width_chars(9)
+        .max_width_chars(9)
+        .valign(gtk::Align::Center)
+        .build()
+}
+
+/// Show the format the trim fields take: a timecode when the trim is given in
+/// seconds, a frame number when it is given in frames. Placeholder only —
+/// the row's own label says which end it is, and repeating the format beside
+/// it would say the same thing twice.
+fn set_trim_examples(start: &gtk::Entry, end: &gtk::Entry, in_frames: bool) {
+    // The examples are not translated: a timecode and a frame index read the
+    // same everywhere, and a translator has nothing to decide about them.
+    let (from, to) = if in_frames {
+        ("234", "1234")
+    } else {
+        ("00:01.50", "01:23.45")
+    };
+    start.set_placeholder_text(Some(from));
+    end.set_placeholder_text(Some(to));
+}
+
+/// The dialog's opening line: what the file is, and — when it will not fit —
+/// why. The numbers for a given choice live in the live summary instead.
 /// Pango markup, so the filename stands out from the numbers around it.
 /// Everything interpolated is escaped; only the emphasis is ours.
-fn oversize_body(name: &str, plan: &ImportPlan) -> String {
+fn import_body(name: &str, plan: &ImportPlan) -> String {
     let src = &plan.source;
     let length = match src.duration_s {
         Some(d) => fill(t("runs {duration}"), &[("duration", &clock(d))]),
         None => t("has no duration the container will admit to").into(),
     };
-    // Translators: {name} arrives already marked up as bold; keep the tags.
     let opening = fill(
         // Translators: Pango markup: keep the <b> tags. {length} is "runs 1:30" or the no-duration phrase.
-        t(
-            "<b>{name}</b> {length} at {width}×{height}, {fps} fps — more than will fit in \
-           memory at full size.",
-        ),
+        t("<b>{name}</b> {length} at {width}×{height}, {fps} fps."),
         &[
             ("name", &glib::markup_escape_text(name)),
             ("length", &glib::markup_escape_text(&length)),
@@ -3221,13 +3462,103 @@ fn oversize_body(name: &str, plan: &ImportPlan) -> String {
             ("fps", &format!("{:.0}", src.fps)),
         ],
     );
-    format!(
-        "{opening}\n\n{}",
+    let advice = if plan.over_budget() {
         t(
-            "Pick a smaller size below, or cancel and trim or crop the file first, which \
-           gives a better GIF and a much faster import."
+            "That is more than will fit in memory at full size. Pick a smaller size or rate, \
+          or open Advanced to trim it, drop frames, or ignore the limit for this import.",
         )
-    )
+    } else {
+        t("Advanced trims the clip, drops frames, and can ignore the memory limit for this import.")
+    };
+    format!("{opening}\n\n{advice}")
+}
+
+/// What the two trim fields currently say. `Invalid` is its own answer rather
+/// than a silent fall back to the whole clip: a typo that imports 30 minutes
+/// instead of 3 seconds is the expensive mistake here.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum TrimInput {
+    Whole,
+    Set(Trim),
+    Invalid,
+}
+
+impl TrimInput {
+    fn trim(self) -> Option<Trim> {
+        match self {
+            TrimInput::Set(trim) => Some(trim),
+            TrimInput::Whole | TrimInput::Invalid => None,
+        }
+    }
+}
+
+/// Read the trim fields: blank is the whole clip, one end alone is open at the
+/// other, and anything unparseable — or an end at or before its start — is
+/// `Invalid`. Pure, so the parsing has unit tests without a display.
+fn read_trim(in_frames: bool, start: &str, end: &str) -> TrimInput {
+    let (start, end) = (start.trim(), end.trim());
+    if start.is_empty() && end.is_empty() {
+        return TrimInput::Whole;
+    }
+    if in_frames {
+        let first = match parse_index(start) {
+            Some(n) => n,
+            None if start.is_empty() => 0,
+            None => return TrimInput::Invalid,
+        };
+        let last = match parse_index(end) {
+            Some(n) if n > first => Some(n),
+            None if end.is_empty() => None,
+            _ => return TrimInput::Invalid,
+        };
+        return TrimInput::Set(Trim::Frames { first, last });
+    }
+    let from = match parse_seconds(start) {
+        Some(s) => s,
+        None if start.is_empty() => 0.0,
+        None => return TrimInput::Invalid,
+    };
+    let to = match parse_seconds(end) {
+        Some(s) if s > from => Some(s),
+        None if end.is_empty() => None,
+        _ => return TrimInput::Invalid,
+    };
+    TrimInput::Set(Trim::Seconds {
+        start: from,
+        end: to,
+    })
+}
+
+/// A frame number, as typed. Nothing clever: a frame index is an integer.
+fn parse_index(text: &str) -> Option<usize> {
+    text.trim().parse().ok()
+}
+
+/// A time as typed into a trim field: `12.5`, `0:01.12`, `1:02:03`. Colons
+/// climb the units, so the same parser reads seconds, mm:ss and h:mm:ss, and
+/// anything else is rejected rather than guessed at.
+///
+/// Rounded to a whole centisecond, because that is the finest a GIF can hold:
+/// frame delays are stored in hundredths, so a millisecond typed here would be
+/// a promise the format cannot keep.
+fn parse_seconds(text: &str) -> Option<f64> {
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    let parts: Vec<&str> = text.split(':').collect();
+    if parts.len() > 3 {
+        return None;
+    }
+    let mut total = 0.0f64;
+    for part in parts {
+        let value: f64 = part.trim().parse().ok()?;
+        if !value.is_finite() || value < 0.0 {
+            return None;
+        }
+        total = total * 60.0 + value;
+    }
+    Some((total * 100.0).round() / 100.0)
 }
 
 /// One file chooser for every splice, whether it was asked for from the file
@@ -3400,18 +3731,21 @@ fn size_spin(source: u32, value: u32) -> gtk::SpinButton {
     spin
 }
 
-/// The live preview under the picker.
+/// The live preview under the picker. Speaks in what the import lands: the
+/// rate the frames will play at (a drop takes some out), the span the trim
+/// leaves, the memory the frames hold, and the measured GIF size.
 fn plan_summary(plan: &ImportPlan, measured: Option<usize>) -> String {
-    let rate = if plan.fps < plan.source.fps - 0.01 {
+    let played = plan.playback_fps();
+    let rate = if played < plan.source.fps - 0.01 {
         fill(
             t("{fps} fps, down from {source}"),
             &[
-                ("fps", &format!("{:.0}", plan.fps.max(1.0))),
+                ("fps", &format!("{:.0}", played.max(1.0))),
                 ("source", &format!("{:.0}", plan.source.fps)),
             ],
         )
     } else {
-        fill(t("{fps} fps"), &[("fps", &format!("{:.0}", plan.fps))])
+        fill(t("{fps} fps"), &[("fps", &format!("{:.0}", played))])
     };
     let Some(frames) = plan.frames() else {
         return fill(
@@ -3421,6 +3755,22 @@ fn plan_summary(plan: &ImportPlan, measured: Option<usize>) -> String {
         );
     };
 
+    // Only when something was trimmed: the whole clip needs no announcing.
+    let span = match (plan.start_s, plan.span_s) {
+        (start, Some(span)) => format!(
+            " · {}",
+            fill(
+                // Translators: The part of the file being imported, as two timecodes.
+                t("{from} to {to}"),
+                &[("from", &clock_cs(start)), ("to", &clock_cs(start + span))],
+            )
+        ),
+        (start, None) if start > 0.0 => format!(
+            " · {}",
+            fill(t("from {from} on"), &[("from", &clock_cs(start))])
+        ),
+        _ => String::new(),
+    };
     let memory = plan.bytes().map_or(String::new(), |b| {
         format!(" · {}", fill(t("{size} in memory"), &[("size", &size(b))]))
     });
@@ -3437,14 +3787,14 @@ fn plan_summary(plan: &ImportPlan, measured: Option<usize>) -> String {
     );
     if plan.over_budget() {
         return format!(
-            "{head}{memory}\n{}",
+            "{head}{span}{memory}\n{}",
             t(
                 "That is more memory than an import may use. Choose a smaller size or a \
                lower frame rate."
             )
         );
     }
-    format!("{head}{memory}{gif}")
+    format!("{head}{span}{memory}{gif}")
 }
 
 fn size(bytes: usize) -> String {
@@ -3464,6 +3814,17 @@ fn size(bytes: usize) -> String {
 fn clock(seconds: f64) -> String {
     let s = seconds.max(0.0) as u64;
     format!("{}:{:02}", s / 60, s % 60)
+}
+
+/// The same clock, to the centisecond, for a trim the user typed to that
+/// precision — and back to whole seconds when there is no fraction to show,
+/// so an untrimmed-looking span does not grow a `.00`.
+fn clock_cs(seconds: f64) -> String {
+    let cs = (seconds.max(0.0) * 100.0).round() as u64;
+    if cs.is_multiple_of(100) {
+        return clock(cs as f64 / 100.0);
+    }
+    format!("{}:{:02}.{:02}", cs / 6000, (cs / 100) % 60, cs % 100)
 }
 
 fn load(
@@ -6810,6 +7171,7 @@ mod tests {
             strip_zoom_shown: Cell::new(1.0),
             rev: 0,
             import_at: None,
+            import_budget: None,
             clipboard: Vec::new(),
         }
     }
@@ -8033,6 +8395,7 @@ mod tests {
         the_resize_dialog_offers_cancel_and_apply();
         linked_resize_fields_track_each_other_live();
         linked_import_fields_stay_even_and_in_range();
+        the_advanced_import_rows_explain_themselves_without_crowding();
     }
 
     /// Regression: the resize rewrite built the fields but never added the
@@ -8155,6 +8518,101 @@ mod tests {
             requested_dimension(&width),
             1920,
             "a typed absurdity reads back as what the source can give"
+        );
+    }
+
+    /// Regression: the advanced options first shipped as action rows with the
+    /// control hung off the end and the explanation as a subtitle, which left
+    /// the titles squeezed to an ellipsis at any sane dialog width. Each row
+    /// now names itself in a label with its question mark immediately after
+    /// the words — a tooltip for a mouse, a popover for a finger — and the
+    /// control alone on the right, where the resolution picker keeps its own.
+    fn the_advanced_import_rows_explain_themselves_without_crowding() {
+        let (advanced, units, start, end, drop_nth, ignore_limit) = advanced_import_rows();
+        assert!(!advanced.is_expanded(), "advanced stays out of the way");
+
+        assert_eq!(
+            units.model().map(|m| m.n_items()),
+            Some(2),
+            "seconds, frames"
+        );
+        assert_eq!(
+            units.selected(),
+            0,
+            "seconds first: a clip is scrubbed in time"
+        );
+        assert_eq!(drop_nth.value(), 1.0, "no frames dropped until asked");
+        assert!(
+            !ignore_limit.is_active(),
+            "the configured memory limit stands until it is switched off"
+        );
+
+        // The format lives in the placeholder alone — a web form's habit, and
+        // it disappears as soon as the field has something in it. Repeating it
+        // in the label would show the format twice the moment the field takes
+        // focus, which is what `AdwEntryRow` did here.
+        let placeholder = |entry: &gtk::Entry| entry.placeholder_text().map(|s| s.to_string());
+        assert_eq!(placeholder(&start).as_deref(), Some("00:01.50"));
+        assert_eq!(placeholder(&end).as_deref(), Some("01:23.45"));
+        set_trim_examples(&start, &end, true);
+        assert_eq!(placeholder(&start).as_deref(), Some("234"));
+        assert_eq!(placeholder(&end).as_deref(), Some("1234"));
+        start.set_text("0:02");
+        assert_eq!(
+            placeholder(&start).as_deref(),
+            Some("234"),
+            "a placeholder is not the value: typing hides it, nothing rewrites it"
+        );
+
+        // Every explained row carries its question mark directly after the
+        // label, not out beyond the control and not in front of the text.
+        let mut labelled = Vec::new();
+        let mut next = advanced.clone().upcast::<gtk::Widget>().first_child();
+        let mut stack = Vec::new();
+        while let Some(child) = next {
+            if let Some(button) = child.downcast_ref::<gtk::MenuButton>() {
+                let label = button
+                    .prev_sibling()
+                    .and_downcast::<gtk::Label>()
+                    .map(|l| l.label().to_string());
+                assert!(
+                    button.next_sibling().is_none(),
+                    "the question mark ends its box; a control after it would \
+                     put the help between the label and the field"
+                );
+                assert!(
+                    button.tooltip_text().is_none(),
+                    "one way in: the popover explains it, a hover tooltip would \
+                     say the same thing over the row it is explaining"
+                );
+                let explanation = button
+                    .popover()
+                    .and_then(|popover| popover.child())
+                    .and_downcast::<gtk::Label>()
+                    .map(|label| label.label().to_string())
+                    .unwrap_or_default();
+                assert!(
+                    explanation.len() > 40,
+                    "a click has to explain it: {explanation:?}"
+                );
+                labelled.push(label.expect("a question mark follows its own label"));
+            }
+            if let Some(first) = child.first_child() {
+                stack.push(first);
+            }
+            next = child.next_sibling().or_else(|| stack.pop());
+        }
+        // Order of discovery follows the walk, not the rows; what matters is
+        // that each explained row has exactly one, behind its own label.
+        labelled.sort();
+        assert_eq!(
+            labelled,
+            vec![
+                "Drop one frame in every".to_string(),
+                "Ignore the memory limit".to_string(),
+                "Trim by".to_string(),
+            ],
+            "one help button per explained row, each behind its own label"
         );
     }
 
@@ -8324,23 +8782,39 @@ mod tests {
             width: 1280,
             height: 720,
             fps: 3.79,
+            start_s: 0.0,
+            span_s: None,
+            drop_nth: None,
             cap: 341,
         }
     }
 
-    /// The dialog earns its interruption by naming the file, not by being vague.
+    /// The dialog earns its interruption by naming the file, and says what the
+    /// advanced section is for rather than leaving it to be found.
     #[test]
     fn the_warning_says_what_the_file_is() {
-        let body = oversize_body("lecture.mp4", &plan_1080p60());
+        let body = import_body("lecture.mp4", &plan_1080p60());
         for want in [
             "lecture.mp4",
             "runs 1:30",
             "1920×1080",
             "60 fps",
-            "trim or crop",
+            "Advanced",
         ] {
             assert!(body.contains(want), "missing {want:?} in:\n{body}");
         }
+
+        // Over budget, the body has to say so: the summary's own line is below
+        // the fold of a long body, and this is the sentence that explains the
+        // greyed-out Import button.
+        let mut refused = plan_1080p60();
+        refused.fps = 60.0;
+        assert!(
+            refused.over_budget(),
+            "5400 frames of 1280x720 over a 341 cap"
+        );
+        let body = import_body("lecture.mp4", &refused);
+        assert!(body.contains("will fit in memory"), "{body}");
     }
 
     #[test]
@@ -8355,9 +8829,12 @@ mod tests {
             width: 800,
             height: 600,
             fps: 30.0,
+            start_s: 0.0,
+            span_s: None,
+            drop_nth: None,
             cap: 2000,
         };
-        assert!(oversize_body("stream.mkv", &plan).contains("no duration"));
+        assert!(import_body("stream.mkv", &plan).contains("no duration"));
         let summary = plan_summary(&plan, None);
         assert!(summary.contains("no duration"), "{summary}");
         assert!(!summary.contains("memory"), "no invented size: {summary}");
@@ -8397,6 +8874,108 @@ mod tests {
         assert!(
             summary.contains("down from 60"),
             "says what it gave up: {summary}"
+        );
+    }
+
+    /// The trim fields take what a person types at a video: bare seconds, a
+    /// timecode, or a frame number. A typo is `Invalid` rather than a silent
+    /// whole-clip import, because that is the mistake that costs minutes and
+    /// gigabytes.
+    #[test]
+    fn the_trim_fields_read_timecodes_and_frames() {
+        assert_eq!(parse_seconds("12.5"), Some(12.5));
+        assert_eq!(
+            parse_seconds("0:01.123"),
+            Some(1.12),
+            "a GIF holds hundredths, so the millisecond is rounded away here \
+             rather than pretended at through the import"
+        );
+        assert_eq!(
+            parse_seconds("0:01.126"),
+            Some(1.13),
+            "rounded, not floored"
+        );
+        assert_eq!(parse_seconds(" 1:02 "), Some(62.0));
+        assert_eq!(parse_seconds("1:02:03"), Some(3723.0));
+        for junk in ["", "abc", "1:2:3:4", "-5", "1:", "0:0x"] {
+            assert_eq!(parse_seconds(junk), None, "on {junk:?}");
+        }
+
+        assert_eq!(read_trim(false, "", ""), TrimInput::Whole);
+        assert_eq!(
+            read_trim(false, "0:01.123", "0:2.001"),
+            TrimInput::Set(Trim::Seconds {
+                start: 1.12,
+                end: Some(2.0)
+            }),
+            "the example from the request, at the precision a GIF can hold"
+        );
+        assert_eq!(
+            read_trim(false, "10", ""),
+            TrimInput::Set(Trim::Seconds {
+                start: 10.0,
+                end: None
+            }),
+            "an open end runs to the end of the clip"
+        );
+        assert_eq!(
+            read_trim(false, "", "5"),
+            TrimInput::Set(Trim::Seconds {
+                start: 0.0,
+                end: Some(5.0)
+            }),
+            "an open start begins at the beginning"
+        );
+        assert_eq!(
+            read_trim(true, "234", "1234"),
+            TrimInput::Set(Trim::Frames {
+                first: 234,
+                last: Some(1234)
+            })
+        );
+        assert_eq!(read_trim(true, "10", "1.5"), TrimInput::Invalid);
+        assert_eq!(read_trim(false, "10", "nonsense"), TrimInput::Invalid);
+        assert_eq!(
+            read_trim(false, "10", "10"),
+            TrimInput::Invalid,
+            "an end at its start is an empty import, not a whole one"
+        );
+        assert_eq!(read_trim(false, "10", "5"), TrimInput::Invalid);
+        assert_eq!(
+            TrimInput::Invalid.trim(),
+            None,
+            "an invalid pair never reaches a plan"
+        );
+    }
+
+    /// The summary is what the advanced options are steered by, so it has to
+    /// name the span the trim leaves and the rate the drop leaves behind.
+    #[test]
+    fn the_preview_reports_the_trim_and_the_drop() {
+        let source = VideoInfo {
+            width: 640,
+            height: 360,
+            fps: 30.0,
+            duration_s: Some(600.0),
+        };
+        let plan = video::plan_for(
+            source,
+            &ImportOptions {
+                fps: Some(30.0),
+                trim: Some(Trim::Seconds {
+                    start: 65.0,
+                    end: Some(75.0),
+                }),
+                drop_nth: Some(3),
+                ..Default::default()
+            },
+        );
+        let summary = plan_summary(&plan, None);
+        assert!(summary.contains("1:05 to 1:15"), "the span: {summary}");
+        assert!(summary.contains("200 frames"), "the kept count: {summary}");
+        assert!(
+            summary.contains("20 fps, down from 30"),
+            "the rate they play at, not the decode's: {summary}"
         );
     }
 
