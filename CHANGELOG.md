@@ -37,11 +37,15 @@
   chosen, and a clip that fits has the same questions to answer as one that
   does not.
 - The dialog has an Advanced section, collapsed until asked for:
-  - **Trim.** Import only part of the file, given either as timecodes
-    (`00:01.50`) or as frame numbers, both ends included. Times round to a
-    whole centisecond, which is as fine as a GIF's frame delays can be. The
-    decode seeks with `-ss` ahead of the input, so the part before the cut is
-    never decoded.
+  - **Trim.** Import only part of the file, given either as timecodes or as
+    frame numbers, both ends included. The section states what it is aiming
+    at — "This video · 00:00:20.000 · 500 frames" — and the fields carry the
+    clip's own start and end as their placeholders, so the range is on screen
+    rather than found by overshooting. A time or frame past the end of the
+    file is refused, not quietly pulled back to it. Times round to a whole
+    centisecond, which is as fine as a GIF's frame delays can be. The decode
+    seeks with `-ss` ahead of the input, so the part before the cut is never
+    decoded.
   - **Drop one frame in every N.** The Optimize menu's drop, done on the way
     in: the dropped frames never cost the memory the budget is counting, and
     the frames kept still cover the same stretch of time.
@@ -49,9 +53,12 @@
     left alone, and the raised ceiling also covers the splice the decoded
     frames land in.
   Each row explains itself through a question mark beside its label, on click
-  or tap rather than as a hover tooltip. The live preview sits above the form
-  so it stays visible while the section is open, and it now reports the span
-  the trim leaves and the rate the frames will actually play at.
+  or tap rather than as a hover tooltip, and the frame-drop field says what
+  its number counts. The live preview sits above the form so it stays visible
+  while the section is open, and it reports the span the trim leaves and the
+  rate the frames will actually play at. A file that fits gets no advice line
+  in the header: the fields are in front of the user and the preview prices
+  them.
 
 ## 0.1.0 — 2026-09-05
 

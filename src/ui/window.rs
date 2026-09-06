@@ -29,7 +29,7 @@ use crate::i18n::{fill, lookup, n, t, tn};
 use crate::keymap::{Action, Chord, Keymap, MODALS, Modal, Mods};
 use crate::pipeline::caps::Caps;
 use crate::pipeline::gif::{Encodable, ExportSettings};
-use crate::pipeline::video::{self, ImportOptions, ImportPlan, Trim};
+use crate::pipeline::video::{self, ImportOptions, ImportPlan, Trim, VideoInfo};
 use crate::pipeline::{self as pipeline, gif as gif_pipeline, import_any};
 use crate::settings::Settings;
 use crate::ui::text::rasterize;
@@ -3060,7 +3060,7 @@ fn confirm_oversize(
 
     // ---- Advanced: what part of the file comes in, how much of it is kept,
     // and how much memory this one import may spend.
-    let (advanced, trim_units, start, end, drop_nth, ignore_limit) = advanced_import_rows();
+    let (advanced, trim_units, start, end, drop_nth, ignore_limit) = advanced_import_rows(&source);
 
     let rate_row = adw::ActionRow::builder().title(t("Frame rate")).build();
     rate.set_valign(gtk::Align::Center);
@@ -3159,7 +3159,7 @@ fn confirm_oversize(
             let started_at = generation.get();
 
             let in_frames = trim_units.selected() == 1;
-            let trim = read_trim(in_frames, &start.text(), &end.text());
+            let trim = read_trim(in_frames, &start.text(), &end.text(), &source);
             // A half-typed field is not a reason to preview something nobody
             // asked for, so the field says so and Import waits for it.
             for entry in [&start, &end] {
@@ -3280,7 +3280,7 @@ fn confirm_oversize(
         trim_units.connect_selected_notify(move |units| {
             // The example follows the unit: a timecode reads as nonsense in a
             // field that wants a frame number.
-            set_trim_examples(&start, &end, units.selected() == 1);
+            set_trim_examples(&start, &end, units.selected() == 1, &source);
             refresh();
         });
     }
@@ -3305,7 +3305,9 @@ fn confirm_oversize(
 /// and a field wide enough to type into do not fit on one line together, and
 /// cramming them squeezes the title to an ellipsis. Built apart from the
 /// dialog so the widget test can hold the rows without showing them.
-fn advanced_import_rows() -> (
+fn advanced_import_rows(
+    source: &VideoInfo,
+) -> (
     adw::ExpanderRow,
     gtk::DropDown,
     gtk::Entry,
@@ -3313,6 +3315,27 @@ fn advanced_import_rows() -> (
     gtk::SpinButton,
     gtk::Switch,
 ) {
+    // What the trim fields are aimed at, in the units they are typed in:
+    // without it the only way to find the end of the clip is to overshoot and
+    // have the field turn red.
+    let extent = match (source.duration_s, source_frames(source)) {
+        (Some(seconds), Some(frames)) => fill(
+            // Translators: The length of the file being imported. {time} is HH:MM:SS.mmm.
+            t("{time} · {frames} frames"),
+            &[
+                ("time", &timestamp(seconds)),
+                ("frames", &frames.to_string()),
+            ],
+        ),
+        _ => t("no duration the container will admit to").into(),
+    };
+    let extent_label = gtk::Label::new(Some(&extent));
+    extent_label.add_css_class("dim-label");
+    extent_label.set_valign(gtk::Align::Center);
+    extent_label.set_selectable(true);
+    let extent_row = adw::ActionRow::builder().title(t("This video")).build();
+    extent_row.add_suffix(&extent_label);
+
     // The same control the resolution picker uses, in the same kind of row:
     // one dropdown style across the dialog rather than two that differ only
     // in which widget happened to be reached for.
@@ -3331,7 +3354,7 @@ fn advanced_import_rows() -> (
     // moment the field has something in it. `AdwEntryRow` would put its title
     // over that placeholder and show the format twice.
     let (start, end) = (trim_entry(), trim_entry());
-    set_trim_examples(&start, &end, false);
+    set_trim_examples(&start, &end, false, source);
     let start_row = adw::ActionRow::builder().title(t("From")).build();
     start_row.add_suffix(&start);
     let end_row = adw::ActionRow::builder().title(t("To")).build();
@@ -3341,14 +3364,23 @@ fn advanced_import_rows() -> (
     // the frames dropped here never cost the memory the budget is counting.
     let drop_nth = gtk::SpinButton::with_range(1.0, 60.0, 1.0);
     drop_nth.set_valign(gtk::Align::Center);
-    drop_nth.set_width_chars(3);
-    drop_nth.set_max_width_chars(3);
+    // Two digits is the whole range it offers, so it is sized for two.
+    drop_nth.set_width_chars(2);
+    drop_nth.set_max_width_chars(2);
     let drop_help = t(
         "1 keeps every frame. More drops one frame in every N on the way in, so \
         those frames never cost memory and the ones kept still cover the same stretch of time.",
     );
     let drop_row = helped_row(t("Drop one frame in every"), drop_help);
-    drop_row.add_suffix(&drop_nth);
+    // The unit belongs after the number, the way the size and rate rows put
+    // px and fps after theirs: "Drop one frame in every 3" says nothing about
+    // what the 3 counts.
+    let drop_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    drop_box.set_valign(gtk::Align::Center);
+    drop_box.append(&drop_nth);
+    // Translators: The unit after the frame-drop field: "Drop one frame in every 3 frames".
+    drop_box.append(&gtk::Label::new(Some(t("frames"))));
+    drop_row.add_suffix(&drop_box);
 
     // Not a figure in megabytes: the limit is there to stop an accidental
     // 30 GB import, and the answer to "I meant it" is one switch. Nobody can
@@ -3364,7 +3396,8 @@ fn advanced_import_rows() -> (
 
     let advanced = adw::ExpanderRow::builder().title(t("Advanced")).build();
     for row in [
-        trim_row.upcast_ref::<gtk::Widget>(),
+        extent_row.upcast_ref::<gtk::Widget>(),
+        trim_row.upcast_ref(),
         start_row.upcast_ref(),
         end_row.upcast_ref(),
         drop_row.upcast_ref(),
@@ -3425,20 +3458,23 @@ fn trim_entry() -> gtk::Entry {
         .build()
 }
 
-/// Show the format the trim fields take: a timecode when the trim is given in
-/// seconds, a frame number when it is given in frames. Placeholder only —
-/// the row's own label says which end it is, and repeating the format beside
-/// it would say the same thing twice.
-fn set_trim_examples(start: &gtk::Entry, end: &gtk::Entry, in_frames: bool) {
+/// Show the format the trim fields take, in the file's own numbers: the start
+/// of the clip and its end, as `HH:MM:SS.mmm`, or the first and last frame
+/// index when the trim is counted in frames. Placeholder only — the row's
+/// label says which end it is, and it also says what the field will do if
+/// left alone, since a blank end is the end of the clip. A container with no
+/// duration has no numbers of its own, so it gets the bare format.
+fn set_trim_examples(start: &gtk::Entry, end: &gtk::Entry, in_frames: bool, source: &VideoInfo) {
     // The examples are not translated: a timecode and a frame index read the
     // same everywhere, and a translator has nothing to decide about them.
-    let (from, to) = if in_frames {
-        ("234", "1234")
-    } else {
-        ("00:01.50", "01:23.45")
+    let (from, to) = match (in_frames, source.duration_s, source_frames(source)) {
+        (true, _, Some(frames)) => ("0".to_string(), (frames.saturating_sub(1)).to_string()),
+        (true, ..) => ("0".to_string(), "1234".to_string()),
+        (false, Some(seconds), _) => (timestamp(0.0), timestamp(seconds)),
+        (false, ..) => (timestamp(0.0), "00:01:23.450".to_string()),
     };
-    start.set_placeholder_text(Some(from));
-    end.set_placeholder_text(Some(to));
+    start.set_placeholder_text(Some(&from));
+    end.set_placeholder_text(Some(&to));
 }
 
 /// The dialog's opening line: what the file is, and — when it will not fit —
@@ -3462,13 +3498,16 @@ fn import_body(name: &str, plan: &ImportPlan) -> String {
             ("fps", &format!("{:.0}", src.fps)),
         ],
     );
-    let advice = if plan.over_budget() {
+    // A file that fits needs no advice: the fields are in front of the user
+    // and the preview under them says what they cost. Only a refusal has
+    // something to explain — the greyed-out Import button.
+    let Some(advice) = plan.over_budget().then(|| {
         t(
             "That is more than will fit in memory at full size. Pick a smaller size or rate, \
           or open Advanced to trim it, drop frames, or ignore the limit for this import.",
         )
-    } else {
-        t("Advanced trims the clip, drops frames, and can ignore the memory limit for this import.")
+    }) else {
+        return opening;
     };
     format!("{opening}\n\n{advice}")
 }
@@ -3492,34 +3531,43 @@ impl TrimInput {
     }
 }
 
-/// Read the trim fields: blank is the whole clip, one end alone is open at the
-/// other, and anything unparseable — or an end at or before its start — is
-/// `Invalid`. Pure, so the parsing has unit tests without a display.
-fn read_trim(in_frames: bool, start: &str, end: &str) -> TrimInput {
+/// Read the trim fields against the file they describe: blank is the whole
+/// clip, one end alone is open at the other, and `Invalid` covers anything
+/// unparseable, an end at or before its start, and either end past what the
+/// source actually holds. A container that admits no duration has nothing to
+/// check against, so only the shape of the input is judged there. Pure, so
+/// the parsing has unit tests without a display.
+fn read_trim(in_frames: bool, start: &str, end: &str, source: &VideoInfo) -> TrimInput {
     let (start, end) = (start.trim(), end.trim());
     if start.is_empty() && end.is_empty() {
         return TrimInput::Whole;
     }
     if in_frames {
+        // Inclusive indices, so the last frame a 300-frame clip has is 299.
+        let last_index = source_frames(source).map(|n| n.saturating_sub(1));
+        let within = |n: usize| last_index.is_none_or(|max| n <= max);
         let first = match parse_index(start) {
-            Some(n) => n,
+            Some(n) if within(n) => n,
             None if start.is_empty() => 0,
-            None => return TrimInput::Invalid,
+            _ => return TrimInput::Invalid,
         };
         let last = match parse_index(end) {
-            Some(n) if n > first => Some(n),
+            Some(n) if n > first && within(n) => Some(n),
             None if end.is_empty() => None,
             _ => return TrimInput::Invalid,
         };
         return TrimInput::Set(Trim::Frames { first, last });
     }
+    // The last moment worth starting at: a start on the final frame's own
+    // timestamp still has that frame to give, one past the end has nothing.
+    let within = |s: f64| source.duration_s.is_none_or(|d| s <= d);
     let from = match parse_seconds(start) {
-        Some(s) => s,
+        Some(s) if within(s) => s,
         None if start.is_empty() => 0.0,
-        None => return TrimInput::Invalid,
+        _ => return TrimInput::Invalid,
     };
     let to = match parse_seconds(end) {
-        Some(s) if s > from => Some(s),
+        Some(s) if s > from && within(s) => Some(s),
         None if end.is_empty() => None,
         _ => return TrimInput::Invalid,
     };
@@ -3527,6 +3575,26 @@ fn read_trim(in_frames: bool, start: &str, end: &str) -> TrimInput {
         start: from,
         end: to,
     })
+}
+
+/// Frames the source holds, at its own rate. `None` when the container names
+/// no duration and there is nothing to count.
+fn source_frames(source: &VideoInfo) -> Option<usize> {
+    source.estimated_frames(source.fps)
+}
+
+/// A length as `HH:MM:SS.mmm`, which is what the trim fields are measured
+/// against and so what the source has to be stated in — `clock`'s `m:ss` is
+/// too coarse to compare a typed hundredth to.
+fn timestamp(seconds: f64) -> String {
+    let ms = (seconds.max(0.0) * 1000.0).round() as u64;
+    format!(
+        "{:02}:{:02}:{:02}.{:03}",
+        ms / 3_600_000,
+        (ms / 60_000) % 60,
+        (ms / 1000) % 60,
+        ms % 1000
+    )
 }
 
 /// A frame number, as typed. Nothing clever: a frame index is an integer.
@@ -8528,7 +8596,13 @@ mod tests {
     /// the words — a tooltip for a mouse, a popover for a finger — and the
     /// control alone on the right, where the resolution picker keeps its own.
     fn the_advanced_import_rows_explain_themselves_without_crowding() {
-        let (advanced, units, start, end, drop_nth, ignore_limit) = advanced_import_rows();
+        let source = VideoInfo {
+            width: 640,
+            height: 480,
+            fps: 30.0,
+            duration_s: Some(90.0),
+        };
+        let (advanced, units, start, end, drop_nth, ignore_limit) = advanced_import_rows(&source);
         assert!(!advanced.is_expanded(), "advanced stays out of the way");
 
         assert_eq!(
@@ -8548,19 +8622,27 @@ mod tests {
         );
 
         // The format lives in the placeholder alone — a web form's habit, and
-        // it disappears as soon as the field has something in it. Repeating it
-        // in the label would show the format twice the moment the field takes
-        // focus, which is what `AdwEntryRow` did here.
+        // it disappears as soon as the field has something in it. The example
+        // is the clip's own start and end, in the units the fields take, so it
+        // doubles as the range they will be checked against.
         let placeholder = |entry: &gtk::Entry| entry.placeholder_text().map(|s| s.to_string());
-        assert_eq!(placeholder(&start).as_deref(), Some("00:01.50"));
-        assert_eq!(placeholder(&end).as_deref(), Some("01:23.45"));
-        set_trim_examples(&start, &end, true);
-        assert_eq!(placeholder(&start).as_deref(), Some("234"));
-        assert_eq!(placeholder(&end).as_deref(), Some("1234"));
+        assert_eq!(placeholder(&start).as_deref(), Some("00:00:00.000"));
+        assert_eq!(
+            placeholder(&end).as_deref(),
+            Some("00:01:30.000"),
+            "the end of this 90 second clip, not an invented example"
+        );
+        set_trim_examples(&start, &end, true, &source);
+        assert_eq!(placeholder(&start).as_deref(), Some("0"));
+        assert_eq!(
+            placeholder(&end).as_deref(),
+            Some("2699"),
+            "2700 frames, so the last index is 2699"
+        );
         start.set_text("0:02");
         assert_eq!(
             placeholder(&start).as_deref(),
-            Some("234"),
+            Some("0"),
             "a placeholder is not the value: typing hides it, nothing rewrites it"
         );
 
@@ -8789,24 +8871,23 @@ mod tests {
         }
     }
 
-    /// The dialog earns its interruption by naming the file, and says what the
-    /// advanced section is for rather than leaving it to be found.
+    /// The dialog earns its interruption by naming the file. It says nothing
+    /// else when the file fits: the fields are in front of the user and the
+    /// preview under them prices every choice, so a sentence pointing at the
+    /// Advanced row was one more line to read past every import.
     #[test]
     fn the_warning_says_what_the_file_is() {
         let body = import_body("lecture.mp4", &plan_1080p60());
-        for want in [
-            "lecture.mp4",
-            "runs 1:30",
-            "1920×1080",
-            "60 fps",
-            "Advanced",
-        ] {
+        for want in ["lecture.mp4", "runs 1:30", "1920×1080", "60 fps"] {
             assert!(body.contains(want), "missing {want:?} in:\n{body}");
         }
+        assert!(
+            !body.contains("Advanced"),
+            "a file that fits gets the facts and nothing else:\n{body}"
+        );
 
-        // Over budget, the body has to say so: the summary's own line is below
-        // the fold of a long body, and this is the sentence that explains the
-        // greyed-out Import button.
+        // Over budget, the body has to say so: this is the sentence that
+        // explains the greyed-out Import button.
         let mut refused = plan_1080p60();
         refused.fps = 60.0;
         assert!(
@@ -8880,7 +8961,8 @@ mod tests {
     /// The trim fields take what a person types at a video: bare seconds, a
     /// timecode, or a frame number. A typo is `Invalid` rather than a silent
     /// whole-clip import, because that is the mistake that costs minutes and
-    /// gigabytes.
+    /// gigabytes — and so is a time the file does not reach, which would
+    /// otherwise be clamped into an import nobody asked for.
     #[test]
     fn the_trim_fields_read_timecodes_and_frames() {
         assert_eq!(parse_seconds("12.5"), Some(12.5));
@@ -8901,9 +8983,18 @@ mod tests {
             assert_eq!(parse_seconds(junk), None, "on {junk:?}");
         }
 
-        assert_eq!(read_trim(false, "", ""), TrimInput::Whole);
+        // 20 seconds at 25 fps: 500 frames, indices 0 to 499.
+        let source = VideoInfo {
+            width: 640,
+            height: 480,
+            fps: 25.0,
+            duration_s: Some(20.0),
+        };
+        let read = |in_frames, from: &str, to: &str| read_trim(in_frames, from, to, &source);
+
+        assert_eq!(read(false, "", ""), TrimInput::Whole);
         assert_eq!(
-            read_trim(false, "0:01.123", "0:2.001"),
+            read(false, "0:01.123", "0:2.001"),
             TrimInput::Set(Trim::Seconds {
                 start: 1.12,
                 end: Some(2.0)
@@ -8911,7 +9002,7 @@ mod tests {
             "the example from the request, at the precision a GIF can hold"
         );
         assert_eq!(
-            read_trim(false, "10", ""),
+            read(false, "10", ""),
             TrimInput::Set(Trim::Seconds {
                 start: 10.0,
                 end: None
@@ -8919,7 +9010,7 @@ mod tests {
             "an open end runs to the end of the clip"
         );
         assert_eq!(
-            read_trim(false, "", "5"),
+            read(false, "", "5"),
             TrimInput::Set(Trim::Seconds {
                 start: 0.0,
                 end: Some(5.0)
@@ -8927,24 +9018,87 @@ mod tests {
             "an open start begins at the beginning"
         );
         assert_eq!(
-            read_trim(true, "234", "1234"),
+            read(true, "234", "499"),
             TrimInput::Set(Trim::Frames {
                 first: 234,
-                last: Some(1234)
-            })
+                last: Some(499)
+            }),
+            "the last frame the clip has is still inside it"
         );
-        assert_eq!(read_trim(true, "10", "1.5"), TrimInput::Invalid);
-        assert_eq!(read_trim(false, "10", "nonsense"), TrimInput::Invalid);
+        assert_eq!(read(true, "10", "1.5"), TrimInput::Invalid);
+        assert_eq!(read(false, "10", "nonsense"), TrimInput::Invalid);
         assert_eq!(
-            read_trim(false, "10", "10"),
+            read(false, "10", "10"),
             TrimInput::Invalid,
             "an end at its start is an empty import, not a whole one"
         );
-        assert_eq!(read_trim(false, "10", "5"), TrimInput::Invalid);
+        assert_eq!(read(false, "10", "5"), TrimInput::Invalid);
+
+        // Past the end of the file: refused, not quietly pulled back to it.
+        assert_eq!(
+            read(false, "", "20.01"),
+            TrimInput::Invalid,
+            "a hundredth past a 20 second clip is not in the file"
+        );
+        assert_eq!(read(false, "25", ""), TrimInput::Invalid);
+        assert_eq!(
+            read(true, "", "500"),
+            TrimInput::Invalid,
+            "frame 500 of 500"
+        );
+        assert_eq!(read(true, "500", ""), TrimInput::Invalid);
+        assert_eq!(
+            read(false, "", "20"),
+            TrimInput::Set(Trim::Seconds {
+                start: 0.0,
+                end: Some(20.0)
+            }),
+            "the end of the clip itself is a legitimate end"
+        );
+
+        // A container with no duration has nothing to check against, so the
+        // shape of the input is all that can be judged.
+        let endless = VideoInfo {
+            duration_s: None,
+            ..source.clone()
+        };
+        assert_eq!(
+            read_trim(false, "", "9999", &endless),
+            TrimInput::Set(Trim::Seconds {
+                start: 0.0,
+                end: Some(9999.0)
+            })
+        );
+
         assert_eq!(
             TrimInput::Invalid.trim(),
             None,
             "an invalid pair never reaches a plan"
+        );
+    }
+
+    /// The trim fields are aimed at a length, so the section states it: the
+    /// clip's own duration to the millisecond and the frames it holds.
+    #[test]
+    fn the_source_length_reads_to_the_millisecond() {
+        assert_eq!(timestamp(0.0), "00:00:00.000");
+        assert_eq!(timestamp(1.123), "00:00:01.123");
+        assert_eq!(timestamp(90.0), "00:01:30.000");
+        assert_eq!(timestamp(3723.456), "01:02:03.456");
+        let source = VideoInfo {
+            width: 640,
+            height: 480,
+            fps: 30.0,
+            duration_s: Some(90.0),
+        };
+        assert_eq!(source_frames(&source), Some(2700));
+        assert_eq!(
+            source_frames(&VideoInfo {
+                duration_s: None,
+                ..source
+            }),
+            None,
+            "no duration, no count to state"
         );
     }
 
