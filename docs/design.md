@@ -402,6 +402,15 @@ selected overlay can sit outside it; clicking a band moves the playhead to the
 range's first frame so the properties panel never edits something the canvas
 does not show.
 
+Right-clicking a band acts on that overlay: delete it, or copy it onto frames
+it does not cover. The copy has one item, aimed at whatever the strip is
+already saying — the frames in scope when more than one is picked, the whole
+document otherwise — because "copy this to there" needs no dialog once "there"
+is already on screen. A gappy selection gets a piece per run, since an overlay
+carries one contiguous range; a piece landing against the original folds back
+into it, so copying onto the frame next door widens the band rather than
+stacking a second one on top of it.
+
 This is a timeline in shape, but not a second widget to keep in sync — it is
 one more band on the strip that already exists. It is also the one thing GIMP
 structurally cannot draw, so it is what a first screenshot should show.

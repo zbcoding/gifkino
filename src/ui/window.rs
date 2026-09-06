@@ -189,6 +189,13 @@ pub enum Msg {
     /// Delete one named overlay — the X on its row in the layer list, which
     /// acts on the row it sits on rather than on whatever is selected.
     DeleteOverlay(OverlayId),
+    /// The band menu's copy: put the selected overlay on frames it does not
+    /// cover yet. `all` is every frame in the document, which is what the
+    /// menu offers when no multi-frame selection is up; otherwise the frames
+    /// in scope.
+    CopyOverlayToFrames {
+        all: bool,
+    },
     /// Move one overlay a step up or down the z-order, past the overlay
     /// shown next to it in the layer list. `up` is toward the top of that
     /// list, which is the overlay painted last.
@@ -327,6 +334,7 @@ impl Msg {
                 | Msg::FrameOp(_)
                 | Msg::FramePaste
                 | Msg::DeleteOverlay(_)
+                | Msg::CopyOverlayToFrames { .. }
                 | Msg::RestackOverlay { .. }
                 | Msg::MoveSelection { .. }
                 | Msg::MoveSelectionTo { .. }
@@ -1295,6 +1303,11 @@ impl Component for App {
             }
             Msg::DeleteOverlay(id) => {
                 self.delete_overlay(id, &sender);
+            }
+            Msg::CopyOverlayToFrames { all } => {
+                if let Some(id) = self.selected_overlay {
+                    self.copy_overlay_to_frames(id, all, &sender);
+                }
             }
             Msg::RestackOverlay { id, up } => self.restack_overlay(id, up),
             Msg::FrameCopy => {
@@ -2699,6 +2712,44 @@ impl App {
         let (change, _) = self.editor.edit(n("Overlay deleted"), touched, |d| {
             d.remove_overlay(id);
         });
+        self.after_edit();
+        self.toast_if_document_wide(sender, &change, self.frame_count());
+    }
+
+    /// The frames a band-menu copy aims at. `all` is the whole document,
+    /// which is what the menu names when nothing but the overlay's own frame
+    /// is picked; otherwise the scope, so a Ctrl+clicked handful gets a piece
+    /// each and nothing between them.
+    fn copy_target_frames(&self, all: bool) -> Vec<usize> {
+        if all {
+            (0..self.frame_count()).collect()
+        } else {
+            self.scope_frames()
+        }
+    }
+
+    /// Put one overlay on frames it does not cover yet: the band menu's copy.
+    /// A copy that has nowhere to land says so rather than spending an undo
+    /// step on a document it did not change.
+    fn copy_overlay_to_frames(&mut self, id: OverlayId, all: bool, sender: &ComponentSender<Self>) {
+        let frames = self.copy_target_frames(all);
+        let Some(overlay) = self.editor.doc.overlay(id) else {
+            return;
+        };
+        let covered = overlay.range.clone();
+        let landing = frames.iter().filter(|f| !covered.contains(f)).count();
+        if landing == 0 {
+            sender.input(Msg::Notice(
+                t("The overlay is on those frames already").into(),
+            ));
+            return;
+        }
+        let (change, _) = self.editor.edit(n("Overlay copied"), landing, |d| {
+            d.copy_overlay_to(id, &frames);
+        });
+        // The source keeps the lower id through any coalescing, so the
+        // sidebar stays on the layer that was copied.
+        self.selected_overlay = Some(id);
         self.after_edit();
         self.toast_if_document_wide(sender, &change, self.frame_count());
     }
@@ -4275,6 +4326,43 @@ fn frame_item(label: &str, action: &str, keys: &Keymap, bound: Action) -> gio::M
     item
 }
 
+/// What a band context menu item can do: the action's own name under the
+/// `overlay` group, and the message activating it sends. `band_menus` points
+/// its items at these names, so an item cannot name an action the bands never
+/// added — a menu entry that greys out or does nothing, either of which is
+/// invisible from the code that wrote it.
+fn band_actions() -> [(&'static str, fn() -> Msg); 3] {
+    [
+        ("copy-all", || Msg::CopyOverlayToFrames { all: true }),
+        ("copy-selected", || Msg::CopyOverlayToFrames { all: false }),
+        ("delete", || Msg::DeleteSelection),
+    ]
+}
+
+/// The two faces of the band context menu, in the order the right-click
+/// handler chooses between them: the copy aims at the whole document, or at
+/// the frames in scope when a multi-frame selection is up. Only the copy's
+/// wording and action differ; the delete is the same either way.
+fn band_menus() -> (gio::Menu, gio::Menu) {
+    let faced = |label: &str, action: &str| {
+        let copy = gio::Menu::new();
+        copy.append(Some(label), Some(action));
+        let delete = gio::Menu::new();
+        delete.append(Some(t("Delete overlay")), Some("overlay.delete"));
+        let menu = gio::Menu::new();
+        menu.append_section(None, &copy);
+        menu.append_section(None, &delete);
+        menu
+    };
+    (
+        faced(t("Copy overlay to all frames"), "overlay.copy-all"),
+        faced(
+            t("Copy overlay to selected frames"),
+            "overlay.copy-selected",
+        ),
+    )
+}
+
 /// ponytail: the strip rebuilds a widget per frame when the frame list changes.
 /// The thumbnails themselves are already built (see `Frame::new`), so this is a
 /// hitch rather than a freeze; swap in a virtualized list when someone imports
@@ -5361,8 +5449,7 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
     // Right-click a band to act on that overlay: in the strip the band *is*
     // the overlay, so deleting it there beats a trip through the sidebar.
     // Picking it first means the menu always names what is under the pointer.
-    let band_menu = gio::Menu::new();
-    band_menu.append(Some(t("Delete overlay")), Some("overlay.delete"));
+    let (band_menu, band_selection_menu) = band_menus();
     let band_popover = gtk::PopoverMenu::from_model(Some(&band_menu));
     band_popover.set_parent(&bands);
     band_popover.set_has_arrow(false);
@@ -5372,10 +5459,12 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
     }
     {
         let group = gio::SimpleActionGroup::new();
-        let action = gio::SimpleAction::new("delete", None);
-        let sender = sender.clone();
-        action.connect_activate(move |_, _| sender.input(Msg::DeleteSelection));
-        group.add_action(&action);
+        for (name, msg) in band_actions() {
+            let action = gio::SimpleAction::new(name, None);
+            let sender = sender.clone();
+            action.connect_activate(move |_, _| sender.input(msg()));
+            group.add_action(&action);
+        }
         bands.insert_action_group("overlay", Some(&group));
     }
     let band_secondary = gtk::GestureClick::new();
@@ -5385,6 +5474,8 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
         let sender = sender.clone();
         let strip_pitch = model.strip_pitch.clone();
         let band_popover = band_popover.clone();
+        let (band_menu, band_selection_menu) = (band_menu.clone(), band_selection_menu.clone());
+        let scope_mirror = scope_mirror.clone();
         band_secondary.connect_pressed(move |_, _, x, y| {
             // Empty space under the pointer: no menu at all, rather than one
             // that would delete whatever happened to be selected elsewhere.
@@ -5392,6 +5483,15 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
                 return;
             };
             sender.input(Msg::SelectOverlay(Some(id)));
+            // More than one frame in scope means the copy has a selection to
+            // aim at; a lone frame leaves the whole document as the only
+            // useful target. Same rule the strip's frame menu switches on.
+            let selection_up = scope_mirror.borrow().len() > 1;
+            band_popover.set_menu_model(Some(if selection_up {
+                &band_selection_menu
+            } else {
+                &band_menu
+            }));
             band_popover.set_pointing_to(Some(&gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
             band_popover.popup();
         });
@@ -7399,6 +7499,19 @@ mod tests {
                 (0..app.frame_count()).collect::<Vec<_>>(),
                 "'all frames' zoom must ignore the scope"
             );
+
+            // The band menu's copy reads the same scope: "Copy overlay to
+            // selected frames" is the scope, "…to all frames" is not.
+            assert_eq!(
+                &app.copy_target_frames(false),
+                want,
+                "a scoped overlay copy must land on exactly the scoped frames"
+            );
+            assert_eq!(
+                app.copy_target_frames(true),
+                (0..app.frame_count()).collect::<Vec<_>>(),
+                "'all frames' copy must ignore the scope"
+            );
         }
     }
 
@@ -8571,6 +8684,74 @@ mod tests {
         linked_import_fields_stay_even_and_in_range();
         the_advanced_import_rows_explain_themselves_without_crowding();
         the_window_refuses_to_shrink_under_its_own_chrome();
+    }
+
+    /// The band context menu's two faces: each names one copy, aimed at the
+    /// selection or at the whole document, and the same delete under it.
+    /// Every item has to point at an action the bands really add — a name
+    /// nothing answers is an entry that greys out or does nothing, which the
+    /// code that wrote it cannot show. Needs no display: a menu model is not
+    /// a widget.
+    #[test]
+    fn the_band_menu_only_names_actions_the_bands_carry() {
+        fn items(model: &gio::MenuModel) -> Vec<(String, String)> {
+            let mut out = Vec::new();
+            for i in 0..model.n_items() {
+                if let Some(section) = model.item_link(i, "section") {
+                    out.extend(items(&section));
+                    continue;
+                }
+                let attr = |name: &str| {
+                    model
+                        .item_attribute_value(i, name, None)
+                        .and_then(|v| v.str().map(str::to_string))
+                        .unwrap_or_default()
+                };
+                out.push((attr("label"), attr("action")));
+            }
+            out
+        }
+
+        let (all_menu, selection_menu) = band_menus();
+        assert_eq!(
+            items(all_menu.upcast_ref()),
+            vec![
+                (
+                    t("Copy overlay to all frames").to_string(),
+                    "overlay.copy-all".to_string()
+                ),
+                (
+                    t("Delete overlay").to_string(),
+                    "overlay.delete".to_string()
+                ),
+            ]
+        );
+        assert_eq!(
+            items(selection_menu.upcast_ref()),
+            vec![
+                (
+                    t("Copy overlay to selected frames").to_string(),
+                    "overlay.copy-selected".to_string()
+                ),
+                (
+                    t("Delete overlay").to_string(),
+                    "overlay.delete".to_string()
+                ),
+            ],
+            "the selection face differs from the other only in the copy"
+        );
+
+        let carried: Vec<&str> = band_actions().iter().map(|(name, _)| *name).collect();
+        for (label, action) in items(all_menu.upcast_ref())
+            .into_iter()
+            .chain(items(selection_menu.upcast_ref()))
+        {
+            let name = action.strip_prefix("overlay.").unwrap_or(&action);
+            assert!(
+                carried.contains(&name),
+                "{label:?} names overlay.{name}, which band_actions() never adds"
+            );
+        }
     }
 
     /// Regression: the window had no minimum, so a drag could take it under

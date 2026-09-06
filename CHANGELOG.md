@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Overlays
+
+- Right-clicking an overlay's band under the strip offers to copy it onto
+  other frames, above the delete that was already there. One item, aimed at
+  what the strip already says: "Copy overlay to selected frames" while more
+  than one frame is in scope, "Copy overlay to all frames" otherwise — so the
+  frames are picked where frames are picked, and the menu never asks a
+  question the timeline has answered. A gappy Ctrl+clicked selection gets a
+  piece per run rather than one band swallowing the gaps, since an overlay
+  carries a single contiguous range; a piece landing against the original
+  folds into it, so copying onto the next frame along widens the band instead
+  of stacking a duplicate on it. The copies go in beside the original in the
+  z-order, not on top of the list, so a background shape copied forward stays
+  behind the caption it was under. A copy with nowhere to land — the overlay
+  already covers every frame asked for — says so instead of spending an undo
+  step, and the original keeps its id, so the properties panel stays on the
+  layer that was copied.
+
 ## 0.1.1 — 2026-09-05
 
 ### Scope

@@ -242,6 +242,57 @@ impl Document {
         }
     }
 
+    /// Put one overlay on `frames` as well as the ones it already covers,
+    /// splitting into a piece per contiguous run the way `add_overlay_over`
+    /// does — an overlay carries one contiguous range, so a gappy selection
+    /// cannot be one overlay. Frames the overlay already covers are left
+    /// alone rather than stacked with a second copy of itself.
+    ///
+    /// The pieces go in directly above the source instead of on top of the
+    /// list, so each one stacks against the overlays on its frames exactly as
+    /// the source does on its own. A piece landing against the source's range
+    /// folds back into it, and `coalesce_overlays` keeps the lower id — the
+    /// source — so a selection open on it survives the copy.
+    ///
+    /// Returns the frames the copy landed on.
+    pub fn copy_overlay_to(&mut self, id: OverlayId, frames: &[usize]) -> usize {
+        let Some(source) = self.overlay(id).cloned() else {
+            return 0;
+        };
+        let mut targets: Vec<usize> = frames
+            .iter()
+            .copied()
+            .filter(|f| *f < self.frames.len() && !source.range.contains(f))
+            .collect();
+        targets.sort_unstable();
+        targets.dedup();
+        if targets.is_empty() {
+            return 0;
+        }
+        let appended = self.overlays.len();
+        let ids = self.add_overlay_over(
+            source.name.clone(),
+            source.kind.clone(),
+            source.transform,
+            &targets,
+        );
+        for piece in ids {
+            if let Some(o) = self.overlay_mut(piece) {
+                o.opacity = source.opacity;
+                o.hidden = source.hidden;
+            }
+        }
+        let pieces: Vec<Overlay> = self.overlays.split_off(appended);
+        let at = self
+            .overlays
+            .iter()
+            .position(|o| o.id == id)
+            .map_or(self.overlays.len(), |i| i + 1);
+        self.overlays.splice(at..at, pieces);
+        self.coalesce_overlays();
+        targets.len()
+    }
+
     /// Reorder a whole set of frames at once: pull every index in `picked`
     /// out (their order among themselves is kept) and reinsert them as one
     /// contiguous run at `to`, an index into the list with `picked` already
@@ -1015,6 +1066,68 @@ mod tests {
             0..3,
             "moved with the group, still the same id"
         );
+    }
+
+    /// The band menu's "Copy overlay to selected frames": a gappy selection
+    /// gets a piece per run, frames already carrying the overlay are left
+    /// alone, and a piece that lands against the source folds into it rather
+    /// than sitting beside it as a second band of the same thing.
+    #[test]
+    fn copying_an_overlay_lands_a_piece_on_every_picked_run() {
+        let mut d = doc(10, 10);
+        let id = d.add_overlay("a", shape(), Transform::at(1., 2., 3., 4.), 2..4);
+        d.overlay_mut(id).unwrap().opacity = 0.5;
+
+        // 2 and 3 are already covered; 4 touches the range, 6..8 and 9 do not.
+        let landed = d.copy_overlay_to(id, &[2, 3, 4, 6, 7, 9]);
+        assert_eq!(landed, 4, "the two covered frames are not copied onto");
+        let mut ranges: Vec<Range<usize>> = d.overlays.iter().map(|o| o.range.clone()).collect();
+        ranges.sort_by_key(|r| r.start);
+        assert_eq!(
+            ranges,
+            vec![2..5, 6..8, 9..10],
+            "frame 4 folded into the source, the rest are one piece per run"
+        );
+        assert_eq!(
+            d.overlay(id).unwrap().range,
+            2..5,
+            "the source keeps its id, so a selection on it survives"
+        );
+        for o in &d.overlays {
+            assert_eq!(o.transform, Transform::at(1., 2., 3., 4.));
+            assert_eq!(o.opacity, 0.5, "a copy paints like what it copied");
+            assert_eq!(o.name, "a");
+        }
+    }
+
+    /// A copy has to stack where the source stacks: the pieces go in beside
+    /// it, not on top of a list whose order *is* the z-order — otherwise
+    /// copying the bottom overlay would land it over everything on its new
+    /// frames.
+    #[test]
+    fn a_copied_overlay_keeps_the_source_z_position() {
+        let mut d = doc(6, 10);
+        let under = d.add_overlay("under", shape(), Transform::at(0., 0., 1., 1.), 0..1);
+        let over = d.add_overlay("over", shape(), Transform::at(9., 9., 1., 1.), 0..6);
+        d.copy_overlay_to(under, &[3, 4]);
+        let order: Vec<&str> = d.overlays.iter().map(|o| o.name.as_str()).collect();
+        assert_eq!(
+            order,
+            vec!["under", "under", "over"],
+            "the copy sits directly above its source, still under {over:?}"
+        );
+    }
+
+    /// Nothing to copy onto changes nothing: the UI turns this into a notice
+    /// instead of an undo step, and the model must not invent a piece.
+    #[test]
+    fn copying_an_overlay_onto_frames_it_covers_changes_nothing() {
+        let mut d = doc(4, 10);
+        let id = d.add_overlay("a", shape(), Transform::at(0., 0., 1., 1.), 0..4);
+        let before = d.clone();
+        assert_eq!(d.copy_overlay_to(id, &[0, 1, 2, 3]), 0);
+        assert_eq!(d.copy_overlay_to(id, &[7, 9]), 0, "past the last frame");
+        assert_eq!(d, before);
     }
 
     fn moving_doc() -> Document {
