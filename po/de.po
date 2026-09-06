@@ -562,11 +562,11 @@ msgstr "Overlay gelöscht"
 
 #: src/ui/window.rs:2750
 msgid "The overlay is on those frames already"
-msgstr ""
+msgstr "Das Overlay liegt bereits auf diesen Bildern"
 
 #: src/ui/window.rs:2754
 msgid "Overlay copied"
-msgstr ""
+msgstr "Overlay kopiert"
 
 #. AI-generated translation; human review requested.
 #: src/ui/window.rs:3019 src/ui/window.rs:3067
@@ -951,11 +951,11 @@ msgstr "Overlay löschen"
 
 #: src/ui/window.rs:4365 src/ui/window.rs:8694
 msgid "Copy overlay to all frames"
-msgstr ""
+msgstr "Overlay auf alle Bilder kopieren"
 
 #: src/ui/window.rs:4367 src/ui/window.rs:8707
 msgid "Copy overlay to selected frames"
-msgstr ""
+msgstr "Overlay auf ausgewählte Bilder kopieren"
 
 #. AI-generated translation; human review requested.
 #: src/ui/window.rs:4398

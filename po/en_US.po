@@ -396,11 +396,11 @@ msgstr "Overlay deleted"
 
 #: src/ui/window.rs:2750
 msgid "The overlay is on those frames already"
-msgstr ""
+msgstr "The overlay is on those frames already"
 
 #: src/ui/window.rs:2754
 msgid "Overlay copied"
-msgstr ""
+msgstr "Overlay copied"
 
 #: src/ui/window.rs:3019 src/ui/window.rs:3067
 msgid "The frame operation failed."
@@ -667,11 +667,11 @@ msgstr "Delete overlay"
 
 #: src/ui/window.rs:4365 src/ui/window.rs:8694
 msgid "Copy overlay to all frames"
-msgstr ""
+msgstr "Copy overlay to all frames"
 
 #: src/ui/window.rs:4367 src/ui/window.rs:8707
 msgid "Copy overlay to selected frames"
-msgstr ""
+msgstr "Copy overlay to selected frames"
 
 #: src/ui/window.rs:4398
 msgid "Delete this frame"
