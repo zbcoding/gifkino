@@ -3370,10 +3370,8 @@ fn advanced_import_rows(
     // over that placeholder and show the format twice.
     let (start, end) = (trim_entry(), trim_entry());
     set_trim_examples(&start, &end, false, source);
-    let start_row = adw::ActionRow::builder().title(t("From")).build();
-    start_row.add_suffix(&start);
-    let end_row = adw::ActionRow::builder().title(t("To")).build();
-    end_row.add_suffix(&end);
+    let start_row = trim_field_row(t("From"), &start, false, &trim_units, source);
+    let end_row = trim_field_row(t("To"), &end, true, &trim_units, source);
 
     // The same optimization the Optimize menu offers, done on the way in:
     // the frames dropped here never cost the memory the budget is counting.
@@ -3464,13 +3462,106 @@ fn help_button(explanation: &str) -> gtk::MenuButton {
     button
 }
 
-/// One end of the trim, sized for a timecode.
+/// One end of the trim, sized for the longest thing it can hold:
+/// `00:00:00.000` is twelve characters, and a field that ellipsises its own
+/// placeholder is not showing the format at all.
 fn trim_entry() -> gtk::Entry {
     gtk::Entry::builder()
-        .width_chars(9)
-        .max_width_chars(9)
+        .width_chars(12)
+        .max_width_chars(12)
         .valign(gtk::Align::Center)
         .build()
+}
+
+/// One trim end as a row: the field, and the pair of steppers beside it that
+/// nudge it by the unit it is being read in. A trim is adjusted far more
+/// often than it is typed from scratch, and stepping can only ever land
+/// inside the file, so it is also the way to find the ends without being told
+/// off by a red field.
+fn trim_field_row(
+    title: &str,
+    field: &gtk::Entry,
+    is_end: bool,
+    units: &gtk::DropDown,
+    source: &VideoInfo,
+) -> adw::ActionRow {
+    let steppers = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    steppers.set_valign(gtk::Align::Center);
+    steppers.add_css_class("linked");
+    for (icon, forward, tip) in [
+        // The icons a `GtkSpinButton` uses for its own steppers, so these read
+        // as the same control as the size and rate fields rather than as a
+        // remove and an add.
+        // Translators: Tooltip on the trim field's minus button. The step is a second, or ten frames.
+        ("value-decrease-symbolic", false, t("One step earlier")),
+        // Translators: Tooltip on the trim field's plus button.
+        ("value-increase-symbolic", true, t("One step later")),
+    ] {
+        let button = gtk::Button::from_icon_name(icon);
+        button.set_tooltip_text(Some(tip));
+        let (field, units, source) = (field.clone(), units.clone(), source.clone());
+        button.connect_clicked(move |_| {
+            let stepped = stepped_trim(
+                &field.text(),
+                forward,
+                units.selected() == 1,
+                is_end,
+                &source,
+            );
+            // Writing the text is what refreshes the preview: the entry's own
+            // `changed` is already wired to it.
+            field.set_text(&stepped);
+        });
+        steppers.append(&button);
+    }
+
+    let field_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    field_box.set_valign(gtk::Align::Center);
+    field_box.append(field);
+    field_box.append(&steppers);
+
+    let row = adw::ActionRow::builder().title(title).build();
+    row.add_suffix(&field_box);
+    row
+}
+
+/// A second, in the seconds field.
+const TRIM_STEP_S: f64 = 1.0;
+/// Ten frames, in the frames field: one frame at a time is the wrong grain
+/// for a button, and ten is about a third of a second of most footage.
+const TRIM_STEP_FRAMES: usize = 10;
+
+/// What a trim field should read after one step. An empty or unparseable
+/// field steps from the end it stands for — the start of the clip, or its
+/// end — so the first click lands somewhere useful instead of nowhere, and
+/// the result is clamped inside the file, so stepping can never produce a
+/// value the field would then refuse. Pure, so the arithmetic is tested
+/// without a display.
+fn stepped_trim(
+    text: &str,
+    forward: bool,
+    in_frames: bool,
+    is_end: bool,
+    source: &VideoInfo,
+) -> String {
+    if in_frames {
+        let last = source_frames(source).map(|n| n.saturating_sub(1));
+        let current = parse_index(text).unwrap_or(if is_end { last.unwrap_or(0) } else { 0 });
+        let stepped = if forward {
+            current.saturating_add(TRIM_STEP_FRAMES)
+        } else {
+            current.saturating_sub(TRIM_STEP_FRAMES)
+        };
+        return last.map_or(stepped, |max| stepped.min(max)).to_string();
+    }
+    let end = source.duration_s.unwrap_or(f64::MAX);
+    let current = parse_seconds(text).unwrap_or(if is_end { end } else { 0.0 });
+    let stepped = if forward {
+        current + TRIM_STEP_S
+    } else {
+        current - TRIM_STEP_S
+    };
+    timestamp(stepped.clamp(0.0, end))
 }
 
 /// Show the format the trim fields take, in the file's own numbers: the start
@@ -9136,6 +9227,84 @@ mod tests {
             None,
             "no duration, no count to state"
         );
+    }
+
+    /// The steppers exist so a trim can be nudged rather than typed, so they
+    /// step in the unit the field is being read in, start from the end they
+    /// stand for when the field is empty, and can never step outside the file
+    /// — a button that produces a value the field then refuses is worse than
+    /// no button.
+    #[test]
+    fn the_trim_steppers_move_by_a_second_or_ten_frames() {
+        // 20 seconds at 25 fps: 500 frames, indices 0 to 499.
+        let source = VideoInfo {
+            width: 640,
+            height: 480,
+            fps: 25.0,
+            duration_s: Some(20.0),
+        };
+        let step = |text: &str, forward: bool, in_frames: bool, is_end: bool| {
+            stepped_trim(text, forward, in_frames, is_end, &source)
+        };
+
+        assert_eq!(step("00:00:05.000", true, false, false), "00:00:06.000");
+        assert_eq!(step("00:00:05.000", false, false, false), "00:00:04.000");
+        assert_eq!(
+            step("0:05.50", true, false, false),
+            "00:00:06.500",
+            "a second on from whatever the field holds, in the format it shows"
+        );
+        assert_eq!(
+            step("", true, false, false),
+            "00:00:01.000",
+            "an empty From steps from the start of the clip"
+        );
+        assert_eq!(
+            step("", false, false, true),
+            "00:00:19.000",
+            "an empty To steps back from the end of the clip"
+        );
+        assert_eq!(
+            step("nonsense", true, false, false),
+            "00:00:01.000",
+            "a field being typed into is stepped from its own end, not ignored"
+        );
+        assert_eq!(
+            step("00:00:00.000", false, false, false),
+            "00:00:00.000",
+            "the start of the clip is as far back as it goes"
+        );
+        assert_eq!(
+            step("00:00:20.000", true, false, true),
+            "00:00:20.000",
+            "and its end is as far on: stepping never leaves the file"
+        );
+
+        assert_eq!(step("100", true, true, false), "110");
+        assert_eq!(step("100", false, true, false), "90");
+        assert_eq!(step("5", false, true, false), "0", "clamped, not wrapped");
+        assert_eq!(
+            step("495", true, true, true),
+            "499",
+            "the last frame the clip has"
+        );
+        assert_eq!(
+            step("", false, true, true),
+            "489",
+            "an empty To in frames steps back from the last index"
+        );
+
+        // No duration to clamp against: the steps still work, and only the
+        // floor at zero applies.
+        let endless = VideoInfo {
+            duration_s: None,
+            ..source
+        };
+        assert_eq!(
+            stepped_trim("00:00:03.000", true, false, false, &endless),
+            "00:00:04.000"
+        );
+        assert_eq!(stepped_trim("3", false, true, false, &endless), "0");
     }
 
     /// The summary is what the advanced options are steered by, so it has to

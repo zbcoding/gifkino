@@ -45,7 +45,10 @@
     file is refused, not quietly pulled back to it. Times round to a whole
     centisecond, which is as fine as a GIF's frame delays can be. The decode
     seeks with `-ss` ahead of the input, so the part before the cut is never
-    decoded.
+    decoded. Each field has a `−`/`+` pair beside it that steps by the unit it
+    is being read in — a second, or ten frames — from the end it stands for
+    when it is empty, and clamped inside the file, so a trim can be nudged to
+    where it belongs without typing a timecode or tripping the range check.
   - **Drop one frame in every N.** The Optimize menu's drop, done on the way
     in: the dropped frames never cost the memory the budget is counting, and
     the frames kept still cover the same stretch of time.
