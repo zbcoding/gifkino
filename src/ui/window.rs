@@ -32,6 +32,7 @@ use crate::pipeline::gif::{Encodable, ExportSettings};
 use crate::pipeline::video::{self, ImportOptions, ImportPlan, Trim, VideoInfo};
 use crate::pipeline::{self as pipeline, gif as gif_pipeline, import_any};
 use crate::settings::Settings;
+use crate::ui::color::ColorPick;
 use crate::ui::text::rasterize;
 
 /// The box a thumbnail is fitted into (`core::model::THUMB_BOX`) — the widest
@@ -86,6 +87,10 @@ pub const CSS: &str = "
 .drop-divider { background: @accent_bg_color; }
 .tnum { font-feature-settings: 'tnum'; }
 .bind-conflict { color: @error_color; }
+/* A quick colour in the picker (`ui::color`) is its patch and nothing else:
+   the theme's button padding would make a palette of sixteen twice as wide
+   as the wheel above it. */
+.color-swatch { padding: 1px; min-width: 0; min-height: 0; }
 ";
 
 /// How many overlay rows the band area shows before it starts scrolling. Past
@@ -745,13 +750,13 @@ pub struct Widgets {
     overlay_group: adw::PreferencesGroup,
     font_button: gtk::FontDialogButton,
     text_size: gtk::SpinButton,
-    fill_button: gtk::ColorDialogButton,
+    fill_button: ColorPick,
     fill_on: gtk::Switch,
-    outline_button: gtk::ColorDialogButton,
+    outline_button: ColorPick,
     outline_width: gtk::SpinButton,
     align_buttons: Vec<(TextAlign, gtk::ToggleButton)>,
     antialias: gtk::Switch,
-    stroke_button: gtk::ColorDialogButton,
+    stroke_button: ColorPick,
     stroke_width: gtk::SpinButton,
     crop_group: adw::PreferencesGroup,
     crop_label: gtk::Label,
@@ -1211,9 +1216,11 @@ impl Component for App {
                                 Tool::Ellipse => Shape::Ellipse,
                                 _ => Shape::Arrow,
                             },
-                            fill: matches!(other, Tool::Arrow).then_some([255, 60, 60, 255]),
-                            stroke: (!matches!(other, Tool::Arrow))
-                                .then_some(([255, 60, 60, 255], 3.0)),
+                            // Every new shape arrives filled and unstroked:
+                            // an outlined rectangle is the rarer annotation,
+                            // and the stroke width is one spin away.
+                            fill: Some([255, 60, 60, 255]),
+                            stroke: None,
                         }),
                         match other {
                             Tool::Rect => "Rectangle",
@@ -2439,12 +2446,11 @@ impl Component for App {
                     widgets.font_button.set_font_desc(&want);
                 }
                 set_spin(&widgets.text_size, t.size_px as f64);
-                set_color(&widgets.fill_button, t.color);
+                widgets.fill_button.set_rgba(t.color);
                 widgets.fill_on.set_visible(false);
-                set_color(
-                    &widgets.outline_button,
-                    t.outline.map_or([0, 0, 0, 255], |(c, _)| c),
-                );
+                widgets
+                    .outline_button
+                    .set_rgba(t.outline.map_or([0, 0, 0, 255], |(c, _)| c));
                 set_spin(
                     &widgets.outline_width,
                     t.outline.map_or(0.0, |(_, w)| w as f64),
@@ -2457,11 +2463,12 @@ impl Component for App {
             Some(OverlayKind::Shape(sh)) => {
                 widgets.fill_on.set_visible(true);
                 widgets.fill_on.set_active(sh.fill.is_some());
-                set_color(&widgets.fill_button, sh.fill.unwrap_or([255, 60, 60, 255]));
-                set_color(
-                    &widgets.stroke_button,
-                    sh.stroke.map_or([255, 60, 60, 255], |(c, _)| c),
-                );
+                widgets
+                    .fill_button
+                    .set_rgba(sh.fill.unwrap_or([255, 60, 60, 255]));
+                widgets
+                    .stroke_button
+                    .set_rgba(sh.stroke.map_or([255, 60, 60, 255], |(c, _)| c));
                 set_spin(
                     &widgets.stroke_width,
                     sh.stroke.map_or(0.0, |(_, w)| w as f64),
@@ -5726,31 +5733,31 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
     // Translators: Smoothing of glyph edges. Off gives hard pixel edges, for pixel-art captures.
     let antialias_row = suffixed(t("Smooth edges"), &antialias);
 
-    let fill_button = color_button();
+    let fill_button = ColorPick::new();
     let fill_on = gtk::Switch::new();
     fill_on.set_valign(gtk::Align::Center);
     let fill_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
     fill_box.set_valign(gtk::Align::Center);
     fill_box.append(&fill_on);
-    fill_box.append(&fill_button);
+    fill_box.append(fill_button.widget());
     // Translators: The interior colour of a shape, or the colour of the glyphs for text.
     let fill_row = suffixed(t("Fill"), &fill_box);
 
-    let outline_button = color_button();
+    let outline_button = ColorPick::new();
     let outline_width = width_spin();
     let outline_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
     outline_box.set_valign(gtk::Align::Center);
     outline_box.append(&outline_width);
-    outline_box.append(&outline_button);
+    outline_box.append(outline_button.widget());
     // Translators: The contrasting edge drawn behind text so it stays readable over any image.
     let outline_row = suffixed(t("Outline"), &outline_box);
 
-    let stroke_button = color_button();
+    let stroke_button = ColorPick::new();
     let stroke_width = width_spin();
     let stroke_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
     stroke_box.set_valign(gtk::Align::Center);
     stroke_box.append(&stroke_width);
-    stroke_box.append(&stroke_button);
+    stroke_box.append(stroke_button.widget());
     // Translators: The outline of a shape, as distinct from the outline behind text.
     let stroke_row = suffixed(t("Stroke"), &stroke_box);
 
@@ -5780,12 +5787,10 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
         });
     }
     {
-        let (sender, switch, sync) = (sender.clone(), fill_on.clone(), sync.clone());
-        fill_button.connect_rgba_notify(move |b| {
-            if sync.get() {
-                return;
-            }
-            let colour = rgba_bytes(b.rgba());
+        // No `sync` guard: unlike a GTK colour button, the picker reports the
+        // user's choices and stays quiet when the model writes to it.
+        let (sender, switch) = (sender.clone(), fill_on.clone());
+        fill_button.connect_changed(move |colour| {
             // The switch is hidden for text, where a fill is not optional.
             let on = !switch.is_visible() || switch.is_active();
             sender.input(Msg::SetOverlayProp(OverlayProp::Fill(on.then_some(colour))));
@@ -5797,7 +5802,7 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
             if sync.get() {
                 return;
             }
-            let colour = rgba_bytes(button.rgba());
+            let colour = button.rgba();
             sender.input(Msg::SetOverlayProp(OverlayProp::Fill(
                 switch.is_active().then_some(colour),
             )));
@@ -6094,36 +6099,33 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
     }
 }
 
-/// A colour button and a width spin encode one `Option<(colour, width)>`
+/// A colour picker and a width spin encode one `Option<(colour, width)>`
 /// between them, so each handler has to read the other widget. `update_view`
-/// sets the two one at a time, which means the first setter's handler reports
-/// the *previous* overlay's half of the pair — a value the model disagrees
-/// with, so it gets applied, which re-runs the sync, which sends the pair back
-/// again. That is a loop, not a stray edit, so `sync` gates both handlers
-/// rather than `OverlayProp::changes` catching it afterwards.
+/// sets the two one at a time, which means the spin's handler reports the
+/// *previous* overlay's colour — a value the model disagrees with, so it gets
+/// applied, which re-runs the sync, which sends the pair back again. That is a
+/// loop, not a stray edit, so `sync` gates the spin rather than
+/// `OverlayProp::changes` catching it afterwards. The picker needs no gate: it
+/// reports the user's choices and nothing else.
 fn connect_pair(
-    colour: &gtk::ColorDialogButton,
+    colour: &ColorPick,
     width: &gtk::SpinButton,
     sync: &Rc<Cell<bool>>,
     emit: impl Fn(Option<(crate::core::model::Rgba8, f32)>) + Clone + 'static,
 ) {
-    let value = |c: &gtk::ColorDialogButton, w: &gtk::SpinButton| {
+    let pair = |colour: crate::core::model::Rgba8, w: &gtk::SpinButton| {
         let w = w.value() as f32;
-        (w > 0.0).then(|| (rgba_bytes(c.rgba()), w))
+        (w > 0.0).then_some((colour, w))
     };
     {
-        let (w, sync, emit) = (width.clone(), sync.clone(), emit.clone());
-        colour.connect_rgba_notify(move |c| {
-            if !sync.get() {
-                emit(value(c, &w));
-            }
-        });
+        let (w, emit) = (width.clone(), emit.clone());
+        colour.connect_changed(move |colour| emit(pair(colour, &w)));
     }
-    let c = colour.clone();
+    let picker = colour.clone();
     let sync = sync.clone();
     width.connect_value_changed(move |w| {
         if !sync.get() {
-            emit(value(&c, w));
+            emit(pair(picker.rgba(), w));
         }
     });
 }
@@ -7335,12 +7337,6 @@ fn frame_scope_summary(scope: ScopeChoice, in_scope: &[usize]) -> String {
     )
 }
 
-fn color_button() -> gtk::ColorDialogButton {
-    let button = gtk::ColorDialogButton::new(Some(gtk::ColorDialog::new()));
-    button.set_valign(gtk::Align::Center);
-    button
-}
-
 /// Zero means off, which is why the range starts there.
 fn width_spin() -> gtk::SpinButton {
     let spin = gtk::SpinButton::with_range(0.0, 40.0, 1.0);
@@ -7350,30 +7346,8 @@ fn width_spin() -> gtk::SpinButton {
     spin
 }
 
-fn rgba_bytes(c: gdk::RGBA) -> crate::core::model::Rgba8 {
-    let to_u8 = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
-    [
-        to_u8(c.red()),
-        to_u8(c.green()),
-        to_u8(c.blue()),
-        to_u8(c.alpha()),
-    ]
-}
-
-/// Setters that no-op when nothing changed: assigning fires the notify handler,
-/// which would send the value straight back as an edit.
-fn set_color(button: &gtk::ColorDialogButton, [r, g, b, a]: crate::core::model::Rgba8) {
-    let want = gdk::RGBA::new(
-        r as f32 / 255.0,
-        g as f32 / 255.0,
-        b as f32 / 255.0,
-        a as f32 / 255.0,
-    );
-    if button.rgba() != want {
-        button.set_rgba(&want);
-    }
-}
-
+/// The spin setter no-ops when nothing changed: assigning fires the value
+/// handler, which would send the value straight back as an edit.
 fn set_spin(spin: &gtk::SpinButton, value: f64) {
     if (spin.value() - value).abs() > 0.001 {
         spin.set_value(value);
@@ -9139,7 +9113,7 @@ mod tests {
     fn syncing_a_colour_and_width_pair_sends_nothing_back() {
         let sent = Rc::new(RefCell::new(Vec::new()));
         let sync = Rc::new(Cell::new(false));
-        let (colour, width) = (color_button(), width_spin());
+        let (colour, width) = (ColorPick::new(), width_spin());
         {
             let sent = sent.clone();
             connect_pair(&colour, &width, &sync, move |v| sent.borrow_mut().push(v));
@@ -9147,7 +9121,7 @@ mod tests {
 
         // What update_view does for a text overlay with the default outline.
         sync.set(true);
-        set_color(&colour, [0, 0, 0, 255]);
+        colour.set_rgba([0, 0, 0, 255]);
         set_spin(&width, 2.0);
         sync.set(false);
         assert!(

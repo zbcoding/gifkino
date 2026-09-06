@@ -3,4 +3,5 @@
 src/core/history.rs
 src/keymap.rs
 src/pipeline/caps.rs
+src/ui/color.rs
 src/ui/window.rs
