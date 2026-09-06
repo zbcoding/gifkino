@@ -55,6 +55,16 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.1.2" date="2026-09-06">
+      <description>
+        <p>Exports report progress, and overlays copy across frames.</p>
+        <ul>
+          <li>Exporting shows the same frame-count progress bar as importing and resizing, instead of silence until the done toast</li>
+          <li>An overlay's context menu copies it onto the selected frames, or all frames when the selection is narrow</li>
+          <li>The colour button opens a popover picker sized to its content instead of the stock dialog</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.1" date="2026-09-05">
       <description>
         <p>Video import asks how the clip should land, whatever its size.</p>
