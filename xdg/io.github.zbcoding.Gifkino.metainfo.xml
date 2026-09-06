@@ -55,6 +55,18 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.1.1" date="2026-09-05">
+      <description>
+        <p>Video import asks how the clip should land, whatever its size.</p>
+        <ul>
+          <li>Every video goes through the import dialog, not only one that has to be shrunk</li>
+          <li>New advanced options: trim by timecode or frame number, drop one frame in every N, and lift the memory limit for a single import</li>
+          <li>The custom import size carries an aspect-ratio lock, as the resize dialog does</li>
+          <li>Memory is the only import ceiling; a hidden 2000-frame cap that refused long clips is gone</li>
+          <li>Screen recording is out of scope, and the disabled Record button is gone with it</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-09-05">
       <description>
         <p>First release.</p>
