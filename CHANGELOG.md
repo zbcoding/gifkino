@@ -1,6 +1,15 @@
 # Changelog
 
 ## Unreleased
+### Export
+
+- Exporting shows the same frame-count progress bar as importing and
+  resizing — "Exporting… {done} / {total} frames" — instead of silence
+  until the done toast. The encoder reports each written frame; the total
+  is known up front, so the bar fills rather than pulses. There is no
+  cancel: stopping half-way would leave a truncated file on disk, and
+  document edits stay allowed while it runs because the worker encodes a
+  snapshot taken when the save dialog came back.
 
 ### Overlays
 

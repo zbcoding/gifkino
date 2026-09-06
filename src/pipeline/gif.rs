@@ -187,7 +187,14 @@ impl Encodable {
 }
 
 /// Quantize against one global palette and write with exact per-frame delays.
-pub fn encode(out: impl Write, enc: &Encodable, settings: &ExportSettings) -> Result<()> {
+/// `progress` runs after every written frame with the 1-based count and the
+/// frame total, so the export bar reads in frames like every other job's.
+pub fn encode(
+    out: impl Write,
+    enc: &Encodable,
+    settings: &ExportSettings,
+    progress: &mut dyn FnMut(usize, usize),
+) -> Result<()> {
     let Some((first, _)) = enc.frames.first() else {
         bail!("nothing to export")
     };
@@ -220,7 +227,8 @@ pub fn encode(out: impl Write, enc: &Encodable, settings: &ExportSettings) -> Re
         Some(n) => gif::Repeat::Finite(n),
     })?;
 
-    for (img, delay) in &enc.frames {
+    let total = enc.frames.len();
+    for (i, (img, delay)) in enc.frames.iter().enumerate() {
         let frame = gif::Frame {
             width: w as u16,
             height: h as u16,
@@ -230,6 +238,7 @@ pub fn encode(out: impl Write, enc: &Encodable, settings: &ExportSettings) -> Re
             ..Default::default()
         };
         encoder.write_frame(&frame).context("writing GIF frame")?;
+        progress(i + 1, total);
     }
     Ok(())
 }
@@ -344,10 +353,15 @@ pub fn optimize(path: &Path, lossy: u16) -> Result<bool> {
     }
 }
 
-pub fn export_path(path: &Path, enc: &Encodable, settings: &ExportSettings) -> Result<u64> {
+pub fn export_path(
+    path: &Path,
+    enc: &Encodable,
+    settings: &ExportSettings,
+    progress: &mut dyn FnMut(usize, usize),
+) -> Result<u64> {
     let file =
         std::fs::File::create(path).with_context(|| format!("creating {}", path.display()))?;
-    encode(std::io::BufWriter::new(file), enc, settings)?;
+    encode(std::io::BufWriter::new(file), enc, settings, progress)?;
     optimize(path, settings.lossy)?;
     Ok(std::fs::metadata(path)?.len())
 }
@@ -355,7 +369,8 @@ pub fn export_path(path: &Path, enc: &Encodable, settings: &ExportSettings) -> R
 /// Encoded size without touching the disk, for the export dialog's readout.
 pub fn encoded_size(enc: &Encodable, settings: &ExportSettings) -> Result<usize> {
     let mut buf = Vec::new();
-    encode(&mut buf, enc, settings)?;
+    // The size preview has its own "sizing…" readout; it stays off the bar.
+    encode(&mut buf, enc, settings, &mut |_, _| {})?;
     Ok(buf.len())
 }
 
@@ -382,6 +397,7 @@ pub fn estimate_size(
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
     use crate::core::render::no_text;
 
@@ -396,13 +412,40 @@ mod tests {
             Frame::new(flat(8, 8, [30, 30, 200, 255]), 42),
         ])
     }
+    #[test]
+    fn encode_reports_each_frame_with_its_total() {
+        // The export bar's data source: one call per written frame, 1-based,
+        // with the frame count as the total. A bar wired to anything else
+        // would finish early or never reach full.
+        for (frames, delays) in [(1, vec![7]), (3, vec![7, 3, 42])] {
+            let doc = Document::from_frames(
+                delays
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, delay)| Frame::new(flat(8, 8, [i as u8 * 40, 30, 30, 255]), delay))
+                    .collect(),
+            );
+            let enc = Encodable::from_document(&doc, &no_text, &ExportSettings::default());
+            let mut seen = Vec::new();
+            let mut bytes = Vec::new();
+            encode(
+                &mut bytes,
+                &enc,
+                &ExportSettings::default(),
+                &mut |done, total| seen.push((done, total)),
+            )
+            .unwrap();
+            let want: Vec<(usize, usize)> = (1..=frames).map(|done| (done, frames)).collect();
+            assert_eq!(seen, want, "{frames} frames");
+        }
+    }
 
     #[test]
     fn round_trip_preserves_per_frame_delays() {
         let doc = source();
         let enc = Encodable::from_document(&doc, &no_text, &ExportSettings::default());
         let mut bytes = Vec::new();
-        encode(&mut bytes, &enc, &ExportSettings::default()).unwrap();
+        encode(&mut bytes, &enc, &ExportSettings::default(), &mut |_, _| {}).unwrap();
 
         let decoded = decode(&mut std::io::Cursor::new(bytes), &mut |_, _| true).unwrap();
         assert_eq!(decoded.len(), 3);
@@ -447,7 +490,7 @@ mod tests {
         let doc = Document::from_frames(vec![Frame::new(img, 5)]);
         let enc = Encodable::from_document(&doc, &no_text, &ExportSettings::default());
         let mut bytes = Vec::new();
-        encode(&mut bytes, &enc, &ExportSettings::default()).unwrap();
+        encode(&mut bytes, &enc, &ExportSettings::default(), &mut |_, _| {}).unwrap();
         let decoded = decode(&mut std::io::Cursor::new(bytes), &mut |_, _| true).unwrap();
         assert_eq!(decoded[0].pixels.get_pixel(0, 0).0[3], 0);
         assert_eq!(decoded[0].pixels.get_pixel(4, 4).0[3], 255);
@@ -460,7 +503,7 @@ mod tests {
     fn returning_false_from_progress_stops_the_decode() {
         let enc = Encodable::from_document(&source(), &no_text, &ExportSettings::default());
         let mut bytes = Vec::new();
-        encode(&mut bytes, &enc, &ExportSettings::default()).unwrap();
+        encode(&mut bytes, &enc, &ExportSettings::default(), &mut |_, _| {}).unwrap();
 
         let mut seen = Vec::new();
         let decoded = decode(&mut std::io::Cursor::new(bytes), &mut |done, expected| {

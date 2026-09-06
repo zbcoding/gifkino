@@ -148,6 +148,14 @@ pub enum Msg {
     /// the document has moved on since.
     Estimate(u64),
     Export,
+    /// The save dialog came back with a path: the snapshot is in hand, so
+    /// claim the bar and encode off the main thread. Separate from `Export`
+    /// so a cancelled dialog leaves no bar behind.
+    BeginExport {
+        path: PathBuf,
+        frames: Vec<(image::RgbaImage, u16)>,
+        settings: ExportSettings,
+    },
     Undo,
     Redo,
     TogglePlay,
@@ -323,6 +331,7 @@ impl Msg {
                 self,
                 Msg::Open
                     | Msg::Export
+                    | Msg::BeginExport { .. }
                     | Msg::CropAllDialog
                     | Msg::ResizeDialog
                     | Msg::DelayAllDialog
@@ -496,6 +505,10 @@ enum BusyKind {
     /// Resampling a splice onto one canvas — the incoming frames, and every
     /// frame the document already had if the canvas grew to meet them.
     Fit,
+    /// Writing the document out as a GIF. The worker encodes a snapshot, so
+    /// document edits stay allowed while it runs — only a second job
+    /// competing for the one bar waits.
+    Export,
 }
 
 /// A frame-heavy operation the worker thread runs against the document as it
@@ -1003,6 +1016,9 @@ impl Component for App {
                 msg.requires_idle()
                     && !(matches!(msg, Msg::DeleteSelection) && self.selected_overlay.is_some())
             }
+            // An export encodes a snapshot, so edits stay safe while it runs;
+            // only a second job fighting over the one bar waits.
+            BusyKind::Export => msg.requires_idle() && !msg.edits_document(),
         });
         if blocked {
             return;
@@ -1107,15 +1123,45 @@ impl Component for App {
                     let Some(path) = res.ok().and_then(|f| f.path()) else {
                         return;
                     };
-                    let enc = Encodable { frames };
-                    sender.spawn_oneshot_command(move || {
-                        // bind so the closure captures the PathBuf, not `*path`
-                        let path = path;
-                        let out = gif_pipeline::export_path(&path, &enc, &settings)
-                            .map(|size| (path, size))
-                            .map_err(|e| e.to_string());
-                        Cmd::Exported(out)
+                    sender.input(Msg::BeginExport {
+                        path,
+                        frames,
+                        settings,
                     });
+                });
+            }
+            Msg::BeginExport {
+                path,
+                frames,
+                settings,
+            } => {
+                let total = frames.len();
+                self.busy = Some(Busy {
+                    kind: BusyKind::Export,
+                    done: 0,
+                    total: Some(total),
+                    cancel: None,
+                });
+                let enc = Encodable { frames };
+                sender.spawn_command(move |out| {
+                    // Same throttle as frame work: a fast encode would
+                    // otherwise post a message per frame, and the main loop
+                    // has to drain each one.
+                    let mut next = std::time::Instant::now();
+                    let mut progress = |done: usize, total: usize| {
+                        let now = std::time::Instant::now();
+                        if now < next {
+                            return;
+                        }
+                        next = now + std::time::Duration::from_millis(80);
+                        let _ = out.send(Cmd::WorkProgress(done, total));
+                    };
+                    // bind so the closure captures the PathBuf, not `*path`
+                    let path = path;
+                    let result = gif_pipeline::export_path(&path, &enc, &settings, &mut progress)
+                        .map(|size| (path, size))
+                        .map_err(|e| e.to_string());
+                    out.emit(Cmd::Exported(result));
                 });
             }
             Msg::Undo => {
@@ -1910,8 +1956,7 @@ impl Component for App {
                 unreachable!("handled above")
             }
             Cmd::Imported(outcome) => {
-                // An import ends the bar it started; an export never owns the
-                // bar, so its result leaves whatever is running alone.
+                // An import ends the bar it started.
                 self.busy = None;
                 match (self.import_at.take(), *outcome) {
                     (Some(at), ImportOutcome::Loaded(path, frames)) => {
@@ -1931,6 +1976,7 @@ impl Component for App {
                 }
             }
             Cmd::Exported(Ok((path, size))) => {
+                self.busy = None;
                 let kb = size as f64 / 1024.0;
                 sender.input(Msg::Toast(fill(
                     t("Exported to {path} · {size} KB"),
@@ -1940,7 +1986,10 @@ impl Component for App {
                     ],
                 )));
             }
-            Cmd::Exported(Err(e)) => sender.input(Msg::Toast(e)),
+            Cmd::Exported(Err(e)) => {
+                self.busy = None;
+                sender.input(Msg::Toast(e))
+            }
         }
     }
 
@@ -2010,6 +2059,8 @@ impl Component for App {
                         // Translators: Progress while frames being spliced in are resized to
                         // one canvas; both values are frame counts.
                         BusyKind::Fit => t("Fitting… {done} / {total} frames"),
+                        // Translators: Progress while the document is being written out as a GIF; both values are frame counts.
+                        BusyKind::Export => t("Exporting… {done} / {total} frames"),
                     };
                     widgets.import_bar.set_text(Some(&fill(
                         label,
