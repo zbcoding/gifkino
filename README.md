@@ -28,12 +28,11 @@ machine that has none of them installed.
   run it.
 
 <details>
-<summary>## Build from source</summary>
+<summary><strong>Build from source</strong></summary>
 
 Rust + GTK4 + libadwaita.
 
-
-Dependencies
+### Dependencies
 
 You need the GTK development packages, ffmpeg and gifsicle:
 
@@ -42,10 +41,7 @@ You need the GTK development packages, ffmpeg and gifsicle:
 sudo apt-get install libgtk-4-dev libadwaita-1-dev ffmpeg gifsicle
 ```
 
-
-
-
-Build and run
+### Build and run
 
 ```bash
 cargo run                  # welcome state
