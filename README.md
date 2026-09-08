@@ -2,6 +2,8 @@
 
 Edit animated GIFs. Import mp4 videos as resized gif animations, insert frames, add text, add arrows and shapes, then optimize gifs with an updating size.
 
+![The Gifkino window: an 8-frame GIF on the canvas with a text overlay, the frame strip and overlay bands below, and the frame and overlay properties on the right](docs/images/screenshot.png)
+
 ## Features
 
 - **Open videos, gifs, and images:** GIFs, still images, and videos (with auto resizing on import for large files).
