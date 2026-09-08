@@ -27,12 +27,12 @@ machine that has none of them installed.
   so it needs Ubuntu 24.04, Debian 13, Fedora 40 or newer. `chmod +x` it and
   run it.
 
-<details>
-<summary><strong>Build from source</strong></summary>
+## Build from source
 
 Rust + GTK4 + libadwaita.
 
-### Dependencies
+<details>
+<summary>Dependencies and build steps</summary>
 
 You need the GTK development packages, ffmpeg and gifsicle:
 
