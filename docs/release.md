@@ -1,5 +1,11 @@
 # Release checklist
 
+## Changes checklist
+Before making a release, make sure that these are current:
+- Update changelog.md
+- Add translations
+- Add new features' keybindings and key shortcuts
+
 ## Version numbers
 
 Bump all three, in one commit:

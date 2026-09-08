@@ -3,8 +3,10 @@
 A GIF editor for Linux. GTK4 + Rust, distributed as a flatpak and as an
 AppImage.
 
-This document records the decisions and the reasoning behind them, so that a
+This public document records the decisions and the reasoning behind them, so that a
 decision can be reversed deliberately rather than drifted away from.
+
+Since this document is an overview of the design and this document is public, the focus is on the general structure of this Gifkino software and is intentionally simpler than a detailed writing.
 
 ## What this is
 
@@ -13,33 +15,16 @@ Two jobs in one app:
 1. **Import** any video or an existing GIF as a frame list.
 2. **Edit** the frame list along the time axis, then export an optimized GIF.
 
-Recording a screen was the third, and is not built. See
-[Recording, and why it is not here](#recording-and-why-it-is-not-here).
-
-Editing means overlays (text, shapes, images), transforms, crop, resize, and
-frame-list operations. It does not mean painting. See
+Editing means overlays (text, shapes, images), effects, transforms, crop, resize, and
+frame-list operations. It does not mean advanced painting. See
 [External editor handoff](#external-editor-handoff).
 
-## The core idea
+## The name
 
-Every existing tool gets one of two halves wrong.
-
-GIMP can open an animated GIF, but each frame is an independent image. Adding a
-caption across thirty frames means typing it thirty times. Nothing an edit does
-can span time, so the animation is a stack of unrelated pictures that happen to
-play in order.
-
-ScreenToGif gets the time axis right and has the frame-list operations people
-actually want, but it is Windows-only and its editing model is raster-first.
-
-GIFcurry is written in Haskell for linux, but doesn't have a good user interface,
-many GIF features are missing, and simple edits of GIF frames beyond adding text are missing
-
-The design goal here is one sentence: an edit knows which frames it applies to.
-Everything below follows from that.
-
-# Development boost
-Use the code patterns from Impasto /home/yumeko/DataDisk/Code/ImpastoPaint-public (written in .net gtk4) to write some things here in GTK4 rs (rust), like simple image resizing or adding text
+Gifkino is a German compound built the way `Daumenkino` is — thumb-cinema, the
+word for a flipbook — so it reads as "GIF cinema", a place where GIFs are made,
+rather than as a kind of file. Leading with "gif" puts the searchable half
+first. The app ID is `io.github.zbcoding.Gifkino`.
 
 ## Document model
 
@@ -65,17 +50,18 @@ struct Overlay {
 }
 ```
 
-The `range` field is the whole difference from GIMP. A caption is one overlay
-with `range: 10..40`; you edit it once and thirty frames change.
+The `range` field is what makes this an animation editor rather than a stack of
+unrelated pictures. A caption is one overlay with `range: 10..40`; you edit it
+once and thirty frames change.
 
 ### The invariant
 
 A frame's composited output is a pure function of its pixels plus the overlays
 whose range contains it. Nothing is ever baked in as a side effect.
 
-This is borrowed from Impasto's object-layer system, where the equivalent rule
-(an object surface equals the render of its object list) is what makes undo
-lossless rather than a raster diff. Preserve it and undo is a pure state machine
+The rule is what makes undo lossless rather than a raster diff: a surface
+equals the render of the object list that produced it. Preserve it and undo is
+a pure state machine
 over the model: stepping to the first history item rebuilds everything, and
 forward-back-forward lands on an identical document.
 
@@ -102,59 +88,21 @@ frame strip has a selection to bind to.
 - Any edit that touched more than the current frame reports how many frames it
   changed, with Undo in the same toast.
 
-This control is the product. GIMP has no version of it. Its treatment in the
+This control is the product. Its treatment in the
 window is under [Scope and strip](#scope-and-strip).
 
 ## Stack
 
 Rust, gtk4-rs, libadwaita, Relm4. Flatpak on the GNOME runtime.
 
-GTK4 was not chosen for the canvas. There is no scene graph and no hit-testing;
-a snapshot surface is all you get, and that is equally true of Iced, Slint, and
-egui. What GTK4 gives you is everything around the canvas that would otherwise
-have to be rebuilt: portal file dialogs, HiDPI, IME, accessibility, and a
-flatpak runtime that already ships all of it. egui would make the canvas
-somewhat easier and everything else worse. Tauri would drag WebKitGTK into the
-flatpak for a canvas that can be painted directly.
+Two builds ship, Flatpak and Appimage. 
 
-Two builds ship. The flatpak carries the GNOME runtime, so which GTK it gets is
-a free choice that can move forward on its own schedule. The AppImage cannot
-carry glibc, so its build host sets the floor for every machine that runs it;
-Ubuntu 24.04 is that host because its GTK 4.14 is exactly the baseline the
-bindings are gated at in `Cargo.toml`. Building on anything newer would raise
-the glibc requirement and buy nothing, which is how Impasto's AppImage ended up
-needing Ubuntu 26.04.
-
-Both builds carry `ffmpeg`, `ffprobe` and `gifsicle`. The GNOME runtime ships
-the libav* libraries but not the programs, and `pipeline/video.rs` drives the
-programs over pipes; Ubuntu does not install them at all by default. An app
-whose import path is a subprocess has to bring the subprocess.
-
-Start as one crate with `core/`, `pipeline/`, and `ui/` modules. Splitting into
-separate crates buys nothing while there is one consumer; modules test just as
-headlessly. Split when compile times or a second consumer make it worth doing.
-
-## External editor handoff
-
-The app owns time. It does not own a paint engine.
-
-A frame's context menu offers "Edit frame in…", which writes the composited
-frame to a temp PNG and hands it to the desktop:
-
-```rust
-let launcher = gtk::FileLauncher::new(Some(&gio::File::for_path(&frame_png)));
-launcher.set_always_ask(true);
-launcher.launch(Some(&window), gio::Cancellable::NONE, |_| {});
-```
-
-Going through the OpenURI portal rather than spawning a specific binary avoids
-`--talk-name=org.freedesktop.Flatpak`, a broad permission Flathub reviewers push
-back on. It also means the feature works with Impasto, GIMP, Krita, or whatever
-the user already has, for less code than hardcoding one of them.
-
-Watch the temp file with `notify` rather than waiting for process exit, so
-someone who saves and keeps editing sees the preview update. Fall back to
-reloading on window focus if the watch fails to start.
+The flatpak carries the GNOME runtime, so which GTK it gets can change. 
+The AppImage cannot carry glibc, so its build host matters. Ubuntu 24.04 has GTK 4.14, the baseline.
+Both builds also carry `ffmpeg`, `ffprobe` and `gifsicle`, since
+the GNOME runtime ships the libav* libraries but not the programs.
+Ubuntu does not install them at all, and `pipeline/video.rs` drives the programs over pipes. One
+crate to start, with `core/`, `pipeline/` and `ui/` modules.
 
 ### Detachment
 
@@ -164,8 +112,8 @@ it skip it from then on.
 
 The tradeoff is real and needs to be visible in the UI. Retyping a caption later
 will not update a detached frame, because that frame's pixels are now just
-pixels. Show a badge on detached frames in the strip. These are the same
-semantics as Impasto's rasterize-on-destructive-touch bridge.
+pixels. Show a badge on detached frames in the strip. A destructive touch
+rasterizes, and the badge is what says so.
 
 ### The line to hold
 
@@ -187,27 +135,11 @@ export  → NeuQuant → gif crate → gifsicle -O3
 ### Recording, and why it is not here
 
 Not built, and not planned. Every desktop already has a screen recorder that
-writes an mp4 — GNOME's built-in one, OBS, wf-recorder, SimpleScreenRecorder —
-and this app imports mp4, webm and animated GIF, resizing a large capture down
-on the way in. Building a second recorder buys a user nothing they cannot
+writes an mp4, and this app imports mp4, webm and animated GIF, resizing a
+large capture down on the way in. Building a second recorder buys a user nothing they cannot
 already do, and it costs a ScreenCast portal handshake, a PipeWire path, an X11
 fallback, a capture-source probe and a setup sheet, all of it in the way of the
 editing that is the actual product.
-
-What the design would have been, kept because the reasoning survives the
-decision: record to a video file and open it through the normal import path,
-never capturing frames straight into the document — that is what makes
-ScreenToGif memory-hungry, and it means maintaining two decode paths instead of
-one. On Wayland, `ashpd` performs the ScreenCast portal handshake and returns a
-PipeWire node id for ffmpeg's `pipewiregrab` source, with GStreamer's
-`pipewiresrc` as the fallback; X11 is `-f x11grab`. Region selection would be
-the portal's own picker rather than a custom overlay, because GNOME does not
-permit arbitrary overlay surfaces, and cursor capture would be the portal's
-`cursor_mode: embedded`.
-
-Reversing this means restoring `Caps::record_blocker` and the capture-source
-probe removed alongside it, adding `--socket=pipewire` to the manifest, and
-putting `Screen Recorder` back in the desktop entry's `Keywords`.
 
 ### Import
 
@@ -218,85 +150,34 @@ Existing GIFs are decoded with the `gif` crate, not ffmpeg. ffmpeg normalizes
 toward constant frame rate and discards per-frame delays and disposal methods,
 which is exactly the data an editor has to preserve.
 
-Cap import resolution and warn on high frame counts. Frames live in RAM as RGBA
-so scrubbing is instant: 500×400 across 100 frames is 80 MB and fine, 1920×1080
-across 300 frames is 2.5 GB and is not. A disk cache is worth writing when
-someone hits the wall, not before.
-
-### The centisecond problem
+Cap import resolution and warn on high frame counts.
 
 GIF delays are stored in centiseconds. 30fps is 3.33cs, which is not
 representable, so rounding gives 3cs and a 33.3fps animation that drifts against
-the source.
+the source. Either snap the import framerate to a value that divides evenly (10, 20, 25, 50)
+or distribute the remainder across frames.
 
-Either snap the import framerate to a value that divides evenly (10, 20, 25, 50)
-or distribute the remainder across frames. Pick one and cover it with a test;
-the error is invisible until someone reports that a capture "feels wrong."
-
-Browsers also clamp delays below 2cs up to 10cs, so anything above 50fps is
-fiction in a GIF and the import UI should say so.
+Browsers also clamp delays below 2cs up to 10cs, so GIFs effectively don't go higher than 50 fps.
 
 ### Export
 
 ffmpeg cannot write the GIF. Its GIF output is effectively constant frame rate,
-which discards the per-frame delays that are the reason this app exists. So:
+which discards the per-frame delays. Instead:
 
 1. RGBA frames plus per-frame delays
 2. `color_quant::NeuQuant` for a global palette
 3. `gif` crate writes frames with exact delays
 4. `gifsicle -O3 --lossy` post-pass
 
-`palettegen`/`paletteuse` were the original plan and were dropped for the reason
-above. NeuQuant's global-palette quality holds up well on screen captures, which
-are mostly flat UI color and are the dominant input.
-
 ## Playback
 
 The frame strip is the scrubber. A GIF is short, thumbnails fit, and clicking a
-thumbnail is seeking. Two separate widgets would be inherited habit rather than
-a requirement.
+thumbnail is seeking.
 
 Playback reschedules a `glib::timeout_add_local` per frame using that frame's
-delay, rather than running a fixed tick with an accumulator. It is less code and
-correct by construction.
+delay, rather than running a fixed tick with an accumulator.
 
 ## The interface
-
-The architecture above constrains the chrome before any of it is designed: the
-region picker belongs to the portal, the frame strip is the scrubber, and the
-edit scope is the product. This is the window plan that keeps all three.
-
-### Chrome
-
-There is no menu bar. GNOME applications do not ship one (Loupe, Papers, Text
-Editor), ScreenToGif's File/Edit/View row is a Windows convention, and the
-duties of a "File" menu here are small. The empty main window is the welcome
-state, with Open as the one large action plus drag-and-drop anywhere; the
-primary menu (hamburger, upper right) holds Open…, Keyboard shortcuts
-(Ctrl+?), and About.
-
-```
-[ Undo  Redo ]            foo.gif                       [ Export ]  ☰
-                      24 frames · 3.0 s
-```
-
-`AdwHeaderBar` has three slots: start, a centered title widget, end. Transport
-fits in none of them without crowding the title, and the centered slot is the
-first casualty when the window narrows, so a timecode parked there vanishes
-exactly when space runs out. Play, the timecode, and the fps readout sit in the
-footer instead, beside the strip that scrubs them. Showtime and Loupe put
-transport in a bottom bar for the same reason.
-
-Undo and redo are headerbar buttons rather than entries under an Edit menu:
-history is the most-pressed action in an editor and should not sit behind a
-click. Export is the only primary button. The `AdwWindowTitle` subtitle carries
-the frame count — document metadata, not a control. Duration stays out of it:
-it already lives in the footer's timecode total, and the same number on screen
-twice is one more thing to keep in sync.
-
-Numbers that update use the system font with tabular figures
-(`font-feature-settings: "tnum"`), not a monospace face. Digits stop jittering
-either way, and this keeps a second typeface out of the app.
 
 ### Main window
 
@@ -333,10 +214,22 @@ back from an external editor as a detached frame can introduce alpha long
 after import. The check is a linear scan and costs microseconds at these
 sizes.
 
-Transform handles follow the behavior recorded under Relationship to Impasto
-(opposite-corner anchor, Shift constrains to the source aspect, Ctrl
-re-centers), with angle plus un-rotated rect tracked from the first commit.
+Transform handles anchor on the opposite corner, Shift constrains to the source
+aspect ratio rather than to a square, and Ctrl re-centers, with angle plus
+un-rotated rect tracked from the first commit.
 Dragging snaps to center x/y and canvas edges at roughly 4 px.
+
+Alt+drag rotates, Shift snaps to 32 steps of a turn, and the modifiers are
+rebindable through `keymap::Modal`. `contains()`, `handle_at()` and the outline
+all read the pointer through `Transform::to_local`, so hit-testing is done in
+the overlay's own space rather than against a screen-space bounding box. The
+rotate cursor is a 32 px PNG embedded in the binary: GTK has
+no CSS cursor name for rotation and `gdk::Texture` reads PNG but not SVG, so
+editing the glyph means re-running `rsvg-convert` (`resources/README.md`). A
+build that cannot decode it falls back to `grab`.
+
+Four corner grips, no edge grips yet. Widening a caption without changing its
+height still takes a corner drag with Shift off.
 
 The right panel lives in an `AdwOverlaySplitView` with an `AdwBreakpoint` near
 900 px, so it collapses to an overlay and gives the canvas the width. Strip
@@ -412,13 +305,19 @@ into it, so copying onto the frame next door widens the band rather than
 stacking a second one on top of it.
 
 This is a timeline in shape, but not a second widget to keep in sync — it is
-one more band on the strip that already exists. It is also the one thing GIMP
-structurally cannot draw, so it is what a first screenshot should show.
+one more band on the strip that already exists. It is also the clearest picture
+of the whole model, so it is what a first screenshot should show.
 
 Underneath, the strip still does its other jobs: clicking a thumbnail seeks,
 marquee-drag extends the selection, detached frames carry the badge, hover
 shows the per-frame delay, drag reorders, right-click opens the frame menu, and
 playback autoscrolls.
+
+The selection is a `Vec<usize>`, not a range. Ctrl+click toggles one frame,
+Shift+click takes the run from the anchor. Delete and duplicate act on the set;
+reverse acts on what the set spans, because reversing a gappy set means
+nothing. An overlay still carries one contiguous range, so adding one under a
+gappy selection widens to `Scope::span`.
 
 ### Properties panel
 
@@ -502,10 +401,9 @@ Esc                  cancel tool / deselect
 Ctrl+?               shortcuts window
 ```
 
-`V T R O A I C` rather than an internally tidy scheme: these are Figma's
-letters — V select, R rectangle, O ellipse, T text — the closest thing to a
-cross-tool standard that exists. Photoshop's own map (M marquee, U shapes)
-agrees with none of them.
+`V T R O A I C` rather than an internally tidy scheme: V select, R rectangle,
+O ellipse and T text are the letters most drawing tools already use, and muscle
+memory beats internal consistency.
 
 Del is bound to whichever surface has focus, since an overlay and a frame range
 can both be selected at once. Canvas focus deletes the overlay, strip focus
@@ -514,6 +412,14 @@ requirement rather than a nicety.
 
 The shortcuts window is both the HIG-expected help overlay and the
 documentation of this map.
+
+The shortcuts controller runs in the capture phase, and has to: a focused
+widget handles a key first, and GTK activates a focused button on Space.
+`focus_owns_keys` is the entire exemption list, so a new widget that owns its
+own keys — a search entry, an editable list row — has to be added there or it
+loses them to the shortcuts. Every widget assertion in `ui::window` sits under
+one `gtk_widget_regressions` test, because GTK is single-threaded and `cargo
+test` is not; separate `#[test]`s segfault on the second `gtk::init`.
 
 ### Visual direction
 
@@ -562,6 +468,32 @@ Deleting every other frame without compensating delays plays the result at
 double speed. That is the bug in every naive implementation, it is pure list
 logic, and one assert-based test covers it.
 
+### Work that leaves the main thread
+
+Resampling every frame — resize, and the zoom that refills the canvas from a
+box — froze the window when it ran inside `update`. Both now run on a worker.
+Each op is split into a pure producer (`resized_frames`, `zoomed_frames`) that
+returns `Vec<(usize, Frame)>` and reports progress per frame, and a thin
+mutator that keeps its old signature by calling the producer and swapping the
+results in. `Frame.pixels` is an `Arc<RgbaImage>` and history already snapshots
+the whole document per edit, so handing the worker a `doc.clone()` is pointer
+copies and needs no borrowing tricks.
+
+Results are keyed by frame index, which is the constraint everything else
+follows from. While a worker is running, any message that would reorder or
+resize the frame list is dropped at the top of `update` — that is what
+`Msg::changes_frames()` enumerates, and it includes `SetFrameDelay`, since a
+produced frame carries the delay from the snapshot it was built from. Overlay
+edits stay live: scaling the *current* overlay list on completion preserves
+tweaks made mid-work. Results are deliberately not rev-guarded, because a
+canvas drag bumps `rev` on every motion event and a rev check would throw away
+good work whenever the canvas was touched.
+
+One progress bar in the top bar serves import, resize and zoom, in the welcome
+state and with a document open. Export never owns it; an export finishing
+mid-import used to hide the bar while the decode kept running. Crop is a copy
+of the kept region rather than a resample, so it stays synchronous.
+
 ## Deferred, with reasons
 
 - **Keyframed overlay motion.** Overlays are static across their range.
@@ -572,57 +504,46 @@ logic, and one assert-based test covers it.
   spanning the whole document still costs a full walk. Painting the visible
   frames first (see States) hides the cost but does not remove it.
 - **Disk-backed frame cache.** See the memory budget under Import.
-- **Oriented transform handles.** Impasto's handles snap back to an
-  axis-aligned bounding box after a rotation, which its own notes call a
-  deferred rewrite rather than a polish item. Track angle plus un-rotated rect
-  from the start here; it is cheap greenfield and expensive to retrofit.
+- **Strip virtualization.** The strip rebuilds one widget per frame whenever the
+  frame list changes. Fine at a few hundred frames, a hitch past that. Worth
+  doing when someone imports something long enough to notice.
+- **Per-frame crop that changes the canvas size.** A GIF has one canvas, so
+  frames of different sizes are not something the model can hold. Crop is
+  document-wide, and zoom scope covers the per-frame intent by refilling the
+  canvas from a box. Building it for real needs a canvas size plus a per-frame
+  offset in the model, and every op that touches pixels has to learn about
+  both.
+- **Oriented transform handles.** Handles that snap back to an axis-aligned
+  bounding box after a rotation are a rewrite to fix, not a polish item, so
+  angle plus un-rotated rect is tracked from the start. Cheap greenfield,
+  expensive to retrofit.
+
+## Translations
+
+`po/` holds `en_US`, `de` and `ja`, all 166 strings, with the de and ja
+msgstrs AI-drafted and flagged `#, fuzzy` for review. Another locale is a line
+in `po/LINGUAS`, a `scripts/i18n.py merge`, and the msgstrs.
+
+`scripts/i18n.py` extracts msgids from the arguments of `t(...)`, which has two
+consequences worth knowing before touching UI strings. Each label needs its own
+`t(...)` call — a `t(match …)` hides every arm from the template, and the next
+merge treats the missing msgids as obsolete and drops them. And rustfmt moving
+a long literal onto its own line under `t(` used to lose the msgid entirely;
+`logical_lines` rejoins those now, with the shape asserted in `scripts/i18n.py
+selftest`.
+
+`tn()` is a two-form plural, not a Plural-Forms evaluator. That is right for
+de, en and ja and wrong for Slavic locales; the first of those needs the
+evaluator written, not another call site.
+
+Error text from anyhow — `pipeline/`, ffmpeg failures — reaches toasts
+untranslated. Those strings live in `Result` chains rather than in the UI
+layer.
 
 ## Licensing
 
-This software will be MIT. We only use screen to gif and gifcurry for reference, not copy-pasting code.
-Pinta and Impasto are MIT, this project is in Rust, only code patterns can be copied.
+The main, free version of this software will be MIT.
 If we use gifsicle, gifski, etc, AGPL, GPL, might require having a text copy of the license in our software repository for reference.
-
-- Pinta and Impasto are MIT. Patterns ported from them are clean; keep the
-  copyright headers on any file that is a direct port.
-- ScreenToGif is Ms-PL, which carries terms into derivative works. Behavioral
-  reference only, and it stays out of the tree.
-- gifsicle is GPL-2 and is called as a subprocess, so it does not reach this
-  code.
-- gifski and libimagequant are AGPL and GPL respectively, with commercial
-  licenses available. Both were rejected in favor of the NeuQuant plus gifsicle
-  path; adopting either is a decision about this project's own license.
-- `references/` is gitignored for these reasons.
-
-## Relationship to Impasto
-
-
-
-Building the GIF editor as an Impasto add-in would reuse its canvas, handles,
-history, and translations. Impasto is a Pinta fork and a working GTK4 image editor. Two alternatives to
-this project were considered and rejected.
-
-We considered adding animated GIF editing to Impasto but Impasto wouldn't have the room for streamlined GIF operations people expect
-(e.g. video convert-to-gif, quickly adding text to all frames)
-It needs two host changes the add-in documentation
-already flags: file-format registration does not dedupe by extension and can
-remove built-in formats, and there is no extension point for dock pads, which a
-frame strip requires. 
-Impasto's document, as a paint software, is
-layer-major with no time axis, so a frame-range overlay model would be bolted
-onto a shape that does not have room for it.
-
-Consuming `Pinta.Core` as a library does not work. `PintaCore` is a static
-object holding GUI managers, and `DocumentHistory` reaches into
-`PintaCore.Chrome`, so the core is not headless and pulls the application in
-behind it.
-
-What is taken from Impasto instead is design: the object-list invariant above,
-and the transform-handle behavior recorded in its notes (opposite-corner anchor,
-Ctrl re-centers, Shift constrains to the source aspect ratio rather than a
-square, grip visibility gated on the selection's polygons). Those are bugs
-someone already found through live testing. Port the behavior, write the Rust
-fresh.
 
 ## Build order
 

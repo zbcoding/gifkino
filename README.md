@@ -55,10 +55,9 @@ cargo run -- path/to.gif   # open a GIF or video directly
 cargo test                 # whole suite, well under a minute
 ```
 
-## Status
-
-0.1.0 is the first release.
-
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Contributions
+The best way to contribute is to make a comment in [Issues](https://github.com/zbcoding/gifkino/issues) with screenshots and context. You can also write or generate a pull request. Contributions may be added to free or paid versions of this software.

@@ -324,9 +324,3 @@ Weigh a change against the conflict it will cause; do not treat a one-line edit 
 **Mark simplifications with `ponytail:` comments** that name the cost ceiling and upgrade path. This signals intentional shortcuts, not ignorance.
 
 **Translations move in lockstep with their msgids.** Rebranding a user-facing string means editing the `msgid` and every `msgstr` that renders the old name across all of `po/*.po`. A changed `msgid` with an untouched `msgstr` silently orphans that translation and the string falls back to English. Watch for collisions with an existing entry (duplicates make `msgfmt` reject the file — merge rather than rename into one) and for inflected or transliterated forms (`Pinty`, `Pinto`, `Пинта`, `பிண்டா`) that a literal search misses. Verify with `msgfmt -c` over every catalogue.
-
-
-# Changes checklist
-Update changelog.md
-Add translations
-Check keybindings and key shortcuts
