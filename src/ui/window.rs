@@ -5174,47 +5174,126 @@ fn shortcuts_dialog(
     dialog.present(Some(root));
 }
 
-/// Where the About dialog points. The issue tracker is the one that gets
-/// tracked and answered, so it keeps the top-level "Report an Issue" row; the
-/// form is the minute-long alternative for someone with feedback and no GitHub
-/// account, and sits with the repository link under Details.
+/// Where the About dialog points. Filing an issue is the route that gets
+/// tracked and answered; the form is for someone who has a minute's worth of
+/// feedback and no GitHub account, so it sits under the issue link rather than
+/// competing with it.
 const REPOSITORY_URL: &str = "https://github.com/zbcoding/gifkino";
 const ISSUES_URL: &str = "https://github.com/zbcoding/gifkino/issues";
 const FEEDBACK_FORM_URL: &str = "https://tally.so/r/A7kKVz";
 
-/// The About dialog. The version is the crate's, so a release bumps
-/// `Cargo.toml` and nothing here.
-///
-/// The legal sections name what a download carries besides Gifkino's own MIT
-/// code: the GTK stack it links against and the two programs it drives as
-/// subprocesses, which are the copyleft ones. Statically linked crates are not
-/// listed — a licence name in a dialog is not attribution, and their texts
-/// belong in the bundled third-party notice file.
-fn about_dialog() -> adw::AboutDialog {
-    let dialog = adw::AboutDialog::builder()
-        .application_name("Gifkino")
-        .application_icon(crate::desktop::APP_ID)
-        .developer_name("zbcoding")
-        .version(env!("CARGO_PKG_VERSION"))
-        .website(REPOSITORY_URL)
-        .issue_url(ISSUES_URL)
-        .copyright("© 2026 zbcoding")
-        .license_type(gtk::License::MitX11)
+/// A row that opens a URL in the browser. The subtitle carries what the link
+/// costs the user — an account, a minute - so the choice is made before the
+/// browser opens, not after.
+fn link_row(title: &str, subtitle: &str, url: &'static str) -> adw::ActionRow {
+    let row = adw::ActionRow::builder()
+        .title(title)
+        .subtitle(subtitle)
+        .activatable(true)
         .build();
-    // The parenthetical is what makes this the quick option rather than a
-    // second issue tracker.
-    // Translators: A link in the About dialog to a short feedback form.
-    dialog.add_link(t("Quick feedback (1 minute)"), FEEDBACK_FORM_URL);
-    dialog.add_legal_section("GTK · libadwaita", None, gtk::License::Lgpl21, None);
-    dialog.add_legal_section(
+    let arrow = gtk::Image::from_icon_name("adw-external-link-symbolic");
+    arrow.add_css_class("dim-label");
+    row.add_suffix(&arrow);
+    row.connect_activated(move |row| {
+        let parent = row.root().and_downcast::<gtk::Window>();
+        gtk::UriLauncher::new(url).launch(
+            parent.as_ref(),
+            gio::Cancellable::NONE,
+            |_res: Result<(), glib::Error>| {},
+        );
+    });
+    row
+}
+
+/// A row that only states a fact: the version, or what a bundled program is
+/// licensed under.
+fn fact_row(title: &str, value: &str) -> adw::ActionRow {
+    adw::ActionRow::builder()
+        .title(title)
+        .subtitle(value)
+        .css_classes(["property"])
+        .build()
+}
+
+/// The About dialog: Details, Feedback, Licenses, in that order, because that
+/// is the order someone reads them in — what this is, how to say something
+/// about it, what it is made of.
+///
+/// `AdwAboutDialog` is not used: its pages are fixed (Details, Report an
+/// Issue, Legal), it buries extra links one level down under Details, and it
+/// cannot put the issue tracker and the form together under one heading.
+///
+/// The version is the crate's, so a release bumps `Cargo.toml` and nothing
+/// here. The licences name what a download carries besides Gifkino's own MIT
+/// code: the GTK stack it links against and the two programs it drives as
+/// subprocesses, which are the copyleft ones. Statically linked crates are
+/// not listed — a licence name in a dialog is not attribution, and their
+/// texts belong in the bundled third-party notice file.
+fn about_dialog() -> adw::PreferencesDialog {
+    let dialog = adw::PreferencesDialog::builder()
+        .title(t("About"))
+        .content_width(420)
+        .build();
+    let page = adw::PreferencesPage::new();
+
+    let heading = gtk::Box::new(gtk::Orientation::Vertical, 6);
+    heading.set_margin_bottom(6);
+    let icon = gtk::Image::from_icon_name(crate::desktop::APP_ID);
+    icon.set_pixel_size(96);
+    icon.set_accessible_role(gtk::AccessibleRole::Presentation);
+    let name = gtk::Label::new(Some("Gifkino"));
+    name.add_css_class("title-1");
+    let by = gtk::Label::new(Some("zbcoding"));
+    by.add_css_class("dim-label");
+    heading.append(&icon);
+    heading.append(&name);
+    heading.append(&by);
+    let banner = adw::PreferencesGroup::new();
+    banner.add(&heading);
+    page.add(&banner);
+
+    let details = adw::PreferencesGroup::builder().title(t("Details")).build();
+    details.add(&fact_row(t("Version"), env!("CARGO_PKG_VERSION")));
+    details.add(&link_row(
+        t("Repository"),
+        "github.com/zbcoding/gifkino",
+        REPOSITORY_URL,
+    ));
+    page.add(&details);
+
+    let feedback = adw::PreferencesGroup::builder()
+        .title(t("Feedback"))
+        .build();
+    feedback.add(&link_row(
+        t("Report an issue on GitHub"),
+        // Translators: Why this is the first of the two feedback rows.
+        t("Tracked and answered. Needs a GitHub account."),
+        ISSUES_URL,
+    ));
+    feedback.add(&link_row(
+        t("Quick feedback form"),
+        // Translators: The second feedback row, for a user with no account.
+        t("About a minute, no account needed."),
+        FEEDBACK_FORM_URL,
+    ));
+    page.add(&feedback);
+
+    let licenses = adw::PreferencesGroup::builder()
+        .title(t("Licenses"))
+        .description("© 2026 zbcoding")
+        .build();
+    licenses.add(&fact_row("Gifkino", "MIT"));
+    licenses.add(&fact_row("GTK · libadwaita", "LGPL-2.1-or-later"));
+    // Ubuntu builds ffmpeg with --enable-gpl and the flatpak does not; either
+    // way it is a separate program, not linked in.
+    licenses.add(&fact_row(
         "FFmpeg",
-        None,
-        gtk::License::Custom,
-        // Ubuntu builds it with --enable-gpl and the flatpak does not; either
-        // way it is a separate program, not linked in.
-        Some("LGPL-2.1-or-later, or GPL-2.0-or-later where built with --enable-gpl."),
-    );
-    dialog.add_legal_section("Gifsicle", None, gtk::License::Gpl20, None);
+        "LGPL-2.1-or-later (GPL-2.0-or-later in GPL-enabled builds)",
+    ));
+    licenses.add(&fact_row("Gifsicle", "GPL-2.0-or-later"));
+    page.add(&licenses);
+
+    dialog.add(&page);
     dialog
 }
 

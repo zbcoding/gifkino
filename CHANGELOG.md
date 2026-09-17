@@ -4,13 +4,16 @@
 
 ### About
 
-- The menu's About item opens a dialog instead of being greyed out: the app
-  name, icon and the crate's version, the repository, and a Legal page whose
-  sections name Gifkino's own MIT licence, the GTK/libadwaita stack it links
-  against, and the ffmpeg and gifsicle programs it drives — the copyleft ones
-  the flatpak and the AppImage carry. Feedback has two doors: "Report an
-  Issue" is the tracked one, and a one-minute form sits beside the repository
-  link under Details for anyone without a GitHub account.
+- The menu's About item opens a dialog instead of being greyed out. Three
+  sections, in reading order: **Details** (the crate's version and the
+  repository), **Feedback**, and **Licenses** — Gifkino's own MIT, the
+  GTK/libadwaita stack it links against, and the ffmpeg and gifsicle programs
+  it drives, which are the copyleft ones the flatpak and the AppImage carry.
+  Statically linked crates are not listed: a licence name in a dialog is not
+  attribution, and their texts belong in the bundled notice file.
+- Feedback offers the issue tracker first — it is the one that gets tracked
+  and answered — and a one-minute form under it for anyone without a GitHub
+  account. Each row says what it costs before the browser opens.
 
 ## 0.1.2 — 2026-09-06
 ### Export
