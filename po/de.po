@@ -1298,8 +1298,8 @@ msgstr "Tastenkürzel…"
 #. AI-generated translation; human review requested.
 #: src/ui/window.rs:5373
 #, fuzzy
-msgid "No document"
-msgstr "Kein Dokument"
+msgid "Open Image"
+msgstr "Bild öffnen"
 
 #. AI-generated translation; human review requested.
 #: src/ui/window.rs:5374

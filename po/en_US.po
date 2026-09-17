@@ -908,8 +908,8 @@ msgid "Keyboard shortcuts…"
 msgstr "Keyboard shortcuts…"
 
 #: src/ui/window.rs:5373
-msgid "No document"
-msgstr "No document"
+msgid "Open Image"
+msgstr "Open Image"
 
 #: src/ui/window.rs:5374
 msgid "Open a video or GIF to start editing"

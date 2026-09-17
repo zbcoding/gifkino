@@ -1298,8 +1298,8 @@ msgstr "キーボードショートカット…"
 #. AI-generated translation; human review requested.
 #: src/ui/window.rs:5373
 #, fuzzy
-msgid "No document"
-msgstr "ドキュメントがありません"
+msgid "Open Image"
+msgstr "画像を開く"
 
 #. AI-generated translation; human review requested.
 #: src/ui/window.rs:5374

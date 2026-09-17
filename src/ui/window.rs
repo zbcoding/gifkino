@@ -5370,7 +5370,7 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
     // Empty state doubles as the welcome screen.
     let status = adw::StatusPage::builder()
         .icon_name("image-x-generic-symbolic")
-        .title(t("No document"))
+        .title(t("Open Image"))
         .description(t("Open a video or GIF to start editing"))
         .build();
     let welcome_buttons = gtk::Box::new(gtk::Orientation::Horizontal, 12);
