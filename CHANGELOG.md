@@ -21,6 +21,18 @@
   names what the page is for instead of the state the window is in. The
   description and the pill button keep their wording.
 
+### Packaging
+
+- Releases carry a third asset, `Gifkino-flatpark-x86_64.tar.xz`: the `/app`
+  tree out of the same flatpak-builder run that produces `Gifkino.flatpak`,
+  published for the FlatPark remote to stage as extra-data. FlatPark rebuilds
+  nothing and rehosts nothing, so it previously had only the AppImage to
+  repackage — a second, noble-built GTK stack inside a GNOME runtime, drifting
+  from the bundle release by release. Both channels now ship one lineage: one
+  binary, one ffmpeg, one gifsicle, one set of catalogs. `docs/release.md`
+  records what the asset promises, and the release job fails if the tree is
+  missing a helper or the catalogs.
+
 ## 0.1.2 — 2026-09-06
 ### Export
 

@@ -51,6 +51,55 @@ skips them entirely and the failure looks worse than it is.
    desktop entry there, not at build time, so a bundle can build and still
    refuse to install.
 
+## The FlatPark asset
+
+Each release also carries `Gifkino-flatpark-x86_64.tar.xz`: the `/app` tree
+from the same `flatpak-builder` run that produces `Gifkino.flatpak`, packed
+straight out of `build-dir/files`. It exists because
+[FlatPark](https://flatpark.org) is a signed flatpak remote whose packages are
+all **extra-data** — it never rebuilds an app and never rehosts one, so it can
+take neither the bundle (a repo commit, installable only by `flatpak install
+--bundle`) nor, sensibly, the AppImage, which would drag a second noble-built
+GTK stack into a GNOME runtime and drift from this bundle release by release.
+Handing FlatPark the bundle's own contents keeps one lineage: one `gifkino`
+binary, one ffmpeg, one gifsicle, one set of catalogs, whichever channel a
+user installs from.
+
+What the asset promises, and what breaks if a change here stops being true:
+
+1. **It is the `/app` tree, contents at the archive root** — `bin/`, `lib/`,
+   `share/`. No top-level directory to strip.
+2. **It is relocatable.** FlatPark unpacks it at `/app/extra/gifkino`, not
+   `/app`, so nothing in it may depend on its own absolute path. Two things
+   currently would, and its wrapper sets both: `GIFKINO_PO_DIR` at
+   `share/gifkino/po` (`i18n.rs` walks four levels up from the executable and
+   then falls back to `/app/share/gifkino/po`, neither of which lands there),
+   and `PATH` at `bin/` (`pipeline/caps.rs` probes `ffmpeg`, `ffprobe` and
+   `gifsicle` by name). **Anything new that resolves a path at runtime must
+   either be found relative to the executable or get an env var, and the
+   FlatPark wrapper has to learn about it** — a new helper binary is fine
+   because `PATH` already covers `bin/`.
+3. **It carries the helper programs and the catalogs.** The workflow asserts
+   `bin/gifkino`, `bin/ffmpeg`, `bin/ffprobe`, `bin/gifsicle`,
+   `share/gifkino/po` and `share/applications/<app-id>.desktop` are present
+   and fails the release if one is missing.
+4. **It targets `org.gnome.Platform//50`**, because that is what the manifest
+   built it against. Bumping `RUNTIME_VERSION` in the workflow, or the
+   `runtime-version` in the manifest, is a change FlatPark has to follow in
+   [its own manifest](https://github.com/flatpark/flatpark/tree/main/registry/io.github.zbcoding.Gifkino)
+   — the tree's `libgtk` comes from the runtime, so a mismatch is an install
+   that starts against the wrong GTK or does not start at all. Say so in the
+   release notes when it moves.
+5. **The desktop entry, icon and metainfo in the tree are not what FlatPark
+   exports.** Extra-data is fetched on the user's machine, long after the
+   flatpak is built, so FlatPark ships its own copies of all three from its
+   registry directory. Changing ours (a new MIME type, a renamed icon) means
+   opening a PR there too.
+
+The `xdg/` files and this asset are the only two places a packaging change has
+to be mirrored outside this repository. Nothing about the AppImage feeds
+FlatPark any more.
+
 ## Ship it
 
 ```bash

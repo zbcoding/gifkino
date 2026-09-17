@@ -115,6 +115,41 @@ jobs:
         flatpak run --command=ffprobe "$APP_ID" -version | head -1
         flatpak run --command=gifsicle "$APP_ID" --version | head -1
         flatpak run --command=ls "$APP_ID" /app/share/gifkino/po
+
+    # The FlatPark asset. FlatPark is a signed flatpak remote whose packages are
+    # all extra-data: it never rebuilds an app and never rehosts one, so it
+    # cannot consume Gifkino.flatpak (a bundle is a repo commit, installable
+    # only by `flatpak install --bundle`) and it should not be handed the
+    # AppImage either — that image carries a whole second GTK stack built on
+    # noble, which inside a GNOME runtime is both redundant and a source of
+    # version skew against this bundle.
+    #
+    # So publish what the bundle is made of: the /app tree from this very
+    # build, one tarball, same bytes. FlatPark stages it under /app/extra and
+    # runs it against org.gnome.Platform//50 — the same runtime this job built
+    # against — so both channels ship one lineage: one binary, one ffmpeg, one
+    # gifsicle, one set of catalogs. The contract this asset promises is
+    # documented in docs/release.md; the guard below is what keeps it true.
+    - name: Pack the /app tree for FlatPark
+      run: |
+        tar -C build-dir/files --numeric-owner --owner=0 --group=0 \
+          -cJf "Gifkino-flatpark-x86_64.tar.xz" .
+        # Relocatable: FlatPark unpacks this at /app/extra/gifkino, not /app, so
+        # its wrapper points GIFKINO_PO_DIR and PATH into the tree. Everything
+        # the app needs must therefore be *in* the tree and found through those
+        # two, which is what these paths are.
+        for path in bin/gifkino bin/ffmpeg bin/ffprobe bin/gifsicle \
+                    share/gifkino/po share/applications/$APP_ID.desktop; do
+          test -e "build-dir/files/$path" \
+            || { echo "::error::$path missing from the /app tree"; exit 1; }
+        done
+        bsdtar -tf "Gifkino-flatpark-x86_64.tar.xz" >/dev/null
+        ls -l "Gifkino-flatpark-x86_64.tar.xz"
+    - uses: actions/upload-artifact@v4
+      with:
+        name: Gifkino-flatpark-x86_64.tar.xz
+        path: Gifkino-flatpark-x86_64.tar.xz
+        if-no-files-found: error
     - uses: actions/upload-artifact@v4
       with:
         name: Gifkino.flatpak
@@ -147,9 +182,20 @@ jobs:
         - **AppImage** (`Gifkino-x86_64.AppImage`) — built against glibc 2.39,
           so it needs Ubuntu 24.04, Debian 13, Fedora 40 or newer. Bundles the
           same helper programs. `chmod +x` it and run it.
+
+        Not a download — **`Gifkino-flatpark-x86_64.tar.xz`** is the `/app` tree
+        out of the same build as `Gifkino.flatpak`, published for the
+        [FlatPark](https://flatpark.org/apps/io.github.zbcoding.Gifkino) remote
+        to stage as extra-data. It is not a standalone program: it expects
+        `org.gnome.Platform//50` around it. Install from FlatPark instead:
+
+        ```
+        flatpak remote-add --if-not-exists flatpark https://dl.flatpark.org/flatpark.flatpakrepo
+        flatpak install flatpark io.github.zbcoding.Gifkino
+        ```
         EOF
         gh release create "${GITHUB_REF_NAME}" \
           --repo "${GITHUB_REPOSITORY}" \
           --title "${GITHUB_REF_NAME}" \
           --notes-file notes.md \
-          Gifkino-x86_64.AppImage Gifkino.flatpak
+          Gifkino-x86_64.AppImage Gifkino.flatpak Gifkino-flatpark-x86_64.tar.xz
