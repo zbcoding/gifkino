@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.3 — 2026-09-17
 
 ### About
 
@@ -14,6 +14,12 @@
 - Feedback offers the issue tracker first — it is the one that gets tracked
   and answered — and a one-minute form under it for anyone without a GitHub
   account. Each row says what it costs before the browser opens.
+
+### Welcome screen
+
+- The empty state's heading reads "Open Image" rather than "No document": it
+  names what the page is for instead of the state the window is in. The
+  description and the pill button keep their wording.
 
 ## 0.1.2 — 2026-09-06
 ### Export
