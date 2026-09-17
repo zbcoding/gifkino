@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### About
+
+- The menu's About item opens a dialog instead of being greyed out: the app
+  name, icon and the crate's version, the repository, and a Legal page whose
+  sections name Gifkino's own MIT licence, the GTK/libadwaita stack it links
+  against, and the ffmpeg and gifsicle programs it drives — the copyleft ones
+  the flatpak and the AppImage carry. Feedback has two doors: "Report an
+  Issue" is the tracked one, and a one-minute form sits beside the repository
+  link under Details for anyone without a GitHub account.
+
 ## 0.1.2 — 2026-09-06
 ### Export
 

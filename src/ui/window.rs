@@ -5174,6 +5174,50 @@ fn shortcuts_dialog(
     dialog.present(Some(root));
 }
 
+/// Where the About dialog points. The issue tracker is the one that gets
+/// tracked and answered, so it keeps the top-level "Report an Issue" row; the
+/// form is the minute-long alternative for someone with feedback and no GitHub
+/// account, and sits with the repository link under Details.
+const REPOSITORY_URL: &str = "https://github.com/zbcoding/gifkino";
+const ISSUES_URL: &str = "https://github.com/zbcoding/gifkino/issues";
+const FEEDBACK_FORM_URL: &str = "https://tally.so/r/A7kKVz";
+
+/// The About dialog. The version is the crate's, so a release bumps
+/// `Cargo.toml` and nothing here.
+///
+/// The legal sections name what a download carries besides Gifkino's own MIT
+/// code: the GTK stack it links against and the two programs it drives as
+/// subprocesses, which are the copyleft ones. Statically linked crates are not
+/// listed — a licence name in a dialog is not attribution, and their texts
+/// belong in the bundled third-party notice file.
+fn about_dialog() -> adw::AboutDialog {
+    let dialog = adw::AboutDialog::builder()
+        .application_name("Gifkino")
+        .application_icon(crate::desktop::APP_ID)
+        .developer_name("zbcoding")
+        .version(env!("CARGO_PKG_VERSION"))
+        .website(REPOSITORY_URL)
+        .issue_url(ISSUES_URL)
+        .copyright("© 2026 zbcoding")
+        .license_type(gtk::License::MitX11)
+        .build();
+    // The parenthetical is what makes this the quick option rather than a
+    // second issue tracker.
+    // Translators: A link in the About dialog to a short feedback form.
+    dialog.add_link(t("Quick feedback (1 minute)"), FEEDBACK_FORM_URL);
+    dialog.add_legal_section("GTK · libadwaita", None, gtk::License::Lgpl21, None);
+    dialog.add_legal_section(
+        "FFmpeg",
+        None,
+        gtk::License::Custom,
+        // Ubuntu builds it with --enable-gpl and the flatpak does not; either
+        // way it is a separate program, not linked in.
+        Some("LGPL-2.1-or-later, or GPL-2.0-or-later where built with --enable-gpl."),
+    );
+    dialog.add_legal_section("Gifsicle", None, gtk::License::Gpl20, None);
+    dialog
+}
+
 fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<App>) -> Widgets {
     let keymap = model.keymap.clone();
     let title = adw::WindowTitle::new("Untitled", "");
@@ -6039,6 +6083,14 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
         });
         actions.add_action(&action);
     }
+    // The menu item shipped before the dialog did; without this action GTK
+    // greys it out.
+    let about = gio::SimpleAction::new("about", None);
+    {
+        let root = root.clone();
+        about.connect_activate(move |_, _| about_dialog().present(Some(&root)));
+    }
+    actions.add_action(&about);
     for (name, dialog) in [
         ("optimize-remove", OptimizeDialog::Remove),
         ("optimize-smart", OptimizeDialog::Smart),
