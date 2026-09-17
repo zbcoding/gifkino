@@ -70,7 +70,7 @@ jobs:
           0)   echo "exited cleanly" ;;
           *)   echo "::error::AppImage exited $code on startup"; exit 1 ;;
         esac
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v7
       with:
         name: Gifkino-x86_64.AppImage
         path: Gifkino-x86_64.AppImage
@@ -148,12 +148,12 @@ jobs:
         # reads a plain POSIX tar.xz without argument.
         tar -tJf "Gifkino-flatpark-x86_64.tar.xz" >/dev/null
         ls -l "Gifkino-flatpark-x86_64.tar.xz"
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v7
       with:
         name: Gifkino-flatpark-x86_64.tar.xz
         path: Gifkino-flatpark-x86_64.tar.xz
         if-no-files-found: error
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v7
       with:
         name: Gifkino.flatpak
         path: Gifkino.flatpak
