@@ -48,6 +48,9 @@ or `git checkout --` over changes you didn't make.
 
 # General
 
+## Documenting tools
+Maintain papercuts.md, a global log shared by all sessions of anything that slowed down development. When you lose time to one mid-session, append date · symptom · fix · project. Check this file first when tooling fails mysteriously.
+
 ## Cyclomatic Complexity
 ### Prevent AI slop code. Ask: Would a human software developer want to read this?
 Count the:
@@ -183,15 +186,11 @@ If `semble` is not on `$PATH`, use `uvx --from "semble[mcp]" semble` in its plac
 
 1. **Run tests**
 2. **Check formatting**
-3. **Keep diffs rebase-friendly**: Small, focused changes; don't touch naming or file structures
-4. **Avoid renaming** — If a refactor needs naming changes, coordinate with upstream first or defer it
-7. **Keep commit messages generic** — Use "reference implementation" rather than trademarked names
 
 ## Translation & Localization
 
-Standard gettext `.po` catalogs in `po/`, the same format Impasto uses. The
-differences are that the msgids are Rust string literals rather than C# ones,
-and that the app reads the `.po` directly — there is no `msgfmt` step and no
+Standard gettext `.po` catalogs in `po/`, with Rust string literals as msgids.
+The app parses the `.po` directly at startup — there is no `msgfmt` step and no
 `.mo`. Compiling to `.mo` only ever bought lookup speed, which a few hundred
 strings do not need, and it would cost a build step plus an install prefix this
 app does not have yet.
@@ -213,8 +212,7 @@ app does not have yet.
 - Never build a string by concatenating translated fragments, and never
   lowercase one: German capitalizes its nouns.
 
-Workflow — Impasto's `make updatepotfiles` and `make updatepot` are one script
-here, since there is no Makefile:
+Workflow — one script, since there is no Makefile:
 
 ```bash
 scripts/i18n.py potfiles   # rescan src/ and rewrite po/POTFILES.in
@@ -236,9 +234,15 @@ picks up an edit with no install.
 
 - AI-generated translations must be marked in each PO entry with `#. AI-generated translation; human review requested.`
 - Add a descriptive `#. Translators: ...` note immediately above the AI-generated marker, so the entry reads `Translators` note, then AI-generated marker, then `msgid`/`msgstr`, and carry a `#, fuzzy` flag so review tools treat the entry as unfinished
-- Unlike `msgfmt`, the runtime **uses** fuzzy entries rather than dropping them.
-  Here fuzzy means "AI draft, not yet reviewed", and a draft nobody can see is a
-  draft nobody will ever correct.
+- The runtime **uses** fuzzy entries rather than dropping them. Here fuzzy means
+  "AI draft, not yet reviewed", and a draft nobody can see is a draft nobody
+  will ever correct.
+- **Translations move in lockstep with their msgids.** Editing a user-facing
+  string means editing the `msgid` and every `msgstr` across all of `po/*.po`;
+  a changed `msgid` with an untouched `msgstr` silently orphans that translation
+  and the string falls back to English. Watch for collisions with an existing
+  entry — merge rather than rename into a duplicate. Verify with
+  `scripts/i18n.py check`.
 
 ## Keybindings
 User can set custom keybindings for everything. They're saved in a keybindings file.
@@ -317,10 +321,9 @@ moment of use:
 A missing capability disables its action rather than failing mid-task, so a
 build with no ffmpeg still opens GIFs and exports them.
 
-## Rebase Strategy & Constraints
-
-Weigh a change against the conflict it will cause; do not treat a one-line edit there as free.
+## Marking simplifications
 
 **Mark simplifications with `ponytail:` comments** that name the cost ceiling and upgrade path. This signals intentional shortcuts, not ignorance.
 
-**Translations move in lockstep with their msgids.** Rebranding a user-facing string means editing the `msgid` and every `msgstr` that renders the old name across all of `po/*.po`. A changed `msgid` with an untouched `msgstr` silently orphans that translation and the string falls back to English. Watch for collisions with an existing entry (duplicates make `msgfmt` reject the file — merge rather than rename into one) and for inflected or transliterated forms (`Pinty`, `Pinto`, `Пинта`, `பிண்டா`) that a literal search misses. Verify with `msgfmt -c` over every catalogue.
+## Releases/Deploys
+Check release.md
