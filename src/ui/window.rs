@@ -830,6 +830,23 @@ impl App {
         self.scope().resolve(self.playhead, self.frame_count())
     }
 
+    fn set_scope_delay(&mut self, cs: u16, sender: &ComponentSender<Self>) {
+        let frames = self.scope_frames();
+        if frames.is_empty() {
+            return;
+        }
+        let total = self.frame_count();
+        let touched = frames.len();
+        let (change, _) = self
+            .editor
+            // Translators: Past-tense edit name, used inside "{change} on {count} frames".
+            .edit(n("Delay set"), touched, |d| {
+                d.set_delay_at(&frames, cs.max(1))
+            });
+        self.after_edit();
+        self.toast_if_document_wide(sender, &change, total);
+    }
+
     /// Overlays sitting on `frame`, in document order.
     fn overlays_on(&self, frame: usize) -> Vec<OverlayId> {
         self.editor
@@ -1431,22 +1448,7 @@ impl Component for App {
                 }
                 move_frame_dialog(root, i, self.frame_count(), &sender);
             }
-            Msg::SetScopeDelay(cs) => {
-                let frames = self.scope_frames();
-                if frames.is_empty() {
-                    return;
-                }
-                let total = self.frame_count();
-                let touched = frames.len();
-                let (change, _) = self
-                    .editor
-                    // Translators: Past-tense edit name, used inside "{change} on {count} frames".
-                    .edit(n("Delay set"), touched, |d| {
-                        d.set_delay_at(&frames, cs.max(1))
-                    });
-                self.after_edit();
-                self.toast_if_document_wide(&sender, &change, total);
-            }
+            Msg::SetScopeDelay(cs) => self.set_scope_delay(cs, &sender),
             Msg::DelayAllDialog => {
                 if self.frame_count() == 0 {
                     return;
@@ -2008,6 +2010,16 @@ impl Component for App {
             Msg::Notice(text) => Some((text.clone(), false)),
             _ => None,
         };
+        // A delay typed into the spin stays uncommitted text until Enter or
+        // focus-out, and a thumbnail click takes no focus. Left alone, a
+        // seek either threw the typed value away or — when the next frame's
+        // delay matched the spin's stale value, so `set_spin` skipped the
+        // write — kept showing it, then committed it onto the new frame at
+        // the next focus-out. Commit it here, onto the frames it was typed
+        // for, before this message can move the playhead or change the scope.
+        if let Some(cs) = commit_typed(&widgets.frame_delay, &widgets.sync) {
+            self.set_scope_delay(cs as u16, &sender);
+        }
         self.update(msg, sender.clone(), root);
         self.schedule_estimate(&sender);
         if let Some((text, undoable)) = toast {
@@ -2405,9 +2417,12 @@ impl Component for App {
         // summary: which overlay to show, or which overlay's properties to
         // edit, has no single answer across several frames at once.
         let multi = in_scope.len() > 1;
-        widgets
-            .frame_delay
-            .set_sensitive(count > 0 && self.busy.is_none());
+        // Playback rewrites this every tick; typing into it would land on
+        // whichever frame the next tick shows.
+        set_sensitive_releasing_focus(
+            &widgets.frame_delay,
+            count > 0 && self.busy.is_none() && !self.playing,
+        );
         if let Some(frame) = self.editor.doc.frames.get(self.playhead) {
             set_spin(&widgets.frame_delay, frame.delay_cs as f64);
         }
@@ -7557,6 +7572,34 @@ fn no_focus_steal(widget: &impl IsA<gtk::Widget>) {
     widget.as_ref().set_focus_on_click(false);
 }
 
+/// Commit whatever the user has typed into `spin` without it reaching the
+/// spin's own handler, returning the new value if the typing changed it. A
+/// spin holds typed text uncommitted until Enter or focus-out; the caller
+/// applies the value itself, to the target the text was typed for, before
+/// the model moves on and the handler would apply it somewhere else.
+fn commit_typed(spin: &gtk::SpinButton, sync: &Cell<bool>) -> Option<f64> {
+    let shown = spin.value();
+    sync.set(true);
+    spin.update();
+    sync.set(false);
+    ((spin.value() - shown).abs() > 0.001).then(|| spin.value())
+}
+
+/// `set_sensitive`, but a widget being greyed out while it holds the keyboard
+/// focus hands the focus back to the window first. GTK leaves the focus on an
+/// insensitive widget without a focus-out, so a text field keeps its cursor
+/// blinking and warns "GtkText - did not receive a focus-out event".
+fn set_sensitive_releasing_focus(widget: &impl IsA<gtk::Widget>, sensitive: bool) {
+    let widget = widget.as_ref();
+    if !sensitive
+        && widget.state_flags().contains(gtk::StateFlags::FOCUS_WITHIN)
+        && let Some(root) = widget.root()
+    {
+        root.set_focus(None::<&gtk::Widget>);
+    }
+    widget.set_sensitive(sensitive);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -8825,6 +8868,7 @@ mod tests {
             return;
         }
         syncing_a_colour_and_width_pair_sends_nothing_back();
+        a_typed_delay_commits_once_and_not_onto_the_next_frame();
         the_rotate_cursor_texture_decodes();
         the_tool_icons_resolve();
         the_shortcuts_controller_runs_before_the_focused_widget();
@@ -9290,6 +9334,43 @@ mod tests {
             assert_eq!(want.upcast_ref::<gtk::Widget>(), got, "order preserved");
         }
         popover.unparent();
+    }
+
+    /// The delay field after Smart remove: type a delay for one frame, click
+    /// another thumbnail (which takes no focus, so nothing commits), and the
+    /// typed value used to land on the second frame at the next focus-out.
+    fn a_typed_delay_commits_once_and_not_onto_the_next_frame() {
+        let sync = Rc::new(Cell::new(false));
+        let spin = gtk::SpinButton::with_range(1.0, u16::MAX as f64, 1.0);
+        spin.set_value(28.0);
+        // What the real handler would send: only changes seen unguarded.
+        let sent = Rc::new(RefCell::new(Vec::new()));
+        {
+            let (sent, sync) = (sent.clone(), sync.clone());
+            spin.connect_value_changed(move |s| {
+                if !sync.get() {
+                    sent.borrow_mut().push(s.value());
+                }
+            });
+        }
+
+        assert_eq!(commit_typed(&spin, &sync), None, "nothing typed");
+        spin.set_text("7");
+        assert_eq!(commit_typed(&spin, &sync), Some(7.0));
+        assert!(
+            sent.borrow().is_empty(),
+            "the caller applies it, not the handler"
+        );
+        assert!(!sync.get(), "the guard is released again");
+
+        // Next frame holds 7 too: set_spin skips the write, and a later
+        // focus-out must find nothing left to commit onto it.
+        set_spin(&spin, 7.0);
+        spin.update();
+        assert!(
+            sent.borrow().is_empty(),
+            "the typed value landed on the next frame"
+        );
     }
 
     fn syncing_a_colour_and_width_pair_sends_nothing_back() {
