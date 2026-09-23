@@ -7,6 +7,26 @@ use image::RgbaImage;
 
 use super::model::{Document, Frame, Overlay, OverlayId};
 
+/// How much two frames differ, measured on the cached thumbnails rather than
+/// the full frames: a 72px-wide thumbnail is enough to tell a still section
+/// from a moving one, at three orders of magnitude less work. Mean channel
+/// difference in hundredths of a level; thumbnails that do not line up count
+/// as maximally different.
+fn thumb_diff(a: &Frame, b: &Frame) -> u64 {
+    if a.thumb.dimensions() != b.thumb.dimensions() {
+        return u32::MAX as u64;
+    }
+    let diff: u64 = a
+        .thumb
+        .as_raw()
+        .chunks_exact(4)
+        .zip(b.thumb.as_raw().chunks_exact(4))
+        .map(|(a, b)| (0..3).map(|c| a[c].abs_diff(b[c]) as u64).sum::<u64>())
+        .sum();
+    let pixels = (a.thumb.width() * a.thumb.height()).max(1) as u64;
+    diff * 100 / (pixels * 3)
+}
+
 impl Document {
     /// Delete the frames `keep` returns false for, moving each dropped frame's
     /// delay onto the previous surviving frame so total duration is preserved,
@@ -360,53 +380,77 @@ impl Document {
         }
     }
 
-    /// Motion per frame: how much it differs from the one before it, measured
-    /// on the cached thumbnails rather than the full frames. A 72px-wide
-    /// thumbnail is enough to tell a static section from a moving one, and it
-    /// is three orders of magnitude less work than the real pixels.
-    pub fn motion_scores(&self) -> Vec<u32> {
-        let mut scores = Vec::with_capacity(self.frames.len());
-        for (i, frame) in self.frames.iter().enumerate() {
-            let Some(prev) = i.checked_sub(1).and_then(|j| self.frames.get(j)) else {
-                // Nothing to compare the first frame against, and it is never
-                // a candidate for removal anyway.
-                scores.push(u32::MAX);
-                continue;
-            };
-            if prev.thumb.dimensions() != frame.thumb.dimensions() {
-                scores.push(u32::MAX);
-                continue;
-            }
-            let diff: u64 = prev
-                .thumb
-                .as_raw()
-                .chunks_exact(4)
-                .zip(frame.thumb.as_raw().chunks_exact(4))
-                .map(|(a, b)| (0..3).map(|c| a[c].abs_diff(b[c]) as u64).sum::<u64>())
-                .sum();
-            let pixels = (frame.thumb.width() * frame.thumb.height()).max(1) as u64;
-            scores.push((diff * 100 / (pixels * 3)).min(u32::MAX as u64) as u32);
-        }
-        scores
-    }
-
-    /// Drop the `count` frames that move the least, which is what "smart" means
-    /// here: a pause loses frames before a pan does. Duration is preserved, so
-    /// the result plays at the same speed with fewer frames in it.
+    /// Drop the `count` frames whose loss shows the least, which is what
+    /// "smart" means here: a pause loses frames before a pan does. Duration is
+    /// preserved, so the result plays at the same speed with fewer frames.
+    ///
+    /// Removing a frame leaves the kept frame before it on screen in its
+    /// place for as long as it was held — its own delay plus whatever it had
+    /// already absorbed — so that is its cost: how far it differs from the
+    /// kept predecessor, times that hold. The removal is greedy and both
+    /// factors are updated after every drop. Scoring once against the
+    /// original neighbours let a slow pan, where each step is small, lose a
+    /// whole run in a row, piling the run's delay onto one frame: a long hold
+    /// and then a jump. Identical frames still cost nothing, so a true pause
+    /// still collapses into one frame without changing what plays.
     pub fn drop_low_motion(&mut self, count: usize) {
-        if count == 0 || self.frames.len() <= 1 {
+        let n = self.frames.len();
+        let count = count.min(n.saturating_sub(1));
+        if count == 0 {
             return;
         }
-        let scores = self.motion_scores();
-        let mut order: Vec<usize> = (1..self.frames.len()).collect();
-        // Ties break towards the later frame so a long static run thins from
-        // the end rather than leaving a gap at its start.
-        order.sort_by_key(|i| (scores[*i], std::cmp::Reverse(*i)));
-        let doomed: std::collections::HashSet<usize> = order
-            .into_iter()
-            .take(count.min(self.frames.len() - 1))
+        // Doubly linked over the surviving frames; `n` marks the end.
+        let mut prev: Vec<usize> = (0..n).map(|i| i.wrapping_sub(1)).collect();
+        let mut next: Vec<usize> = (1..=n).collect();
+        // `step[i]`: difference from the kept predecessor. `held[i]`: how long
+        // frame i is on screen, in centiseconds, counting absorbed delays. A
+        // zero delay still plays, so it counts as one.
+        let mut step: Vec<u64> = (0..n)
+            .map(|i| match i {
+                0 => 0,
+                _ => thumb_diff(&self.frames[i - 1], &self.frames[i]),
+            })
             .collect();
-        self.retain_frames(|i| !doomed.contains(&i));
+        let mut held: Vec<u64> = self
+            .frames
+            .iter()
+            .map(|f| f.delay_cs.max(1) as u64)
+            .collect();
+        let cost = |step: &[u64], held: &[u64], i: usize| step[i].saturating_mul(held[i]);
+        let mut costs: Vec<u64> = (0..n).map(|i| cost(&step, &held, i)).collect();
+        // Min-heap on cost; ties break towards the later frame so a still run
+        // thins from its end. Entries go stale when a neighbour drops and are
+        // skipped on the way out. Frame 0 is never a candidate.
+        let mut heap: std::collections::BinaryHeap<_> = (1..n)
+            .map(|i| std::cmp::Reverse((costs[i], std::cmp::Reverse(i))))
+            .collect();
+        let mut doomed = vec![false; n];
+        let mut dropped = 0;
+        while dropped < count {
+            let Some(std::cmp::Reverse((c, std::cmp::Reverse(i)))) = heap.pop() else {
+                break;
+            };
+            if doomed[i] || c != costs[i] {
+                continue;
+            }
+            doomed[i] = true;
+            dropped += 1;
+            let (p, nx) = (prev[i], next[i]);
+            // p now covers i's hold, the same way `retain_frames` merges the delay.
+            next[p] = nx;
+            held[p] += held[i];
+            if nx < n {
+                prev[nx] = p;
+                step[nx] = thumb_diff(&self.frames[p], &self.frames[nx]);
+            }
+            for k in [p, nx] {
+                if k != 0 && k < n {
+                    costs[k] = cost(&step, &held, k);
+                    heap.push(std::cmp::Reverse((costs[k], std::cmp::Reverse(k))));
+                }
+            }
+        }
+        self.retain_frames(|i| !doomed[i]);
     }
 
     /// Crop every frame to `rect`, clamped to the canvas. Document-wide by
@@ -1149,12 +1193,6 @@ mod tests {
     fn smart_removal_drops_the_still_frames_and_keeps_the_moving_one() {
         let mut d = moving_doc();
         let before = d.duration_cs();
-        let scores = d.motion_scores();
-        assert!(
-            scores[3] > scores[2],
-            "the change is the busiest frame: {scores:?}"
-        );
-        assert_eq!(scores[1], 0, "a repeat has no motion");
 
         d.drop_low_motion(2);
         assert_eq!(d.frames.len(), 3);
@@ -1177,6 +1215,37 @@ mod tests {
         let mut single = doc(1, 5);
         single.drop_low_motion(1);
         assert_eq!(single.frames.len(), 1);
+    }
+
+    /// The reported bug: a slow pan, every step equally small. Scored once
+    /// against the original neighbours, all steps tied and the removal took
+    /// one contiguous run off the end, piling its delay onto a single frame
+    /// near the end. Scoring against what stays on screen spreads it out.
+    #[test]
+    fn smart_removal_thins_a_slow_pan_evenly_instead_of_piling_up_one_hold() {
+        let mut d = Document::from_frames(
+            (0..10u8)
+                .map(|i| {
+                    Frame::new(
+                        RgbaImage::from_pixel(40, 40, image::Rgba([i * 20, 10, 10, 255])),
+                        5,
+                    )
+                })
+                .collect(),
+        );
+        d.drop_low_motion(5);
+        assert_eq!(
+            d.frames.iter().map(|f| f.delay_cs).collect::<Vec<_>>(),
+            vec![10; 5],
+            "every other frame goes, each survivor holds two slots"
+        );
+        assert_eq!(
+            d.frames
+                .iter()
+                .map(|f| f.pixels.get_pixel(0, 0).0[0])
+                .collect::<Vec<_>>(),
+            vec![0, 40, 80, 120, 160]
+        );
     }
 
     /// Crop is document-wide and takes the overlays with it, so an annotation
