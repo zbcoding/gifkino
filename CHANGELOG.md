@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.4 — 2026-09-23
+
+### Frames
+
+- Smart remove thins a slow pan evenly instead of taking a run of frames in
+  a row. It scored each frame once against its original neighbour, so a
+  steady, small motion lost a contiguous stretch and the stretch's delay
+  landed on one frame near the end — a 30cs hold and then a jump. Frames are
+  now removed one at a time, each costed by how far it differs from the kept
+  frame shown in its place and how long that frame is held. Identical frames
+  still cost nothing, so a real pause still collapses to one frame.
+- A delay typed into the sidebar stays on the frame it was typed for.
+  Clicking another thumbnail without pressing Enter used to discard the
+  typed value, or — when the next frame already held the old value — apply
+  it to that frame the next time the field lost focus. The field is greyed
+  out during playback, which rewrote it every frame.
+
 ## 0.1.3 — 2026-09-17
 
 ### About
