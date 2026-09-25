@@ -3,6 +3,7 @@ pub mod history;
 pub mod model;
 pub mod ops;
 pub mod render;
+pub mod snap;
 
 pub use fit::FitMode;
 pub use history::{Change, Editor};

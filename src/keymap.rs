@@ -31,6 +31,7 @@ pub enum Action {
     ToolEllipse,
     ToolArrow,
     ToolCrop,
+    ToggleSnap,
     FrameDelete,
     FrameDuplicate,
     FrameCut,
@@ -46,7 +47,7 @@ pub enum Action {
 use Action::*;
 
 /// Order is the order the shortcuts window lists them in.
-pub const ACTIONS: [Action; 23] = [
+pub const ACTIONS: [Action; 24] = [
     Open,
     Export,
     Undo,
@@ -60,6 +61,7 @@ pub const ACTIONS: [Action; 23] = [
     ToolEllipse,
     ToolArrow,
     ToolCrop,
+    ToggleSnap,
     FrameDelete,
     FrameDuplicate,
     FrameCut,
@@ -89,6 +91,7 @@ impl Action {
             ToolEllipse => "tool-ellipse",
             ToolArrow => "tool-arrow",
             ToolCrop => "tool-crop",
+            ToggleSnap => "toggle-snap",
             FrameDelete => "frame-delete",
             FrameDuplicate => "frame-duplicate",
             FrameCut => "frame-cut",
@@ -118,6 +121,8 @@ impl Action {
             ToolArrow => n("Arrow tool"),
             // Translators: Draws a box on the canvas for cropping or zooming.
             ToolCrop => n("Crop tool"),
+            // Translators: Toggles pulling dragged overlays onto the canvas edges and centre lines.
+            ToggleSnap => n("Snap to edges and center"),
             FrameDelete => n("Delete frames"),
             FrameDuplicate => n("Duplicate frames"),
             FrameCut => n("Cut frames"),
@@ -139,7 +144,7 @@ impl Action {
         match self {
             Open | Export => n("File"),
             Undo | Redo | Delete | SelectAll | ShowShortcuts | PlayPause => n("Edit"),
-            ToolText | ToolRect | ToolEllipse | ToolArrow | ToolCrop => n("Tools"),
+            ToolText | ToolRect | ToolEllipse | ToolArrow | ToolCrop | ToggleSnap => n("Tools"),
             FrameDelete | FrameDuplicate | FrameReverse | ZoomToSelection => n("Frames"),
             FrameCut | FrameCopy | FramePaste => n("Frames"),
             StripZoomIn | StripZoomOut | StripZoomReset => n("Frames"),
@@ -445,6 +450,7 @@ impl Default for Keymap {
         set(ToolEllipse, &["O"]);
         set(ToolArrow, &["A"]);
         set(ToolCrop, &["C"]);
+        set(ToggleSnap, &["Ctrl+Alt+G"]);
         set(FrameDelete, &[]);
         set(FrameDuplicate, &["Ctrl+D"]);
         set(FrameCut, &["Ctrl+X"]);

@@ -47,7 +47,7 @@ fn render(overlay: &TextOverlay, w: u32, h: u32) -> Result<RgbaImage, cairo::Err
     cr.move_to(0.0, ((h as i32 - text_h) as f64 / 2.0).max(0.0));
     pangocairo::functions::layout_path(&cr, &layout);
 
-    if let Some((color, width)) = overlay.outline {
+    if let Some((color, width)) = overlay.outline.filter(|(_, w)| *w > 0.0) {
         set_color(&cr, color);
         cr.set_line_width(width as f64 * 2.0);
         cr.set_line_join(cairo::LineJoin::Round);

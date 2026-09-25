@@ -21,6 +21,7 @@ use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt};
 
 use crate::core::fit::{self, Splice};
 use crate::core::render::{self, TextRasterizer};
+use crate::core::snap::{self, Guides};
 use crate::core::{
     Change, Document, Editor, FitMode, Frame, OverlayId, OverlayKind, Scope, Shape, ShapeOverlay,
     TextAlign, TextOverlay, Transform,
@@ -113,6 +114,9 @@ const HANDLE_FILL: (f64, f64, f64) = (0.10, 0.30, 1.0);
 /// Rotation constrains to this many steps of a full turn, as Impasto's
 /// transform tool does.
 const ROTATE_STEPS: f32 = 32.0;
+/// How near, in widget pixels, a dragged overlay must come to a canvas edge
+/// or centre line to snap onto it. Impasto's `CANVAS_GUIDE_TOLERANCE`.
+const SNAP_PX: f64 = 8.0;
 /// Impasto's rotate glyph (`resources/README.md`). GTK has no CSS cursor name
 /// for rotation, so it travels as a texture rather than a name.
 const ROTATE_CURSOR: &[u8] = include_bytes!("../../resources/rotate-handle.png");
@@ -169,6 +173,9 @@ pub enum Msg {
     SetScope(ScopeChoice),
     AddOverlay(Tool),
     SelectOverlay(Option<OverlayId>),
+    /// Left click on a band in the strip: the overlay and its whole range
+    /// (`App::select_band`); `None` is a click on empty band space.
+    SelectBand(Option<OverlayId>),
     FrameOp(FrameOp),
     /// Put the frames in scope on the app's frame clipboard, changing
     /// nothing. Cutting is `FrameOp::Cut`, which copies and then deletes.
@@ -235,6 +242,8 @@ pub enum Msg {
         y: f32,
         state: gdk::ModifierType,
     },
+    /// Turn canvas-guide snapping for overlay drags on or off.
+    ToggleSnap,
     CanvasRelease,
     ToggleCropTool,
     /// Esc: leave the crop tool if it is on, otherwise drop the overlay
@@ -446,6 +455,9 @@ struct Drag {
     mode: DragMode,
     /// Where the press landed, in image pixels.
     from: (f32, f32),
+    /// How close, in image pixels, a dragged edge must come to a canvas guide
+    /// to snap: a constant distance on screen, whatever the zoom.
+    snap_reach: f32,
     /// The transform the drag started from, so every motion is computed against
     /// the original rather than accumulating rounding.
     origin: Transform,
@@ -471,6 +483,9 @@ fn scale_in_flight_canvas(
     }
     if let Some(drag) = drag {
         drag.from = (drag.from.0 * fx - dx, drag.from.1 * fy - dy);
+        // Resampled pixels are a different size on screen; the reach is a
+        // screen distance, so it follows them.
+        drag.snap_reach *= fx.min(fy);
         for transform in [&mut drag.origin, &mut drag.current] {
             transform.x = transform.x * fx - dx;
             transform.y = transform.y * fy - dy;
@@ -644,6 +659,10 @@ pub struct App {
     keymap: Rc<RefCell<Keymap>>,
     /// In-flight canvas drag, if any.
     drag: Option<Drag>,
+    /// Whether overlay drags pull onto the canvas edges and centre lines.
+    snap: bool,
+    /// The guides the drag in flight is resting on, drawn while it lasts.
+    guides: Guides,
     /// Crop tool armed, and the rect it has been given, in image pixels.
     crop_tool: bool,
     crop_rect: Option<(f32, f32, f32, f32)>,
@@ -695,6 +714,8 @@ struct Band {
 #[derive(Default)]
 struct CanvasState {
     image: (f32, f32),
+    /// Canvas guides the drag in flight has snapped to.
+    guides: Guides,
     selected: Option<Transform>,
     /// Every overlay on the current frame, so hovering one can promise a drag
     /// before it is the selected one.
@@ -732,8 +753,8 @@ pub struct Widgets {
     properties: gtk::Box,
     text_entry: gtk::Entry,
     text_row: adw::ActionRow,
-    /// The "Properties" group holding `text_row`, hidden while the scope
-    /// names more than one frame — see `frame_group`.
+    /// The "Properties" group holding `text_row`. Past one frame in scope it
+    /// shows only for a picked text overlay — see `frame_group`.
     text_group: adw::PreferencesGroup,
     /// Titled "Frame" for a single frame in scope, or a "N frames selected"
     /// summary once the scope names more than one.
@@ -777,6 +798,7 @@ pub struct Widgets {
     crop_apply: gtk::Button,
     zoom_apply: gtk::Button,
     shrink_apply: gtk::Button,
+    snap_button: gtk::ToggleButton,
     tool_buttons: Vec<(Tool, gtk::Button)>,
     shape_button: adw::SplitButton,
     shape_tool: Rc<Cell<Tool>>,
@@ -912,6 +934,33 @@ impl App {
         self.scope().span(self.playhead, self.frame_count())
     }
 
+    /// The frames an edit to overlay `id` lands on now; see `overlay_edit_span`.
+    fn edit_span(&self, id: OverlayId) -> Range<usize> {
+        let range = self
+            .editor
+            .doc
+            .overlay(id)
+            .map_or(0..0, |o| o.range.clone());
+        overlay_edit_span(range, self.scope_span(), self.playhead)
+    }
+
+    /// A band click: pick the overlay together with every frame it covers, so
+    /// the canvas and the sidebar edit it whole instead of splitting off the
+    /// frame on screen. The frames show as a strip selection, which is what
+    /// says how far the edit will reach.
+    fn select_band(&mut self, id: OverlayId) {
+        let Some(range) = self.editor.doc.overlay(id).map(|o| o.range.clone()) else {
+            return;
+        };
+        let count = self.frame_count();
+        self.leave_crop();
+        self.selected_overlay = Some(id);
+        self.selection = range.clone().filter(|i| *i < count).collect();
+        self.anchor = self.selection.first().copied();
+        self.scope = ScopeChoice::Range;
+        self.seek_to_overlay(id);
+    }
+
     /// The canvas only shows the playhead frame, so an overlay being edited
     /// must sit on it: seek to its first frame rather than edit something
     /// unseen. Unlike a strip seek this is bookkeeping for the panel, not
@@ -999,6 +1048,8 @@ impl Component for App {
             estimate_pending: None,
             keymap: Rc::new(RefCell::new(Keymap::load())),
             drag: None,
+            snap: true,
+            guides: Guides::default(),
             crop_tool: false,
             crop_rect: None,
             bands_expanded: false,
@@ -1325,20 +1376,15 @@ impl Component for App {
             Msg::SelectOverlay(id) => {
                 self.pick_overlay(id);
             }
+            Msg::SelectBand(Some(id)) => self.select_band(id),
+            Msg::SelectBand(None) => self.selected_overlay = None,
             Msg::EditText(text) => {
                 let Some(id) = self.selected_overlay else {
                     return;
                 };
                 // The scope decides which frames the text change lands on; a
                 // narrow scope splits the overlay so the rest keeps its text.
-                let span = overlay_edit_span(
-                    self.editor
-                        .doc
-                        .overlay(id)
-                        .map_or(0..0, |o| o.range.clone()),
-                    self.scope_span(),
-                    self.playhead,
-                );
+                let span = self.edit_span(id);
                 if span.is_empty() {
                     return;
                 }
@@ -1485,14 +1531,7 @@ impl Component for App {
                 self.seek_to_overlay(id);
                 // The scope decides which frames the restyle lands on; a
                 // narrow scope splits the overlay so the rest keeps its style.
-                let span = overlay_edit_span(
-                    self.editor
-                        .doc
-                        .overlay(id)
-                        .map_or(0..0, |o| o.range.clone()),
-                    self.scope_span(),
-                    self.playhead,
-                );
+                let span = self.edit_span(id);
                 if span.is_empty() {
                     return;
                 }
@@ -1538,6 +1577,7 @@ impl Component for App {
                         from: (x, y),
                         origin: Transform::at(x, y, 0.0, 0.0),
                         current: Transform::at(x, y, 0.0, 0.0),
+                        snap_reach: 0.0,
                         moved: false,
                     });
                     return;
@@ -1546,6 +1586,7 @@ impl Component for App {
                 // pointer, or a small overlay could never be resized. The
                 // rotate modifier outranks both, as it does in Impasto.
                 let grab = (HANDLE_PX / scale.max(0.01) as f64) as f32;
+                let snap_reach = (SNAP_PX / scale.max(0.01) as f64) as f32;
                 let rotating = self.keymap.borrow().mods(Modal::Rotate).held(state);
                 let selected = self
                     .selected_overlay
@@ -1561,6 +1602,7 @@ impl Component for App {
                             from: (x, y),
                             origin: transform,
                             current: transform,
+                            snap_reach,
                             moved: false,
                         });
                         return;
@@ -1571,6 +1613,7 @@ impl Component for App {
                             from: (x, y),
                             origin: transform,
                             current: transform,
+                            snap_reach,
                             moved: false,
                         });
                         return;
@@ -1596,6 +1639,7 @@ impl Component for App {
                             from: (x, y),
                             origin: transform,
                             current: transform,
+                            snap_reach,
                             moved: false,
                         });
                     }
@@ -1609,12 +1653,16 @@ impl Component for App {
                     keys.mods(Modal::FromCenter).held(state),
                 );
                 drop(keys);
+                let (image_w, image_h) = self.editor.doc.size();
+                let image = (image_w as f32, image_h as f32);
+                let snap_on = self.snap;
                 let Some(drag) = &mut self.drag else { return };
                 let (dx, dy) = (x - drag.from.0, y - drag.from.1);
                 if dx.abs() < 0.5 && dy.abs() < 0.5 && !drag.moved {
                     return;
                 }
                 drag.moved = true;
+                let mut guides = Guides::default();
                 match drag.mode {
                     DragMode::CropRect => {
                         let (x0, y0) = drag.from;
@@ -1623,10 +1671,15 @@ impl Component for App {
                         return;
                     }
                     DragMode::Move => {
-                        drag.current = Transform {
+                        let moved = Transform {
                             x: drag.origin.x + dx,
                             y: drag.origin.y + dy,
                             ..drag.origin
+                        };
+                        (drag.current, guides) = if snap_on {
+                            snap::snap_box(moved, image, drag.snap_reach)
+                        } else {
+                            (moved, guides)
                         };
                     }
                     DragMode::Resize(corner) => {
@@ -1634,14 +1687,20 @@ impl Component for App {
                         // so both ends of the drag go through it first.
                         let (fx, fy) = drag.origin.to_local(drag.from.0, drag.from.1);
                         let (tx, ty) = drag.origin.to_local(x, y);
-                        let resized = resize_corner(
-                            drag.origin,
-                            corner,
-                            tx - fx,
-                            ty - fy,
-                            keep_aspect,
-                            from_center,
-                        );
+                        let (mut dx, mut dy) = (tx - fx, ty - fy);
+                        // The dragged corner lands wherever the pointer takes
+                        // it, from the centre or not, so that is the point to
+                        // pull. ponytail: only an upright box without Shift
+                        // snaps; a rotated corner or an aspect-locked one
+                        // would need the guide solved back through the resize.
+                        if snap_on && drag.origin.angle == 0.0 && !keep_aspect {
+                            let (cx, cy) = corners(drag.origin)[corner];
+                            let ((sx, sy), pulled) =
+                                snap::snap_point((cx + dx, cy + dy), image, drag.snap_reach);
+                            (dx, dy, guides) = (sx - cx, sy - cy, pulled);
+                        }
+                        let resized =
+                            resize_corner(drag.origin, corner, dx, dy, keep_aspect, from_center);
                         drag.current = pin_anchor(drag.origin, resized, corner, from_center);
                     }
                     DragMode::Rotate => {
@@ -1665,9 +1724,12 @@ impl Component for App {
                 if let Some(o) = id.and_then(|id| self.editor.doc.overlay_mut(id)) {
                     o.transform = current;
                 }
+                self.guides = guides;
                 self.rev += 1;
             }
+            Msg::ToggleSnap => self.snap = !self.snap,
             Msg::CanvasRelease => {
+                self.guides = Guides::default();
                 let Some(drag) = self.drag.take() else { return };
                 if !drag.moved || drag.mode == DragMode::CropRect {
                     return;
@@ -1684,14 +1746,7 @@ impl Component for App {
                 // The scope decides which frames the drag commits to; a scope
                 // narrower than the overlay's range splits it, so the rest of
                 // the frames keep where it was.
-                let span = overlay_edit_span(
-                    self.editor
-                        .doc
-                        .overlay(id)
-                        .map_or(0..0, |o| o.range.clone()),
-                    self.scope_span(),
-                    self.playhead,
-                );
+                let span = self.edit_span(id);
                 if span.is_empty() {
                     return;
                 }
@@ -2158,6 +2213,12 @@ impl Component for App {
             t("Crop or zoom: drag a box on the canvas"),
             Action::ToolCrop,
         )));
+        widgets.snap_button.set_tooltip_text(Some(
+            &keys.tip(t("Snap to edges and center"), Action::ToggleSnap),
+        ));
+        if widgets.snap_button.is_active() != self.snap {
+            widgets.snap_button.set_active(self.snap);
+        }
         // The scope buttons are where multi-frame selection is discoverable at
         // all, so the hint lives on the tooltip rather than nowhere.
         widgets.scope_buttons[1].set_tooltip_text(Some(&format!(
@@ -2413,9 +2474,9 @@ impl Component for App {
         // the overlays sitting on the frame on screen. `overlay_group` below
         // edits whichever row is picked. Once the scope names more than one
         // frame, delay still applies to every one of them (`SetScopeDelay`),
-        // but the overlay picker and the overlay/text editors give way to a
-        // summary: which overlay to show, or which overlay's properties to
-        // edit, has no single answer across several frames at once.
+        // but the overlay picker gives way to a summary: which overlays sit
+        // on "the" frame has no single answer across several. An overlay
+        // already picked keeps its editor, reaching every frame in scope.
         let multi = in_scope.len() > 1;
         // Playback rewrites this every tick; typing into it would land on
         // whichever frame the next tick shows.
@@ -2481,20 +2542,38 @@ impl Component for App {
         widgets
             .overlay_list_group
             .set_visible(!multi && !self.crop_tool && !stacked.is_empty());
-        widgets.text_group.set_visible(!multi);
 
         let (w, h) = self.editor.doc.size();
         // The overlay editor is part of the frame view: it shows only for an
         // overlay that is actually on the frame on screen. Selecting one on
         // another frame and navigating here leaves the plain frame view; going
-        // back to its frame brings the editor back.
+        // back to its frame brings the editor back. A multi-frame scope keeps
+        // it: the picked overlay is the answer to "which one", and the edit
+        // lands on every frame of it the scope covers — a band click picks
+        // the overlay's whole range for exactly that.
         let selected = self
             .editing_overlay()
             .and_then(|id| self.editor.doc.overlay(id));
         let kind = selected.map(|o| o.kind.clone());
-        widgets.overlay_group.set_visible(kind.is_some() && !multi);
+        widgets.overlay_group.set_visible(kind.is_some());
         let is_text = matches!(kind, Some(OverlayKind::Text(_)));
         let is_shape = matches!(kind, Some(OverlayKind::Shape(_)));
+        widgets.text_group.set_visible(!multi || is_text);
+        let spread = selected.map_or(0, |o| self.edit_span(o.id).len());
+        widgets.overlay_group.set_description(
+            (spread > 1)
+                .then(|| {
+                    fill(
+                        tn(
+                            "Applies to {count} selected frame",
+                            "Applies to {count} selected frames",
+                            spread,
+                        ),
+                        &[("count", &spread.to_string())],
+                    )
+                })
+                .as_deref(),
+        );
         for row in &widgets.text_rows {
             row.set_visible(is_text);
         }
@@ -2562,6 +2641,7 @@ impl Component for App {
             let keys = self.keymap.borrow();
             let mut state = widgets.canvas_state.borrow_mut();
             state.image = (w as f32, h as f32);
+            state.guides = self.guides;
             // Only box the selection when it actually paints on this frame;
             // stay selected for the sidebar otherwise. Matches `overlays_on`.
             state.selected = selected
@@ -4836,6 +4916,7 @@ fn message_for(action: Action) -> Msg {
         Action::ToolEllipse => Msg::AddOverlay(Tool::Ellipse),
         Action::ToolArrow => Msg::AddOverlay(Tool::Arrow),
         Action::ToolCrop => Msg::ToggleCropTool,
+        Action::ToggleSnap => Msg::ToggleSnap,
         Action::FrameDelete => Msg::FrameOp(FrameOp::Delete),
         Action::FrameDuplicate => Msg::FrameOp(FrameOp::Duplicate),
         Action::FrameCut => Msg::FrameOp(FrameOp::Cut),
@@ -5524,6 +5605,19 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
         crop_button.connect_clicked(move |_| sender.input(Msg::ToggleCropTool));
     }
     rail.append(&crop_button);
+    // A setting rather than a tool, so it sits apart from the tools above it.
+    rail.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+    let snap_button = gtk::ToggleButton::builder()
+        .icon_name("view-grid-symbolic")
+        .active(model.snap)
+        .build();
+    snap_button.add_css_class("flat");
+    no_focus_steal(&snap_button);
+    {
+        let sender = sender.clone();
+        snap_button.connect_clicked(move |_| sender.input(Msg::ToggleSnap));
+    }
+    rail.append(&snap_button);
 
     let canvas = gtk::Picture::builder()
         .content_fit(gtk::ContentFit::ScaleDown)
@@ -5672,7 +5766,7 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
         let strip_pitch = model.strip_pitch.clone();
         band_click.connect_pressed(move |_, _, x, y| {
             let hit = band_at(&bands_model.borrow(), x, y, strip_pitch.get());
-            sender.input(Msg::SelectOverlay(hit));
+            sender.input(Msg::SelectBand(hit));
         });
     }
     bands.add_controller(band_click);
@@ -6075,10 +6169,9 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
     // overlays sitting on the frame on screen. `overlay_group` below edits
     // whichever overlay is picked. `update_view` swaps this group's title and
     // the delay row's subtitle to a "N frames selected" summary, and hides
-    // the overlay picker and the overlay/text editors below, whenever the
-    // scope names more than one frame: editing an overlay's own properties,
-    // or picking which overlay sits on "the" frame, has no single answer
-    // once more than one frame is in play.
+    // the overlay picker below whenever the scope names more than one frame:
+    // which overlays sit on "the" frame has no single answer then. A picked
+    // overlay keeps its editor, which edits it on every frame in scope.
     let frame_group = adw::PreferencesGroup::builder().title(t("Frame")).build();
     let frame_delay = gtk::SpinButton::with_range(1.0, u16::MAX as f64, 1.0);
     frame_delay.set_valign(gtk::Align::Center);
@@ -6318,6 +6411,7 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
         crop_apply,
         zoom_apply,
         shrink_apply,
+        snap_button,
         tool_buttons,
         shape_button,
         shape_tool,
@@ -6332,7 +6426,10 @@ fn build(root: &adw::ApplicationWindow, model: &App, sender: &ComponentSender<Ap
 }
 
 /// A colour picker and a width spin encode one `Option<(colour, width)>`
-/// between them, so each handler has to read the other widget. `update_view`
+/// between them, so each handler has to read the other widget. Width 0 is
+/// still `Some`: the pair paints nothing, but the colour picked while it is 0
+/// stays on the overlay instead of snapping back to a default, and is the
+/// colour the first nonzero width paints in. `update_view`
 /// sets the two one at a time, which means the spin's handler reports the
 /// *previous* overlay's colour — a value the model disagrees with, so it gets
 /// applied, which re-runs the sync, which sends the pair back again. That is a
@@ -6345,10 +6442,8 @@ fn connect_pair(
     sync: &Rc<Cell<bool>>,
     emit: impl Fn(Option<(crate::core::model::Rgba8, f32)>) + Clone + 'static,
 ) {
-    let pair = |colour: crate::core::model::Rgba8, w: &gtk::SpinButton| {
-        let w = w.value() as f32;
-        (w > 0.0).then_some((colour, w))
-    };
+    let pair =
+        |colour: crate::core::model::Rgba8, w: &gtk::SpinButton| Some((colour, w.value() as f32));
     {
         let (w, emit) = (width.clone(), emit.clone());
         colour.connect_changed(move |colour| emit(pair(colour, &w)));
@@ -6793,6 +6888,7 @@ fn draw_canvas_overlay(
         return;
     }
 
+    draw_guides(cr, state, scale, (ox, oy));
     let Some(t) = state.selected else { return };
     let grips = oriented_corners(t).map(|(x, y)| to_widget(x, y));
     // TL, TR, BR, BL: the outline walks the box, `corners` lists it in reading
@@ -6823,6 +6919,27 @@ fn draw_canvas_overlay(
         cr.set_source_rgba(1.0, 1.0, 1.0, 0.7);
         let _ = cr.stroke();
     }
+}
+
+/// The canvas edges and centre lines a drag is snapped to, dashed across the
+/// picture for as long as it holds there — Impasto's `DrawSnapGuides`.
+fn draw_guides(cr: &cairo::Context, state: &CanvasState, scale: f64, (ox, oy): (f64, f64)) {
+    let (w, h) = (state.image.0 as f64, state.image.1 as f64);
+    if let Some(guide) = state.guides.x {
+        let x = (ox + guide.at(state.image.0) as f64 * scale).round() + 0.5;
+        cr.move_to(x, oy);
+        cr.line_to(x, oy + h * scale);
+    }
+    if let Some(guide) = state.guides.y {
+        let y = (oy + guide.at(state.image.1) as f64 * scale).round() + 0.5;
+        cr.move_to(ox, y);
+        cr.line_to(ox + w * scale, y);
+    }
+    cr.set_source_rgba(0.2, 0.5, 1.0, 0.9);
+    cr.set_line_width(1.0);
+    cr.set_dash(&[4.0, 4.0], 0.0);
+    let _ = cr.stroke();
+    cr.set_dash(&[], 0.0);
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -7670,6 +7787,8 @@ mod tests {
             estimate_pending: None,
             keymap: Rc::new(RefCell::new(Keymap::default())),
             drag: None,
+            snap: true,
+            guides: Guides::default(),
             crop_tool: false,
             crop_rect: None,
             bands_expanded: false,
@@ -7747,6 +7866,36 @@ mod tests {
                 "'all frames' copy must ignore the scope"
             );
         }
+    }
+
+    /// Regression: an overlay spanning many frames could only be picked from
+    /// the canvas, whose edits land on the frame on screen and split it off.
+    /// Picking its band reaches the whole range.
+    #[test]
+    fn a_band_pick_edits_the_overlay_across_its_whole_range() {
+        let mut app = app_with(doc(8), ScopeChoice::ThisFrame, Vec::new(), 0);
+        let id = app.editor.doc.add_overlay(
+            "box",
+            OverlayKind::Shape(ShapeOverlay {
+                shape: Shape::Rect,
+                fill: Some([1, 2, 3, 255]),
+                stroke: None,
+            }),
+            Transform::at(0.0, 0.0, 8.0, 8.0),
+            2..7,
+        );
+        app.select_band(id);
+        assert!((2..7).contains(&app.playhead), "the overlay is on screen");
+        assert_eq!(app.editing_overlay(), Some(id));
+        assert_eq!(app.edit_span(id), 2..7);
+
+        let moved = Transform::at(5.0, 5.0, 8.0, 8.0);
+        let span = app.edit_span(id);
+        app.editor.edit("Overlay moved", span.len(), |d| {
+            d.edit_on_frames(id, span, |o| o.transform = moved)
+        });
+        assert_eq!(app.editor.doc.overlays.len(), 1, "nothing was split off");
+        assert_eq!(app.editor.doc.overlay(id).map(|o| o.transform), Some(moved));
     }
 
     /// Regression: the strip was keyed on the document revision, which overlay
@@ -7831,7 +7980,7 @@ mod tests {
 
     /// Regression: an armed crop tool hid the selected overlay's outline, so
     /// picking text looked like nothing happened. Picking from the timeline
-    /// leaves the tool, box or not. On the canvas, a press on text is a pick
+    /// or the layer list leaves the tool, box or not. On the canvas, a press on text is a pick
     /// only while no box is drawn; with a box up it redraws the box.
     #[test]
     fn picking_an_overlay_leaves_crop() {
@@ -7852,6 +8001,14 @@ mod tests {
         assert!(!app.crop_yields_to(15.0, 15.0), "box up: redraw it");
 
         app.pick_overlay(Some(id));
+        assert!(!app.crop_tool);
+        assert_eq!(app.crop_rect, None);
+        assert_eq!(app.editing_overlay(), Some(id));
+
+        // A timeline band click, which also picks the band's frames.
+        app.crop_tool = true;
+        app.crop_rect = Some((0.0, 0.0, 40.0, 40.0));
+        app.select_band(id);
         assert!(!app.crop_tool);
         assert_eq!(app.crop_rect, None);
         assert_eq!(app.editing_overlay(), Some(id));
@@ -8717,6 +8874,7 @@ mod tests {
             from: (10.0, 20.0),
             origin: Transform::at(5.0, 10.0, 20.0, 30.0),
             current: Transform::at(7.0, 12.0, 20.0, 30.0),
+            snap_reach: 8.0,
             moved: true,
         });
         let mut crop = Some((10.0, 20.0, 30.0, 40.0));
@@ -8739,6 +8897,7 @@ mod tests {
             from: (10.0, 20.0),
             origin: Transform::at(5.0, 10.0, 20.0, 30.0),
             current: Transform::at(7.0, 12.0, 20.0, 30.0),
+            snap_reach: 8.0,
             moved: true,
         });
         let mut crop = Some((10.0, 20.0, 30.0, 40.0));
