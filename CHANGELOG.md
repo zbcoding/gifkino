@@ -30,6 +30,13 @@
   - Clicking frame thumbnails keeps the box: zoom and crop-and-keep-size act
     on the selected frames, so picking frames is part of using the tool.
 
+### Frames
+
+- Dragging several frames together now moves the ones picked when a frame
+  and its duplicate or pasted copy are both in the selection. Frames were
+  found again by their pixel key, which a copy shares, so the second hop
+  grabbed the copy just moved and left the picked frame behind.
+
 ## 0.1.4 — 2026-09-23
 
 ### Frames

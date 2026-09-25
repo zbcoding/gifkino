@@ -328,13 +328,20 @@ impl Document {
         if picked.is_empty() || to >= self.frames.len() {
             return;
         }
-        let keys: Vec<u64> = picked.iter().map(|&i| self.frames[i].key).collect();
-        let mut cursor = to;
-        for key in &keys {
-            if let Some(at) = self.frames.iter().position(|f| f.key == *key) {
-                self.move_frame(at, cursor);
+        // Find each picked frame again by where it started, not by key: a
+        // duplicate or a pasted copy shares its source's key, and a key
+        // lookup would grab whichever of the two sits first. `slots[i]` is
+        // the original index of the frame now at `i`, moved hop for hop.
+        let mut slots: Vec<usize> = (0..self.frames.len()).collect();
+        for (cursor, &original) in (to..).zip(&picked) {
+            let Some(at) = slots.iter().position(|&s| s == original) else {
+                continue;
+            };
+            if cursor < slots.len() {
+                let slot = slots.remove(at);
+                slots.insert(cursor, slot);
             }
-            cursor += 1;
+            self.move_frame(at, cursor);
         }
     }
 
@@ -947,6 +954,24 @@ mod tests {
         let mut d = doc_distinct(5);
         d.move_frames_to(&[2, 3, 4], 2);
         assert_eq!(order(&d), vec![0, 1, 2, 3, 4]);
+    }
+
+    /// Keys are shared by a frame and its duplicate or pasted copy, so the
+    /// frames a drag picked cannot be found again by key: the second hop
+    /// would grab the copy the first hop just moved and leave the picked one
+    /// behind.
+    #[test]
+    fn move_frames_to_moves_a_frame_and_its_duplicate_together() {
+        let mut d = doc_distinct(3);
+        d.duplicate_frame(2);
+        d.frames[3].delay_cs = 40; // tell the copy from its source
+        d.move_frames_to(&[2, 3], 0);
+        assert_eq!(order(&d), vec![2, 2, 0, 1], "both picked frames lead");
+        assert_eq!(
+            d.frames.iter().map(|f| f.delay_cs).collect::<Vec<_>>(),
+            vec![10, 40, 10, 10],
+            "in the order they were picked"
+        );
     }
 
     #[test]
