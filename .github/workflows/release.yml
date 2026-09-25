@@ -25,8 +25,8 @@ jobs:
         sudo apt-get install -y libgtk-4-dev libadwaita-1-dev ffmpeg gifsicle
     - uses: dtolnay/rust-toolchain@stable
     - run: cargo fmt --check
-    # No clippy gate: the tree has one explicit_counter_loop warning in
-    # core/ops.rs. Fix that and add `cargo clippy --all-targets -- -D warnings`.
+    # No clippy gate: the tree still has four warnings in ui/window.rs. Fix
+    # those and add `cargo clippy --all-targets -- -D warnings`.
     # The video tests generate clips with lavfi and skip themselves when ffmpeg
     # is missing, which is why it is installed above.
     - run: cargo test
