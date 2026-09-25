@@ -41,3 +41,31 @@ fn runs(program: &str) -> bool {
         .status()
         .is_ok_and(|s| s.success())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Import needs both halves of ffmpeg: ffprobe plans the decode and ffmpeg
+    /// runs it. gifsicle only optimizes exports, so it neither enables import
+    /// nor blocks it.
+    #[test]
+    fn import_is_blocked_unless_both_ffmpeg_and_ffprobe_run() {
+        for ffmpeg in [false, true] {
+            for ffprobe in [false, true] {
+                for gifsicle in [false, true] {
+                    let caps = Caps {
+                        ffmpeg,
+                        ffprobe,
+                        gifsicle,
+                    };
+                    assert_eq!(
+                        caps.import_blocker().is_none(),
+                        ffmpeg && ffprobe,
+                        "{caps:?}"
+                    );
+                }
+            }
+        }
+    }
+}

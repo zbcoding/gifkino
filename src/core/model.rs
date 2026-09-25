@@ -584,6 +584,16 @@ mod tests {
         assert_eq!(doc.overlay(ids[0]).unwrap().range, 2..5);
     }
 
+    /// A scope that resolves to nothing (the playhead past a shrunk
+    /// document) must add nothing, not a zero-frame overlay.
+    #[test]
+    fn add_overlay_over_no_frames_adds_nothing() {
+        let mut doc = blank(4, 4, 3);
+        let ids = doc.add_overlay_over("cap", shape(), Transform::at(0., 0., 1., 1.), &[]);
+        assert!(ids.is_empty());
+        assert!(doc.overlays.is_empty());
+    }
+
     #[test]
     fn a_rotated_box_round_trips_through_its_own_frame() {
         let mut t = Transform::at(10.0, 20.0, 100.0, 40.0);
@@ -712,6 +722,23 @@ mod tests {
         });
         assert_eq!((edited, touched), (id, 0));
         assert_eq!(doc, before, "no intersection, no edit");
+    }
+
+    /// The selection can outlive its overlay (an undo removes it). Acting on
+    /// the stale id must touch no other overlay and not run the edit.
+    #[test]
+    fn a_stale_overlay_id_changes_nothing() {
+        let mut doc = blank(4, 4, 10);
+        doc.add_overlay("a", shape(), Transform::at(1.0, 1.0, 2.0, 2.0), 0..10);
+        doc.add_overlay("b", shape(), Transform::at(1.0, 1.0, 2.0, 2.0), 0..10);
+        let gone = doc.add_overlay("gone", shape(), Transform::at(1.0, 1.0, 2.0, 2.0), 0..10);
+        doc.remove_overlay(gone);
+        let before = doc.clone();
+
+        doc.move_overlay_z(gone, false);
+        let (edited, touched) = doc.edit_on_frames(gone, 0..10, |_| panic!("edit ran"));
+        assert_eq!((edited, touched), (gone, 0));
+        assert_eq!(doc, before);
     }
 
     fn shape() -> OverlayKind {

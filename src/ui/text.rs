@@ -223,4 +223,25 @@ mod tests {
         assert!(glyph_pixels(1) > 50);
         assert!(glyph_pixels(3) > 50);
     }
+
+    /// The sidebar keeps an outline's colour at width 0, so a swatch picked
+    /// there sticks; width 0 must still paint no outline at all.
+    #[test]
+    fn a_zero_width_outline_paints_nothing() {
+        let outline_pixels = |width| {
+            let overlay = TextOverlay {
+                text: "Sg".into(),
+                size_px: 48.0,
+                color: [0, 0, 255, 255],
+                outline: Some(([255, 0, 0, 255], width)),
+                ..Default::default()
+            };
+            rasterize(&overlay, 120, 60)
+                .pixels()
+                .filter(|p| p.0[3] > 0 && p.0[0] > p.0[2])
+                .count()
+        };
+        assert!(outline_pixels(2.0) > 50, "a real width draws the outline");
+        assert_eq!(outline_pixels(0.0), 0);
+    }
 }

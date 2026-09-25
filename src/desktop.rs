@@ -389,6 +389,33 @@ mod tests {
         std::fs::remove_dir_all(&root).unwrap();
     }
 
+    /// `--uninstall-desktop` on a home that never had the entry, or where the
+    /// user already deleted part of it, is a success that removes what is
+    /// left, not an error on the first missing file.
+    #[test]
+    fn uninstall_removes_whatever_is_left_and_tolerates_the_rest_being_gone() {
+        let root = scratch("partial");
+        let data = root.join("data");
+        assert!(
+            uninstall(&data).unwrap().is_empty(),
+            "a pristine data home has nothing to remove"
+        );
+
+        let icon = data
+            .join("icons/hicolor/48x48/apps")
+            .join(format!("{APP_ID}.png"));
+        std::fs::create_dir_all(icon.parent().unwrap()).unwrap();
+        std::fs::write(&icon, b"icon").unwrap();
+        assert_eq!(
+            uninstall(&data).unwrap(),
+            vec![icon.clone()],
+            "the entry is already gone; the icon still goes"
+        );
+        assert!(!icon.exists());
+
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
     #[test]
     fn icons_belonging_to_other_apps_are_left_alone() {
         let root = scratch("foreign");
@@ -397,6 +424,10 @@ mod tests {
         std::fs::create_dir_all(&apps).unwrap();
         std::fs::write(apps.join(format!("{APP_ID}.png")), b"ours").unwrap();
         std::fs::write(apps.join("org.example.Other.png"), b"theirs").unwrap();
+        // A shared hicolor tree also holds the theme index and sizes with no
+        // apps context; neither stops the walk.
+        std::fs::write(hicolor.join("index.theme"), b"[Icon Theme]").unwrap();
+        std::fs::create_dir_all(hicolor.join("16x16/mimetypes")).unwrap();
 
         let pairs = icon_pairs(&hicolor, &root);
         assert_eq!(pairs.len(), 1, "{pairs:?}");

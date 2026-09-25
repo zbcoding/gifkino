@@ -947,4 +947,117 @@ mod tests {
             );
         }
     }
+
+    /// A stream whose container names no duration has no end to clamp a trim
+    /// against: the span is taken as asked, and only a start before zero is
+    /// pulled back to the beginning.
+    #[test]
+    fn without_a_duration_a_trim_is_taken_as_given() {
+        let info = VideoInfo {
+            width: 320,
+            height: 240,
+            fps: 25.0,
+            duration_s: None,
+        };
+        assert_eq!(
+            Trim::Seconds {
+                start: 5.0,
+                end: Some(500.0)
+            }
+            .resolve(&info),
+            (5.0, Some(495.0))
+        );
+        assert_eq!(
+            Trim::Seconds {
+                start: -3.0,
+                end: Some(2.0)
+            }
+            .resolve(&info),
+            (0.0, Some(2.0))
+        );
+    }
+
+    /// A file with no picture in it is refused when it is probed, before a
+    /// plan with a 0x0 frame can reach the decoder: an audio-only file ffprobe
+    /// reads happily, and a file ffprobe cannot read at all.
+    #[test]
+    fn a_file_without_a_video_stream_is_refused_at_probe() {
+        if !crate::pipeline::caps::Caps::probe().can_import() {
+            eprintln!("skipping: no ffmpeg");
+            return;
+        }
+        let audio = std::env::temp_dir().join(format!("gifkino-audio-{}.wav", std::process::id()));
+        let status = Command::new("ffmpeg")
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i", "sine=duration=1"])
+            .arg(&audio)
+            .status()
+            .expect("running ffmpeg");
+        assert!(status.success(), "could not build the audio file");
+        let garbage =
+            std::env::temp_dir().join(format!("gifkino-garbage-{}.mp4", std::process::id()));
+        std::fs::write(&garbage, b"not a video at all").unwrap();
+
+        let (audio_probe, garbage_probe) = (probe(&audio), probe(&garbage));
+        let garbage_decode = import_planned(
+            &garbage,
+            &plan_for(
+                VideoInfo {
+                    width: 320,
+                    height: 240,
+                    fps: 25.0,
+                    duration_s: Some(1.0),
+                },
+                &ImportOptions::default(),
+            ),
+            &mut |_, _| true,
+        );
+        let _ = std::fs::remove_file(&audio);
+        let _ = std::fs::remove_file(&garbage);
+
+        assert!(audio_probe.is_err(), "audio only: {audio_probe:?}");
+        assert!(garbage_probe.is_err(), "unreadable: {garbage_probe:?}");
+        assert!(
+            garbage_decode.is_err(),
+            "a failed decode is an error, not an empty import"
+        );
+    }
+
+    /// With no span to spread across, sampling takes frames from the opening
+    /// at the planned rate. A seek past the end ends the sample short rather
+    /// than failing it; only a sample with nothing in it is an error.
+    #[test]
+    fn sampling_without_a_span_reads_the_opening_and_stops_at_the_end() {
+        let Some(path) = fixture("opening", "160x120", 10, 2) else {
+            return;
+        };
+        let source = VideoInfo {
+            duration_s: None,
+            ..probe(&path).unwrap()
+        };
+        let mut plan = plan_for(
+            source,
+            &ImportOptions {
+                fps: Some(1.0),
+                ..Default::default()
+            },
+        );
+        // One sample a second from a two-second clip: the rest seek past it.
+        let samples = sample_frames(&path, &plan, 8);
+        plan.start_s = 100.0;
+        let past_the_end = sample_frames(&path, &plan, 8);
+        let _ = std::fs::remove_file(&path);
+
+        let samples = samples.unwrap();
+        assert!(
+            (2..=3).contains(&samples.len()),
+            "stopped at the end: {} samples",
+            samples.len()
+        );
+        assert_ne!(
+            samples[0].as_raw(),
+            samples[1].as_raw(),
+            "a second apart, not the first frame twice"
+        );
+        assert!(past_the_end.is_err(), "nothing to sample is an error");
+    }
 }

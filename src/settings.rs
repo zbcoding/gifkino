@@ -208,4 +208,25 @@ mod tests {
         );
         assert!(path.is_absolute());
     }
+
+    /// The first-run template is the documentation for the file, so it has to
+    /// be the file: every key in it is one the parser reads, and read back it
+    /// sets exactly the defaults. The directories it lives in may not exist yet.
+    #[test]
+    fn the_first_run_template_reads_back_as_the_defaults() {
+        let root = std::env::temp_dir().join(format!("gifkino-settings-{}", std::process::id()));
+        let path = root.join("config/gifkino/settings.conf");
+        write_template(&path);
+        let text = std::fs::read_to_string(&path);
+        let _ = std::fs::remove_dir_all(&root);
+
+        let mut settings = Settings {
+            max_import_bytes: 1,
+            max_oper_bytes: 1,
+            max_total_bytes: 1,
+            language: Some("xx".into()),
+        };
+        settings.apply(&text.expect("the template was written"));
+        assert_eq!(settings, Settings::default());
+    }
 }

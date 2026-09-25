@@ -1566,201 +1566,13 @@ impl Component for App {
                     self.selected_overlay = None;
                 }
             }
-            Msg::CanvasPress { x, y, scale, state } => {
-                if self.crop_yields_to(x, y) {
-                    self.leave_crop();
-                }
-                if self.crop_tool {
-                    self.crop_rect = Some((x, y, 0.0, 0.0));
-                    self.drag = Some(Drag {
-                        mode: DragMode::CropRect,
-                        from: (x, y),
-                        origin: Transform::at(x, y, 0.0, 0.0),
-                        current: Transform::at(x, y, 0.0, 0.0),
-                        snap_reach: 0.0,
-                        moved: false,
-                    });
-                    return;
-                }
-                // A handle of the current selection wins over what is under the
-                // pointer, or a small overlay could never be resized. The
-                // rotate modifier outranks both, as it does in Impasto.
-                let grab = (HANDLE_PX / scale.max(0.01) as f64) as f32;
-                let snap_reach = (SNAP_PX / scale.max(0.01) as f64) as f32;
-                let rotating = self.keymap.borrow().mods(Modal::Rotate).held(state);
-                let selected = self
-                    .selected_overlay
-                    .and_then(|id| self.editor.doc.overlay(id))
-                    .filter(|o| !o.hidden && o.range.contains(&self.playhead))
-                    .map(|o| o.transform);
-                if let Some(transform) = selected {
-                    let on_overlay =
-                        contains(transform, x, y) || handle_at(transform, x, y, grab).is_some();
-                    if rotating && on_overlay {
-                        self.drag = Some(Drag {
-                            mode: DragMode::Rotate,
-                            from: (x, y),
-                            origin: transform,
-                            current: transform,
-                            snap_reach,
-                            moved: false,
-                        });
-                        return;
-                    }
-                    if let Some(corner) = handle_at(transform, x, y, grab) {
-                        self.drag = Some(Drag {
-                            mode: DragMode::Resize(corner),
-                            from: (x, y),
-                            origin: transform,
-                            current: transform,
-                            snap_reach,
-                            moved: false,
-                        });
-                        return;
-                    }
-                }
-                let hit = self
-                    .editor
-                    .doc
-                    .overlays_on(self.playhead)
-                    .filter(|o| contains(o.transform, x, y))
-                    // Topmost: `overlays_on` yields bottom-to-top.
-                    .last()
-                    .map(|o| (o.id, o.transform));
-                match hit {
-                    Some((id, transform)) => {
-                        self.selected_overlay = Some(id);
-                        self.drag = Some(Drag {
-                            mode: if rotating {
-                                DragMode::Rotate
-                            } else {
-                                DragMode::Move
-                            },
-                            from: (x, y),
-                            origin: transform,
-                            current: transform,
-                            snap_reach,
-                            moved: false,
-                        });
-                    }
-                    None => self.selected_overlay = None,
-                }
-            }
-            Msg::CanvasDrag { x, y, state } => {
-                let keys = self.keymap.borrow();
-                let (keep_aspect, from_center) = (
-                    keys.mods(Modal::KeepAspect).held(state),
-                    keys.mods(Modal::FromCenter).held(state),
-                );
-                drop(keys);
-                let (image_w, image_h) = self.editor.doc.size();
-                let image = (image_w as f32, image_h as f32);
-                let snap_on = self.snap;
-                let Some(drag) = &mut self.drag else { return };
-                let (dx, dy) = (x - drag.from.0, y - drag.from.1);
-                if dx.abs() < 0.5 && dy.abs() < 0.5 && !drag.moved {
-                    return;
-                }
-                drag.moved = true;
-                let mut guides = Guides::default();
-                match drag.mode {
-                    DragMode::CropRect => {
-                        let (x0, y0) = drag.from;
-                        self.crop_rect =
-                            Some((x0.min(x), y0.min(y), (x - x0).abs(), (y - y0).abs()));
-                        return;
-                    }
-                    DragMode::Move => {
-                        let moved = Transform {
-                            x: drag.origin.x + dx,
-                            y: drag.origin.y + dy,
-                            ..drag.origin
-                        };
-                        (drag.current, guides) = if snap_on {
-                            snap::snap_box(moved, image, drag.snap_reach)
-                        } else {
-                            (moved, guides)
-                        };
-                    }
-                    DragMode::Resize(corner) => {
-                        // Corner drags are simple only in the box's own frame,
-                        // so both ends of the drag go through it first.
-                        let (fx, fy) = drag.origin.to_local(drag.from.0, drag.from.1);
-                        let (tx, ty) = drag.origin.to_local(x, y);
-                        let (mut dx, mut dy) = (tx - fx, ty - fy);
-                        // The dragged corner lands wherever the pointer takes
-                        // it, from the centre or not, so that is the point to
-                        // pull. ponytail: only an upright box without Shift
-                        // snaps; a rotated corner or an aspect-locked one
-                        // would need the guide solved back through the resize.
-                        if snap_on && drag.origin.angle == 0.0 && !keep_aspect {
-                            let (cx, cy) = corners(drag.origin)[corner];
-                            let ((sx, sy), pulled) =
-                                snap::snap_point((cx + dx, cy + dy), image, drag.snap_reach);
-                            (dx, dy, guides) = (sx - cx, sy - cy, pulled);
-                        }
-                        let resized =
-                            resize_corner(drag.origin, corner, dx, dy, keep_aspect, from_center);
-                        drag.current = pin_anchor(drag.origin, resized, corner, from_center);
-                    }
-                    DragMode::Rotate => {
-                        let (cx, cy) = drag.origin.center();
-                        let from = (drag.from.1 - cy).atan2(drag.from.0 - cx);
-                        let now = (y - cy).atan2(x - cx);
-                        let mut angle = drag.origin.angle + (now - from);
-                        if keep_aspect {
-                            let step = std::f32::consts::TAU / ROTATE_STEPS;
-                            angle = (angle / step).round() * step;
-                        }
-                        drag.current = Transform {
-                            angle,
-                            ..drag.origin
-                        };
-                    }
-                }
-                // Live, and deliberately outside the history: one drag is one
-                // undo step, committed when the button comes up.
-                let (id, current) = (self.selected_overlay, drag.current);
-                if let Some(o) = id.and_then(|id| self.editor.doc.overlay_mut(id)) {
-                    o.transform = current;
-                }
-                self.guides = guides;
-                self.rev += 1;
-            }
+            Msg::CanvasPress { x, y, scale, state } => self.canvas_press(x, y, scale, state),
+            Msg::CanvasDrag { x, y, state } => self.canvas_drag(x, y, state),
             Msg::ToggleSnap => self.snap = !self.snap,
             Msg::CanvasRelease => {
-                self.guides = Guides::default();
-                let Some(drag) = self.drag.take() else { return };
-                if !drag.moved || drag.mode == DragMode::CropRect {
-                    return;
+                if let Some(change) = self.canvas_release() {
+                    self.toast_if_document_wide(&sender, &change, self.frame_count());
                 }
-                let Some(id) = self.selected_overlay else {
-                    return;
-                };
-                let (origin, final_t) = (drag.origin, drag.current);
-                // Put the transform back before recording, so undo returns to
-                // where the drag started rather than to one frame before it.
-                if let Some(o) = self.editor.doc.overlay_mut(id) {
-                    o.transform = origin;
-                }
-                // The scope decides which frames the drag commits to; a scope
-                // narrower than the overlay's range splits it, so the rest of
-                // the frames keep where it was.
-                let span = self.edit_span(id);
-                if span.is_empty() {
-                    return;
-                }
-                let label = match drag.mode {
-                    DragMode::Move => n("Overlay moved"),
-                    DragMode::Rotate => n("Overlay rotated"),
-                    _ => n("Overlay resized"),
-                };
-                let (change, (edited, _)) = self.editor.edit(label, span.len(), |d| {
-                    d.edit_on_frames(id, span, |o| o.transform = final_t)
-                });
-                self.selected_overlay = Some(edited);
-                self.after_edit();
-                self.toast_if_document_wide(&sender, &change, self.frame_count());
             }
             Msg::ApplyCrop => {
                 let Some((x, y, w, h)) = self.crop_rect.take() else {
@@ -2940,6 +2752,207 @@ impl App {
     fn leave_crop(&mut self) {
         self.crop_tool = false;
         self.crop_rect = None;
+    }
+
+    /// Button down on the canvas: start a crop box, a handle drag on the
+    /// selection, or a move of the topmost overlay under the pointer.
+    /// `scale` is widget pixels per image pixel.
+    fn canvas_press(&mut self, x: f32, y: f32, scale: f32, state: gdk::ModifierType) {
+        if self.crop_yields_to(x, y) {
+            self.leave_crop();
+        }
+        if self.crop_tool {
+            self.crop_rect = Some((x, y, 0.0, 0.0));
+            self.drag = Some(Drag {
+                mode: DragMode::CropRect,
+                from: (x, y),
+                origin: Transform::at(x, y, 0.0, 0.0),
+                current: Transform::at(x, y, 0.0, 0.0),
+                snap_reach: 0.0,
+                moved: false,
+            });
+            return;
+        }
+        // A handle of the current selection wins over what is under the
+        // pointer, or a small overlay could never be resized. The
+        // rotate modifier outranks both, as it does in Impasto.
+        let grab = (HANDLE_PX / scale.max(0.01) as f64) as f32;
+        let snap_reach = (SNAP_PX / scale.max(0.01) as f64) as f32;
+        let rotating = self.keymap.borrow().mods(Modal::Rotate).held(state);
+        let selected = self
+            .selected_overlay
+            .and_then(|id| self.editor.doc.overlay(id))
+            .filter(|o| !o.hidden && o.range.contains(&self.playhead))
+            .map(|o| o.transform);
+        if let Some(transform) = selected {
+            let on_overlay =
+                contains(transform, x, y) || handle_at(transform, x, y, grab).is_some();
+            if rotating && on_overlay {
+                self.drag = Some(Drag {
+                    mode: DragMode::Rotate,
+                    from: (x, y),
+                    origin: transform,
+                    current: transform,
+                    snap_reach,
+                    moved: false,
+                });
+                return;
+            }
+            if let Some(corner) = handle_at(transform, x, y, grab) {
+                self.drag = Some(Drag {
+                    mode: DragMode::Resize(corner),
+                    from: (x, y),
+                    origin: transform,
+                    current: transform,
+                    snap_reach,
+                    moved: false,
+                });
+                return;
+            }
+        }
+        let hit = self
+            .editor
+            .doc
+            .overlays_on(self.playhead)
+            .filter(|o| contains(o.transform, x, y))
+            // Topmost: `overlays_on` yields bottom-to-top.
+            .last()
+            .map(|o| (o.id, o.transform));
+        match hit {
+            Some((id, transform)) => {
+                self.selected_overlay = Some(id);
+                self.drag = Some(Drag {
+                    mode: if rotating {
+                        DragMode::Rotate
+                    } else {
+                        DragMode::Move
+                    },
+                    from: (x, y),
+                    origin: transform,
+                    current: transform,
+                    snap_reach,
+                    moved: false,
+                });
+            }
+            None => self.selected_overlay = None,
+        }
+    }
+
+    /// Pointer motion with the button down: the drag in flight follows it,
+    /// live and outside the history until `canvas_release`.
+    fn canvas_drag(&mut self, x: f32, y: f32, state: gdk::ModifierType) {
+        let keys = self.keymap.borrow();
+        let (keep_aspect, from_center) = (
+            keys.mods(Modal::KeepAspect).held(state),
+            keys.mods(Modal::FromCenter).held(state),
+        );
+        drop(keys);
+        let (image_w, image_h) = self.editor.doc.size();
+        let image = (image_w as f32, image_h as f32);
+        let snap_on = self.snap;
+        let Some(drag) = &mut self.drag else { return };
+        let (dx, dy) = (x - drag.from.0, y - drag.from.1);
+        if dx.abs() < 0.5 && dy.abs() < 0.5 && !drag.moved {
+            return;
+        }
+        drag.moved = true;
+        let mut guides = Guides::default();
+        match drag.mode {
+            DragMode::CropRect => {
+                let (x0, y0) = drag.from;
+                self.crop_rect = Some((x0.min(x), y0.min(y), (x - x0).abs(), (y - y0).abs()));
+                return;
+            }
+            DragMode::Move => {
+                let moved = Transform {
+                    x: drag.origin.x + dx,
+                    y: drag.origin.y + dy,
+                    ..drag.origin
+                };
+                (drag.current, guides) = if snap_on {
+                    snap::snap_box(moved, image, drag.snap_reach)
+                } else {
+                    (moved, guides)
+                };
+            }
+            DragMode::Resize(corner) => {
+                // Corner drags are simple only in the box's own frame,
+                // so both ends of the drag go through it first.
+                let (fx, fy) = drag.origin.to_local(drag.from.0, drag.from.1);
+                let (tx, ty) = drag.origin.to_local(x, y);
+                let (mut dx, mut dy) = (tx - fx, ty - fy);
+                // The dragged corner lands wherever the pointer takes
+                // it, from the centre or not, so that is the point to
+                // pull. ponytail: only an upright box without Shift
+                // snaps; a rotated corner or an aspect-locked one
+                // would need the guide solved back through the resize.
+                if snap_on && drag.origin.angle == 0.0 && !keep_aspect {
+                    let (cx, cy) = corners(drag.origin)[corner];
+                    let ((sx, sy), pulled) =
+                        snap::snap_point((cx + dx, cy + dy), image, drag.snap_reach);
+                    (dx, dy, guides) = (sx - cx, sy - cy, pulled);
+                }
+                let resized = resize_corner(drag.origin, corner, dx, dy, keep_aspect, from_center);
+                drag.current = pin_anchor(drag.origin, resized, corner, from_center);
+            }
+            DragMode::Rotate => {
+                let (cx, cy) = drag.origin.center();
+                let from = (drag.from.1 - cy).atan2(drag.from.0 - cx);
+                let now = (y - cy).atan2(x - cx);
+                let mut angle = drag.origin.angle + (now - from);
+                if keep_aspect {
+                    let step = std::f32::consts::TAU / ROTATE_STEPS;
+                    angle = (angle / step).round() * step;
+                }
+                drag.current = Transform {
+                    angle,
+                    ..drag.origin
+                };
+            }
+        }
+        // Live, and deliberately outside the history: one drag is one
+        // undo step, committed when the button comes up.
+        let (id, current) = (self.selected_overlay, drag.current);
+        if let Some(o) = id.and_then(|id| self.editor.doc.overlay_mut(id)) {
+            o.transform = current;
+        }
+        self.guides = guides;
+        self.rev += 1;
+    }
+
+    /// Button up: commit the drag in flight as one undo step on the frames
+    /// in scope. Returns the change, for the caller's toast.
+    fn canvas_release(&mut self) -> Option<Change> {
+        self.guides = Guides::default();
+        let drag = self.drag.take()?;
+        if !drag.moved || drag.mode == DragMode::CropRect {
+            return None;
+        }
+        let id = self.selected_overlay?;
+        let (origin, final_t) = (drag.origin, drag.current);
+        // Put the transform back before recording, so undo returns to
+        // where the drag started rather than to one frame before it.
+        if let Some(o) = self.editor.doc.overlay_mut(id) {
+            o.transform = origin;
+        }
+        // The scope decides which frames the drag commits to; a scope
+        // narrower than the overlay's range splits it, so the rest of
+        // the frames keep where it was.
+        let span = self.edit_span(id);
+        if span.is_empty() {
+            return None;
+        }
+        let label = match drag.mode {
+            DragMode::Move => n("Overlay moved"),
+            DragMode::Rotate => n("Overlay rotated"),
+            _ => n("Overlay resized"),
+        };
+        let (change, (edited, _)) = self.editor.edit(label, span.len(), |d| {
+            d.edit_on_frames(id, span, |o| o.transform = final_t)
+        });
+        self.selected_overlay = Some(edited);
+        self.after_edit();
+        Some(change)
     }
 
     /// Everything a document change invalidates.
@@ -8014,6 +8027,207 @@ mod tests {
         assert_eq!(app.editing_overlay(), Some(id));
     }
 
+    /// A 100×100 single-frame canvas holding one 20×20 box at (10, 10).
+    fn canvas_with_box() -> (App, OverlayId) {
+        let doc = Document::from_frames(vec![Frame::new(image::RgbaImage::new(100, 100), 10)]);
+        let mut app = app_with(doc, ScopeChoice::ThisFrame, Vec::new(), 0);
+        let id = app.editor.doc.add_overlay(
+            "box",
+            OverlayKind::Shape(ShapeOverlay {
+                shape: Shape::Rect,
+                fill: Some([1, 2, 3, 255]),
+                stroke: None,
+            }),
+            Transform::at(10.0, 10.0, 20.0, 20.0),
+            0..1,
+        );
+        (app, id)
+    }
+
+    fn transform_of(app: &App, id: OverlayId) -> Transform {
+        app.editor.doc.overlay(id).unwrap().transform
+    }
+
+    const NO_MODS: gdk::ModifierType = gdk::ModifierType::empty();
+
+    /// A dragged box pulls onto the nearest canvas guide, shows it while it
+    /// holds, and commits where it was pulled as one undo step. With
+    /// snapping off it lands exactly where it was dragged.
+    #[test]
+    fn a_dragged_overlay_snaps_onto_the_canvas_centre_line() {
+        let (mut app, id) = canvas_with_box();
+        // The box's centre goes 20 → 52: 2 px off the vertical centre line,
+        // both edges 8+ px off every guide, the y axis nowhere near one.
+        app.canvas_press(20.0, 20.0, 1.0, NO_MODS);
+        app.canvas_drag(35.0, 20.0, NO_MODS);
+        app.canvas_drag(52.0, 20.0, NO_MODS);
+        let centred = Transform::at(40.0, 10.0, 20.0, 20.0);
+        assert_eq!(transform_of(&app, id), centred, "live on the canvas");
+        let on_centre = Guides {
+            x: Some(snap::Guide::Center),
+            y: None,
+        };
+        assert_eq!(app.guides, on_centre);
+
+        assert!(app.canvas_release().is_some());
+        assert_eq!(
+            app.guides,
+            Guides::default(),
+            "the guide goes with the drag"
+        );
+        assert_eq!(transform_of(&app, id), centred);
+        assert!(app.editor.undo());
+        assert_eq!(
+            transform_of(&app, id),
+            Transform::at(10.0, 10.0, 20.0, 20.0),
+            "one undo returns to where the drag started"
+        );
+        assert!(!app.editor.can_undo(), "the drag was a single step");
+
+        app.snap = false;
+        app.canvas_press(20.0, 20.0, 1.0, NO_MODS);
+        app.canvas_drag(52.0, 20.0, NO_MODS);
+        assert_eq!(app.guides, Guides::default());
+        app.canvas_release();
+        assert_eq!(
+            transform_of(&app, id),
+            Transform::at(42.0, 10.0, 20.0, 20.0)
+        );
+    }
+
+    /// The snap reach is a screen distance: zoomed in 4×, 2 image px off a
+    /// guide is 8 screen px and out of reach, 1 image px is in.
+    #[test]
+    fn snap_reach_stays_constant_on_screen_at_any_zoom() {
+        let (mut app, id) = canvas_with_box();
+        app.canvas_press(20.0, 20.0, 4.0, NO_MODS);
+        app.canvas_drag(52.0, 20.0, NO_MODS);
+        assert_eq!(app.guides, Guides::default());
+        assert_eq!(transform_of(&app, id).x, 42.0);
+        app.canvas_drag(51.0, 20.0, NO_MODS);
+        assert_eq!(app.guides.x, Some(snap::Guide::Center));
+        assert_eq!(transform_of(&app, id).x, 40.0);
+    }
+
+    /// A dragged corner of an upright box pulls onto a guide. Locked to its
+    /// aspect, or rotated, it follows the pointer: the guide would have to be
+    /// solved back through the resize.
+    #[test]
+    fn a_resized_corner_snaps_only_on_an_upright_unlocked_box() {
+        let (mut app, id) = canvas_with_box();
+        app.selected_overlay = Some(id);
+        app.canvas_press(30.0, 30.0, 1.0, NO_MODS); // the bottom-right grip
+        app.canvas_drag(97.0, 60.0, NO_MODS);
+        let on_right_edge = Guides {
+            x: Some(snap::Guide::End),
+            y: None,
+        };
+        assert_eq!(app.guides, on_right_edge);
+        assert_eq!(
+            transform_of(&app, id),
+            Transform::at(10.0, 10.0, 90.0, 50.0)
+        );
+        app.canvas_release();
+        app.editor.undo();
+
+        let shift = gdk::ModifierType::SHIFT_MASK;
+        app.canvas_press(30.0, 30.0, 1.0, shift);
+        app.canvas_drag(97.0, 60.0, shift);
+        assert_eq!(app.guides, Guides::default(), "aspect locked");
+        app.canvas_release();
+        app.editor.undo();
+
+        let tilted = Transform {
+            angle: 0.3,
+            ..transform_of(&app, id)
+        };
+        app.editor.doc.overlay_mut(id).unwrap().transform = tilted;
+        let (gx, gy) = tilted.to_image(30.0, 30.0);
+        app.canvas_press(gx, gy, 1.0, NO_MODS);
+        app.canvas_drag(97.0, 60.0, NO_MODS);
+        assert!(
+            matches!(
+                app.drag,
+                Some(Drag {
+                    mode: DragMode::Resize(_),
+                    ..
+                })
+            ),
+            "the rotated grip was caught"
+        );
+        assert_eq!(app.guides, Guides::default(), "rotated");
+    }
+
+    /// Alt turns a press on a box into a rotation about its centre; Shift
+    /// steps it to 1/32 turns. Size and position stay put.
+    #[test]
+    fn an_alt_drag_rotates_and_shift_steps_the_angle() {
+        let (mut app, id) = canvas_with_box(); // centred on (20, 20)
+        let alt = gdk::ModifierType::ALT_MASK;
+        let turned = |a: f32| (20.0 + 8.0 * a.cos(), 20.0 + 8.0 * a.sin());
+        app.canvas_press(28.0, 20.0, 1.0, alt);
+        let (x, y) = turned(0.3);
+        app.canvas_drag(x, y, alt);
+        assert!((transform_of(&app, id).angle - 0.3).abs() < 1e-4);
+        app.canvas_drag(x, y, alt | gdk::ModifierType::SHIFT_MASK);
+        let step = std::f32::consts::TAU / ROTATE_STEPS;
+        assert!((transform_of(&app, id).angle - 2.0 * step).abs() < 1e-4);
+        app.canvas_release();
+        assert_eq!(
+            transform_of(&app, id),
+            Transform {
+                angle: 2.0 * step,
+                ..Transform::at(10.0, 10.0, 20.0, 20.0)
+            }
+        );
+    }
+
+    /// A click that does not move records nothing, and neither does a crop
+    /// box, which is drawn in any direction as a positive rect.
+    #[test]
+    fn clicks_and_crop_boxes_leave_no_undo_step() {
+        let (mut app, _) = canvas_with_box();
+        app.canvas_press(20.0, 20.0, 1.0, NO_MODS);
+        app.canvas_drag(20.3, 19.8, NO_MODS); // hand tremor
+        assert!(app.canvas_release().is_none());
+
+        app.crop_tool = true;
+        app.canvas_press(60.0, 60.0, 1.0, NO_MODS);
+        app.canvas_drag(40.0, 80.0, NO_MODS);
+        assert_eq!(app.crop_rect, Some((40.0, 60.0, 20.0, 20.0)));
+        assert!(app.canvas_release().is_none());
+        assert_eq!(
+            app.crop_rect,
+            Some((40.0, 60.0, 20.0, 20.0)),
+            "the box stays"
+        );
+        assert!(!app.editor.can_undo());
+    }
+
+    /// The clock under the canvas reads when the frame on screen starts, as
+    /// mm:ss.d, and the frame rate is frames per second of total duration.
+    #[test]
+    fn the_clock_reads_the_start_of_the_frame_on_screen() {
+        let doc = doc_with_delays(&[4000, 1999, 7]);
+        let app = app_with(doc, ScopeChoice::ThisFrame, Vec::new(), 2);
+        assert_eq!(app.elapsed_cs(), 5999);
+        assert_eq!(timecode(app.elapsed_cs()), "00:59.9");
+        assert_eq!(timecode(6000), "01:00.0", "the minute rolls over");
+        assert_eq!(timecode(6059), "01:00.5");
+
+        assert_eq!(fps_of(&doc_with_delays(&[10, 10, 10, 10])), 10);
+        assert_eq!(fps_of(&doc_with_delays(&[3, 3, 4])), 30, "rounded");
+        assert_eq!(fps_of(&doc_with_delays(&[])), 0, "no duration, no rate");
+    }
+
+    fn doc_with_delays(delays: &[u16]) -> Document {
+        let mut d = doc(delays.len());
+        for (frame, cs) in d.frames.iter_mut().zip(delays) {
+            frame.delay_cs = *cs;
+        }
+        d
+    }
+
     /// The layer list reads top-down like the canvas stacks — the last
     /// overlay in `doc.overlays` paints on top, so it is the first row — and
     /// a step moves past the layer *shown* next to it, skipping overlays that
@@ -9618,6 +9832,16 @@ mod tests {
         // The user's own edits still get through.
         width.set_value(5.0);
         assert_eq!(*sent.borrow(), vec![Some(([0, 0, 0, 255], 5.0))]);
+
+        // Regression: at width 0 the pair used to collapse to `None`, which
+        // threw the colour away, so the next nonzero width painted the
+        // default instead of the colour picked. It stays `Some`.
+        width.set_value(0.0);
+        width.set_value(3.0);
+        assert_eq!(
+            sent.borrow()[1..],
+            [Some(([0, 0, 0, 255], 0.0)), Some(([0, 0, 0, 255], 3.0))]
+        );
     }
 
     fn plan_1080p60() -> ImportPlan {

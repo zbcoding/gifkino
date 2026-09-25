@@ -801,6 +801,43 @@ mod tests {
         gdk::Key::from_name(name).expect(name)
     }
 
+    /// A keypress has to come out as the chord the file spells, or a binding
+    /// never fires: GDK reports a shifted letter as its capital and a named key
+    /// in mixed case, where the stored chord is lowercase.
+    #[test]
+    fn a_keypress_fires_the_action_its_chord_is_bound_to() {
+        use gdk::ModifierType as M;
+        let map = Keymap::default();
+        let fires = |name: &str, state: M| {
+            map.actions_for(&Chord::from_event(key(name), state).expect(name))
+        };
+        assert_eq!(fires("z", M::CONTROL_MASK), vec![Undo]);
+        assert_eq!(
+            fires("Z", M::CONTROL_MASK | M::SHIFT_MASK),
+            vec![Redo],
+            "Shift turns the keyval into a capital, which is still the z key"
+        );
+        assert_eq!(
+            fires("question", M::CONTROL_MASK | M::SHIFT_MASK),
+            vec![ShowShortcuts],
+            "the Shift that types ? is not part of the chord"
+        );
+        assert_eq!(fires("space", M::empty()), vec![PlayPause]);
+        assert_eq!(fires("Delete", M::empty()), vec![Delete]);
+        assert_eq!(fires("Up", M::CONTROL_MASK), vec![StripZoomIn]);
+        assert_eq!(fires("g", M::CONTROL_MASK | M::ALT_MASK), vec![ToggleSnap]);
+        assert!(
+            fires("g", M::CONTROL_MASK).is_empty(),
+            "Alt is part of the snap chord"
+        );
+
+        // A keypad key a user bound by hand.
+        let mut map = Keymap::default();
+        map.apply("strip-zoom-in = Ctrl+KP_Add\n");
+        let chord = Chord::from_event(key("KP_Add"), M::CONTROL_MASK).unwrap();
+        assert_eq!(map.actions_for(&chord), vec![StripZoomIn]);
+    }
+
     /// While a chord is being recorded, the modifiers go down first; binding
     /// one of them as the key would end the recording before the real key is
     /// pressed. Meta is Alt here, as it is to `Mods` and `Chord::parse`: xkb's
@@ -824,5 +861,65 @@ mod tests {
                 "{name}"
             );
         }
+    }
+
+    /// A press reports the mask from before itself, so the modifier being
+    /// pressed has to be added from its name, on top of those already held.
+    #[test]
+    fn a_modifier_press_reads_as_the_modifiers_now_held() {
+        use gdk::ModifierType as M;
+        let mods = |ctrl, shift, alt| Mods { ctrl, shift, alt };
+        assert_eq!(
+            Mods::from_event(key("Alt_L"), M::empty()),
+            Some(mods(false, false, true))
+        );
+        assert_eq!(
+            Mods::from_event(key("Shift_R"), M::CONTROL_MASK),
+            Some(mods(true, true, false))
+        );
+        assert_eq!(
+            Mods::from_event(key("Meta_L"), M::SHIFT_MASK),
+            Some(mods(false, true, true)),
+            "Meta is Alt, as it is in the file"
+        );
+        assert_eq!(
+            Mods::from_event(key("Control_R"), M::empty()),
+            Some(mods(true, false, false))
+        );
+        assert_eq!(
+            Mods::from_event(key("a"), M::SHIFT_MASK),
+            None,
+            "a key that is not a modifier is no answer"
+        );
+    }
+
+    /// The first save lands in a config directory that may not exist yet, and
+    /// an unbinding has to survive the reload rather than fall back to the
+    /// default it replaced.
+    #[test]
+    fn a_saved_keymap_loads_back_unchanged() {
+        let root = std::env::temp_dir().join(format!("gifkino-keymap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let path = root.join("config/gifkino/keybindings.conf");
+
+        let mut map = Keymap::default();
+        map.set(Undo, vec![Chord::parse("Ctrl+Shift+U").unwrap()]);
+        map.set(ToggleSnap, Vec::new());
+        map.set(
+            StripZoomIn,
+            vec![
+                Chord::parse("Ctrl+KP_Add").unwrap(),
+                Chord::parse("Ctrl+Page_Up").unwrap(),
+            ],
+        );
+        map.set_mods(Modal::FromCenter, Mods::default());
+        map.save_to(&path);
+
+        let mut loaded = Keymap::default();
+        loaded.apply(&std::fs::read_to_string(&path).unwrap());
+        assert_eq!(loaded, map);
+        assert!(loaded.chords(ToggleSnap).is_empty());
+
+        std::fs::remove_dir_all(&root).unwrap();
     }
 }

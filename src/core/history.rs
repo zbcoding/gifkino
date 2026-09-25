@@ -274,6 +274,45 @@ mod tests {
         assert_eq!(ed.doc.overlays.len(), 1);
     }
 
+    /// The undo/redo buttons name the step they would take, so the labels
+    /// have to follow every transition: undo hands its step to redo, redo
+    /// hands it back, and a fresh edit discards the redo branch's name.
+    #[test]
+    fn undo_and_redo_labels_follow_the_step_each_would_take() {
+        let mut ed = seeded();
+        assert!(!ed.can_undo());
+        assert_eq!((ed.undo_label(), ed.redo_label()), (None, None));
+
+        ed.edit("First", 1, |_| ());
+        ed.edit("Second", 1, |_| ());
+        assert_eq!((ed.undo_label(), ed.redo_label()), (Some("Second"), None));
+
+        assert!(ed.undo());
+        assert_eq!(
+            (ed.undo_label(), ed.redo_label()),
+            (Some("First"), Some("Second"))
+        );
+
+        assert!(ed.undo());
+        assert!(!ed.can_undo());
+        assert_eq!((ed.undo_label(), ed.redo_label()), (None, Some("First")));
+        assert!(!ed.undo(), "nothing left to undo");
+        assert_eq!(
+            ed.redo_label(),
+            Some("First"),
+            "a failed undo moves nothing"
+        );
+
+        assert!(ed.redo());
+        assert_eq!(
+            (ed.undo_label(), ed.redo_label()),
+            (Some("First"), Some("Second"))
+        );
+
+        ed.edit("Third", 1, |_| ());
+        assert_eq!((ed.undo_label(), ed.redo_label()), (Some("Third"), None));
+    }
+
     /// A scoped edit cuts one overlay into pieces with fresh ids; undo must
     /// reassemble the original and redo must land back on the split.
     #[test]

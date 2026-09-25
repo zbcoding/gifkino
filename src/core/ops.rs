@@ -681,14 +681,6 @@ impl Document {
             })
             .collect()
     }
-
-    /// Rescale every delay, the export dialog's speed setting.
-    pub fn scale_delays(&mut self, factor: f32) {
-        for f in &mut self.frames {
-            f.delay_cs =
-                ((f.delay_cs as f32 / factor).round() as u32).clamp(1, u16::MAX as u32) as u16;
-        }
-    }
 }
 
 /// Crop against the document canvas even if a frame imported from an external
@@ -766,6 +758,17 @@ mod tests {
         d.drop_every_nth(3);
         assert_eq!(d.frames.len(), 6);
         assert_eq!(d.duration_cs(), 36);
+    }
+
+    /// "Every 1st frame" would be every frame and "every 0th" a division by
+    /// zero; neither is a thinning, so both leave the document alone.
+    #[test]
+    fn drop_every_nth_below_two_keeps_every_frame() {
+        for n in [0, 1] {
+            let mut d = doc(4, 5);
+            d.drop_every_nth(n);
+            assert_eq!(d.frames.len(), 4, "n = {n}");
+        }
     }
 
     #[test]
@@ -1030,6 +1033,44 @@ mod tests {
         assert_eq!(d.overlay(covering).unwrap().range, 0..4);
     }
 
+    /// An imported clip spliced mid-timeline: overlays past the seam slide
+    /// right with their frames, the ones merely touching the seam stay off
+    /// the new run, and one the run lands inside still spans it.
+    #[test]
+    fn foreign_frames_spliced_mid_timeline_shift_later_overlays_but_not_onto_the_run() {
+        let mut d = doc_distinct(6);
+        let t = Transform::at(0., 0., 1., 1.);
+        let ends_at_seam = d.add_overlay("a", shape(), t, 0..2);
+        let starts_at_seam = d.add_overlay("b", shape(), t, 2..4);
+        let straddles = d.add_overlay("c", shape(), t, 1..3);
+        let later = d.add_overlay("d", shape(), t, 4..6);
+        let clip = Frame::new(
+            RgbaImage::from_pixel(2, 2, image::Rgba([200, 0, 0, 255])),
+            10,
+        );
+
+        d.insert_foreign_frames_at(2, vec![clip; 3]);
+
+        assert_eq!(order(&d), vec![0, 1, 200, 200, 200, 2, 3, 4, 5]);
+        let range = |id| d.overlay(id).unwrap().range.clone();
+        assert_eq!(range(ends_at_seam), 0..2, "stops where the clip starts");
+        assert_eq!(range(starts_at_seam), 5..7, "moves with its frames");
+        assert_eq!(range(straddles), 1..6, "the clip landed inside it");
+        assert_eq!(range(later), 7..9);
+    }
+
+    /// A frame index or range from before the document shrank is stale;
+    /// acting on it must change nothing rather than panic or hit the wrong
+    /// frames.
+    #[test]
+    fn a_stale_frame_index_changes_nothing() {
+        let mut d = doc_distinct(3);
+        let before = d.clone();
+        d.duplicate_frame(3);
+        d.reverse_frames(1..4);
+        assert_eq!(d, before);
+    }
+
     /// A step in the layer list moves the overlay next to the neighbour it
     /// was shown beside; overlays it skipped over keep their own order.
     #[test]
@@ -1052,6 +1093,29 @@ mod tests {
 
         d.restack_overlay(bottom, bottom, true);
         assert_eq!(order(&d), vec![elsewhere, bottom, top], "self is a no-op");
+    }
+
+    /// The layer list can still hold an id an undo just removed. Restacking
+    /// next to a missing neighbour must put the overlay back in its own
+    /// slot, not drop it or move it to the top; a missing overlay moves or
+    /// copies nothing.
+    #[test]
+    fn restacking_or_copying_with_a_stale_id_leaves_the_stack_alone() {
+        let mut d = doc(4, 10);
+        let t = Transform::at(0., 0., 1., 1.);
+        let a = d.add_overlay("a", shape(), t, 0..4);
+        let b = d.add_overlay("b", shape(), t, 0..4);
+        d.add_overlay("c", shape(), t, 0..4);
+        let gone = d.add_overlay("gone", shape(), t, 0..4);
+        d.remove_overlay(gone);
+        let before = d.clone();
+
+        d.restack_overlay(b, gone, true);
+        assert_eq!(d, before, "b stays between a and c");
+        d.restack_overlay(gone, a, true);
+        assert_eq!(d, before);
+        assert_eq!(d.copy_overlay_to(gone, &[0, 1]), 0);
+        assert_eq!(d, before);
     }
 
     #[test]
@@ -1273,6 +1337,27 @@ mod tests {
         );
     }
 
+    /// A frame saved back from an external editor can come back another size,
+    /// and then its thumbnail does not line up with its neighbour's. That is
+    /// a change on screen, not a still: the truly identical frame goes first.
+    #[test]
+    fn smart_removal_counts_a_resized_frame_as_motion() {
+        let px = image::Rgba([10, 10, 10, 255]);
+        let mut d = Document::from_frames(vec![
+            Frame::new(RgbaImage::from_pixel(40, 40, px), 5),
+            Frame::new(RgbaImage::from_pixel(40, 40, px), 5),
+            Frame::new(RgbaImage::from_pixel(40, 20, px), 5),
+        ]);
+        d.drop_low_motion(1);
+        assert_eq!(
+            d.frames
+                .iter()
+                .map(|f| f.pixels.dimensions())
+                .collect::<Vec<_>>(),
+            vec![(40, 40), (40, 20)]
+        );
+    }
+
     /// Crop is document-wide and takes the overlays with it, so an annotation
     /// stays on the pixel it was pointing at.
     #[test]
@@ -1388,6 +1473,16 @@ mod tests {
         assert_eq!(d.size(), (50, 50));
         let t = d.overlay(id).unwrap().transform;
         assert_eq!((t.x, t.y, t.w, t.h), (5.0, 10.0, 20.0, 20.0));
+    }
+
+    /// The filmstrip rebuilds a frame only when its key changes, so resizing
+    /// to the size the canvas already has must not remake every frame.
+    #[test]
+    fn resizing_to_the_current_size_rebuilds_nothing() {
+        let mut d = doc(3, 5);
+        let keys: Vec<u64> = d.frames.iter().map(|f| f.key).collect();
+        d.resize(2, 2);
+        assert_eq!(d.frames.iter().map(|f| f.key).collect::<Vec<_>>(), keys);
     }
 
     /// Zoom is the per-frame answer to crop: the canvas keeps its size, so

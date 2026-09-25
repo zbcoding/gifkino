@@ -622,4 +622,273 @@ mod tests {
         let enc = Encodable::from_document(&doc, &no_text, &big);
         assert!(encoded_size(&enc, &small).unwrap() < encoded_size(&enc, &big).unwrap());
     }
+
+    /// Palette for the hand-built GIFs below: red, green, blue, and a black
+    /// slot the frames never draw with.
+    const PALETTE: [u8; 12] = [255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0];
+    const RED: [u8; 4] = [255, 0, 0, 255];
+    const GREEN: [u8; 4] = [0, 255, 0, 255];
+    const BLUE: [u8; 4] = [0, 0, 255, 255];
+
+    /// A 4x4 GIF written straight with the `gif` crate, so the frames can use
+    /// offsets and disposal methods this app's own encoder never writes.
+    fn handmade(frames: &[gif::Frame<'_>]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        {
+            let mut encoder = gif::Encoder::new(&mut bytes, 4, 4, &PALETTE).unwrap();
+            for frame in frames {
+                encoder.write_frame(frame).unwrap();
+            }
+        }
+        bytes
+    }
+
+    /// A `w`x`h` patch of one palette colour at (`left`, `top`).
+    fn patch(
+        left: u16,
+        top: u16,
+        w: u16,
+        h: u16,
+        index: u8,
+        dispose: gif::DisposalMethod,
+    ) -> gif::Frame<'static> {
+        gif::Frame {
+            left,
+            top,
+            width: w,
+            height: h,
+            delay: 5,
+            dispose,
+            buffer: vec![index; w as usize * h as usize].into(),
+            ..Default::default()
+        }
+    }
+
+    fn decoded(bytes: Vec<u8>) -> Vec<Frame> {
+        decode(std::io::Cursor::new(bytes), &mut |_, _| true).unwrap()
+    }
+
+    /// Red background, then a green patch in the corner disposed with
+    /// `dispose`, then a blue pixel elsewhere: the third frame shows what the
+    /// disposal left under the patch.
+    fn after_disposing_a_patch(dispose: gif::DisposalMethod) -> Vec<Frame> {
+        use gif::DisposalMethod::Keep;
+        decoded(handmade(&[
+            patch(0, 0, 4, 4, 0, Keep),
+            patch(0, 0, 2, 2, 1, dispose),
+            patch(3, 3, 1, 1, 2, Keep),
+        ]))
+    }
+
+    /// "Restore to previous" puts back the canvas as it was before the patch
+    /// was drawn — not after, and not cleared — while the frame that carried
+    /// the patch still shows it.
+    #[test]
+    fn restore_to_previous_disposal_brings_back_the_canvas_under_the_frame() {
+        let frames = after_disposing_a_patch(gif::DisposalMethod::Previous);
+        assert_eq!(frames[1].pixels.get_pixel(0, 0).0, GREEN, "the patch shows");
+        assert_eq!(frames[1].pixels.get_pixel(3, 3).0, RED);
+        assert_eq!(
+            frames[2].pixels.get_pixel(0, 0).0,
+            RED,
+            "restored under the patch"
+        );
+        assert_eq!(frames[2].pixels.get_pixel(1, 1).0, RED);
+        assert_eq!(
+            frames[2].pixels.get_pixel(3, 3).0,
+            BLUE,
+            "the next frame still draws"
+        );
+    }
+
+    /// "Restore to background" clears the patch's rectangle to transparent
+    /// and leaves the rest of the canvas as it was.
+    #[test]
+    fn background_disposal_clears_only_the_frames_rectangle() {
+        let frames = after_disposing_a_patch(gif::DisposalMethod::Background);
+        assert_eq!(frames[1].pixels.get_pixel(0, 0).0, GREEN, "the patch shows");
+        assert_eq!(
+            frames[2].pixels.get_pixel(0, 0).0[3],
+            0,
+            "cleared under the patch"
+        );
+        assert_eq!(frames[2].pixels.get_pixel(1, 1).0[3], 0);
+        assert_eq!(
+            frames[2].pixels.get_pixel(2, 2).0,
+            RED,
+            "outside it untouched"
+        );
+        assert_eq!(frames[2].pixels.get_pixel(3, 3).0, BLUE);
+    }
+
+    /// A frame that hangs off the logical screen is legal enough that other
+    /// encoders write it: the part inside the canvas is drawn, the rest is
+    /// dropped, and the canvas keeps its size.
+    #[test]
+    fn a_frame_hanging_off_the_canvas_draws_only_what_is_inside() {
+        use gif::DisposalMethod::Keep;
+        let frames = decoded(handmade(&[
+            patch(0, 0, 4, 4, 0, Keep),
+            patch(3, 3, 3, 3, 2, Keep),
+        ]));
+        assert_eq!(frames[1].pixels.dimensions(), (4, 4));
+        assert_eq!(frames[1].pixels.get_pixel(3, 3).0, BLUE);
+        assert_eq!(frames[1].pixels.get_pixel(2, 3).0, RED);
+        assert_eq!(frames[1].pixels.get_pixel(3, 2).0, RED);
+    }
+
+    /// A document with no frames has no canvas size, and every op reads one:
+    /// an empty GIF is refused at the door.
+    #[test]
+    fn a_gif_with_no_frames_is_an_error_not_an_empty_document() {
+        let bytes = handmade(&[]);
+        assert!(decode(std::io::Cursor::new(bytes), &mut |_, _| true).is_err());
+    }
+
+    /// Nothing to encode is an error on both the export and the estimate,
+    /// rather than a header-only file or an extrapolation from nothing.
+    #[test]
+    fn an_empty_export_is_refused() {
+        let empty = Encodable { frames: Vec::new() };
+        let settings = ExportSettings::default();
+        assert!(encode(Vec::new(), &empty, &settings, &mut |_, _| {}).is_err());
+        assert!(estimate_size(&empty, 10, &settings).is_err());
+    }
+
+    /// The loop count setting reaches the file: a finite count is written as
+    /// that count, and no count loops forever.
+    #[test]
+    fn the_loop_count_is_written_into_the_file() {
+        let enc = Encodable::from_document(&source(), &no_text, &ExportSettings::default());
+        for (loops, want) in [
+            (Some(3), gif::Repeat::Finite(3)),
+            (None, gif::Repeat::Infinite),
+        ] {
+            let settings = ExportSettings {
+                loops,
+                ..Default::default()
+            };
+            let mut bytes = Vec::new();
+            encode(&mut bytes, &enc, &settings, &mut |_, _| {}).unwrap();
+            let mut decoder = gif::DecodeOptions::new()
+                .read_info(std::io::Cursor::new(bytes))
+                .unwrap();
+            while decoder.read_next_frame().unwrap().is_some() {}
+            assert_eq!(decoder.repeat(), want, "{loops:?}");
+        }
+    }
+
+    /// Dithering trades per-pixel accuracy for area accuracy: with too few
+    /// colours for a gradient, each column's average stays close to the
+    /// source instead of snapping to the nearest palette entry.
+    #[test]
+    fn dithering_keeps_a_gradient_closer_on_average() {
+        let (w, h) = (64u32, 32u32);
+        let img = RgbaImage::from_fn(w, h, |x, _| {
+            let v = (x * 4) as u8;
+            Rgba([v, v, v, 255])
+        });
+        let doc = Document::from_frames(vec![Frame::new(img.clone(), 5)]);
+        let column_error = |dither: bool| {
+            let settings = ExportSettings {
+                colors: 4,
+                dither,
+                ..Default::default()
+            };
+            let enc = Encodable::from_document(&doc, &no_text, &settings);
+            let mut bytes = Vec::new();
+            encode(&mut bytes, &enc, &settings, &mut |_, _| {}).unwrap();
+            let out = &decoded(bytes)[0].pixels;
+            (0..w)
+                .map(|x| {
+                    let mean =
+                        (0..h).map(|y| out.get_pixel(x, y).0[0] as f64).sum::<f64>() / h as f64;
+                    (mean - img.get_pixel(x, 0).0[0] as f64).abs()
+                })
+                .sum::<f64>()
+                / w as f64
+        };
+        let (plain, dithered) = (column_error(false), column_error(true));
+        assert!(
+            dithered < plain / 2.0,
+            "dithered {dithered:.1} vs plain {plain:.1} mean column error"
+        );
+    }
+
+    fn temp_gif(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("gifkino-{name}-{}.gif", std::process::id()))
+    }
+
+    /// The file on disk is the export, optimized or not: the size reported is
+    /// the size written, and gifsicle's inter-frame differencing (when it is
+    /// installed) decodes back to exactly the frames that went in.
+    #[test]
+    fn an_exported_file_decodes_to_the_frames_that_went_in() {
+        let doc = moving_doc(6, 32, 16);
+        let settings = ExportSettings::default();
+        let enc = Encodable::from_document(&doc, &no_text, &settings);
+        let mut plain = Vec::new();
+        encode(&mut plain, &enc, &settings, &mut |_, _| {}).unwrap();
+        let want = decoded(plain);
+
+        let path = temp_gif("export-path");
+        let size = export_path(&path, &enc, &settings, &mut |_, _| {}).unwrap();
+        let written = std::fs::read(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(size, written.len() as u64, "the size reported is the file");
+        let got = decoded(written);
+        assert_eq!(got.len(), want.len());
+        for (i, (g, w)) in got.iter().zip(&want).enumerate() {
+            assert_eq!(g.delay_cs, w.delay_cs, "frame {i} delay");
+            assert_eq!(g.pixels.as_raw(), w.pixels.as_raw(), "frame {i} pixels");
+        }
+    }
+
+    /// Missing gifsicle is not an error, but a gifsicle that ran and failed
+    /// is: the export must not claim an optimization that never happened.
+    #[test]
+    fn a_failing_gifsicle_is_an_error() {
+        if !crate::pipeline::caps::Caps::probe().gifsicle {
+            eprintln!("skipping: no gifsicle");
+            return;
+        }
+        let path = temp_gif("not-a-gif");
+        std::fs::write(&path, b"this is not a GIF").unwrap();
+        let result = optimize(&path, 0);
+        let _ = std::fs::remove_file(&path);
+        assert!(result.is_err(), "{result:?}");
+    }
+
+    /// The lossy setting reaches gifsicle: on noise, where LZW finds nothing
+    /// to repeat, letting it approximate makes the file smaller.
+    #[test]
+    fn a_lossy_export_is_smaller() {
+        if !crate::pipeline::caps::Caps::probe().gifsicle {
+            eprintln!("skipping: no gifsicle");
+            return;
+        }
+        let mut seed = 0x2545_f491_u32;
+        let img = RgbaImage::from_fn(64, 64, |_, _| {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            let [r, g, b, _] = seed.to_le_bytes();
+            Rgba([r, g, b, 255])
+        });
+        let doc = Document::from_frames(vec![Frame::new(img, 5)]);
+        let size = |lossy: u16| {
+            let settings = ExportSettings {
+                lossy,
+                ..Default::default()
+            };
+            let enc = Encodable::from_document(&doc, &no_text, &settings);
+            let path = temp_gif(&format!("lossy-{lossy}"));
+            let size = export_path(&path, &enc, &settings, &mut |_, _| {}).unwrap();
+            let _ = std::fs::remove_file(&path);
+            size
+        };
+        let (exact, lossy) = (size(0), size(80));
+        assert!(lossy < exact, "lossy {lossy} vs exact {exact}");
+    }
 }

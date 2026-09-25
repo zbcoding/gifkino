@@ -248,7 +248,8 @@ fn put(img: &mut RgbaImage, x: u32, y: u32, color: Option<Rgba8>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::model::Frame;
+    use crate::core::model::{Frame, ImageOverlay};
+    use std::sync::Arc;
 
     fn red_rect() -> OverlayKind {
         OverlayKind::Shape(ShapeOverlay {
@@ -295,6 +296,42 @@ mod tests {
             composite(&d, 2, &no_text).unwrap().get_pixel(5, 5).0,
             [0, 0, 0, 0]
         );
+    }
+
+    /// A pasted image is scaled into its box, not drawn at its own size, and
+    /// paints nothing outside the box.
+    #[test]
+    fn an_image_overlay_is_scaled_to_fill_its_box() {
+        let (red, blue) = (Rgba([255, 0, 0, 255]), Rgba([0, 0, 255, 255]));
+        let mut src = RgbaImage::from_pixel(2, 2, red);
+        src.put_pixel(1, 1, blue);
+        let mut d = doc();
+        let image = OverlayKind::Image(ImageOverlay {
+            pixels: Arc::new(src),
+        });
+        d.add_overlay("i", image, Transform::at(1.0, 1.0, 8.0, 8.0), 0..1);
+        let out = composite(&d, 0, &no_text).unwrap();
+        assert_eq!(out.get_pixel(1, 1), &red, "top-left corner of the box");
+        assert_eq!(out.get_pixel(8, 8), &blue, "bottom-right, 8px away, not 2");
+        assert_eq!(out.get_pixel(0, 0).0, [0, 0, 0, 0], "outside the box");
+        assert_eq!(out.get_pixel(9, 9).0, [0, 0, 0, 0], "outside the box");
+    }
+
+    /// An overlay dragged partly off the canvas paints the part still on it,
+    /// on every side.
+    #[test]
+    fn an_overlay_hanging_off_the_canvas_is_clipped_to_it() {
+        let mut d = doc();
+        d.add_overlay("tl", red_rect(), Transform::at(-3.0, -3.0, 5.0, 5.0), 0..1);
+        d.add_overlay("br", red_rect(), Transform::at(8.0, 8.0, 5.0, 5.0), 0..1);
+        let out = composite(&d, 0, &no_text).unwrap();
+        let red = [255, 0, 0, 255];
+        assert_eq!(out.get_pixel(0, 0).0, red);
+        assert_eq!(out.get_pixel(1, 1).0, red);
+        assert_eq!(out.get_pixel(2, 2).0, [0, 0, 0, 0], "past the box's edge");
+        assert_eq!(out.get_pixel(8, 8).0, red);
+        assert_eq!(out.get_pixel(9, 9).0, red);
+        assert_eq!(out.get_pixel(7, 7).0, [0, 0, 0, 0]);
     }
 
     #[test]

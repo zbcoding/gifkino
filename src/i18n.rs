@@ -349,6 +349,14 @@ msgstr "Öffnen…"
         }
     }
 
+    /// `\r` is one of gettext's escapes even though `quote` never writes it,
+    /// and a backslash with nothing after it is kept rather than swallowed.
+    #[test]
+    fn a_carriage_return_unescapes_and_a_dangling_backslash_survives() {
+        assert_eq!(unescape(r"line\r\nend"), "line\r\nend");
+        assert_eq!(unescape(r"ends in \"), "ends in \\");
+    }
+
     /// Entries this parser does not understand must be skipped whole, never
     /// half-read into a wrong translation.
     #[test]

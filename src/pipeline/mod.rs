@@ -183,4 +183,52 @@ mod tests {
         }
         let _ = std::fs::remove_file(&still);
     }
+
+    /// The pre-import estimate is only worth its button if it names the size
+    /// the import-then-export would have produced: a video routed through
+    /// `import_any`, exported whole, lands within a few percent of the figure
+    /// quoted from eight seeked samples.
+    #[test]
+    fn the_pre_import_estimate_tracks_the_export_of_the_import() {
+        if !caps::Caps::probe().can_import() {
+            eprintln!("skipping: no ffmpeg");
+            return;
+        }
+        let path =
+            std::env::temp_dir().join(format!("gifkino-estimate-{}.mp4", std::process::id()));
+        let status = std::process::Command::new("ffmpeg")
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i"])
+            .arg("testsrc=size=160x120:rate=10:duration=4")
+            .args(["-pix_fmt", "yuv420p"])
+            .arg(&path)
+            .status()
+            .expect("running ffmpeg");
+        assert!(status.success(), "could not build the fixture clip");
+
+        let options = video::ImportOptions::default();
+        let plan = video::plan(&path, &options).unwrap();
+        let estimate = estimate_gif_size(&path, &plan);
+        let frames = import_any(&path, &options, &mut |_, _| true);
+        let _ = std::fs::remove_file(&path);
+
+        let estimate = estimate.unwrap();
+        let document = crate::core::Document::from_frames(frames.unwrap());
+        assert_eq!(
+            Some(document.frames.len()),
+            plan.frames(),
+            "the plan was run"
+        );
+        let settings = gif::ExportSettings::default();
+        let actual = gif::encoded_size(
+            &gif::Encodable::from_document(&document, &crate::core::render::no_text, &settings),
+            &settings,
+        )
+        .unwrap();
+        let error = (estimate as f64 / actual as f64 - 1.0).abs();
+        assert!(
+            error < 0.10,
+            "estimate {estimate} vs actual {actual} ({:.1}%)",
+            error * 100.0
+        );
+    }
 }
