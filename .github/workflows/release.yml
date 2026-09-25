@@ -166,7 +166,7 @@ jobs:
     permissions:
       contents: write
     steps:
-    - uses: actions/download-artifact@v4
+    - uses: actions/download-artifact@v8
       with:
         merge-multiple: true
     # The asset list alone does not say which one a given machine can run, so
