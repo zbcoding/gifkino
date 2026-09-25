@@ -43,6 +43,11 @@
   longer refuses its own default plan. The rate was rounded up to one kept
   frame over the memory cap, which greyed out Import.
 
+### Shortcuts
+
+- Pressing Meta on its own while recording a shortcut waits for the real
+  key, as Ctrl, Shift and Alt already did. It was saved as the shortcut.
+
 ## 0.1.4 — 2026-09-23
 
 ### Frames

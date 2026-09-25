@@ -286,7 +286,10 @@ impl Chord {
     pub fn from_event(key: gdk::Key, state: gdk::ModifierType) -> Option<Self> {
         let name = key.name()?.to_string();
         // A bare modifier is not a chord; it is the user still pressing one.
-        if name.starts_with("Control") || name.starts_with("Shift") || name.starts_with("Alt") {
+        if ["Control", "Shift", "Alt", "Meta"]
+            .iter()
+            .any(|m| name.starts_with(m))
+        {
             return None;
         }
         Some(Chord {
@@ -792,5 +795,34 @@ mod tests {
         map.apply("nonsense\n# undo = Ctrl+Q\nnot_an_action = Ctrl+Q\nundo =\n");
         assert!(map.chords(Undo).is_empty(), "an empty right side unbinds");
         assert_eq!(map.chords(Redo).len(), 2, "other actions are untouched");
+    }
+
+    fn key(name: &str) -> gdk::Key {
+        gdk::Key::from_name(name).expect(name)
+    }
+
+    /// While a chord is being recorded, the modifiers go down first; binding
+    /// one of them as the key would end the recording before the real key is
+    /// pressed. Meta is Alt here, as it is to `Mods` and `Chord::parse`: xkb's
+    /// `altwin:meta_alt` reports Shift then Alt as `Meta_L`.
+    #[test]
+    fn a_bare_modifier_press_is_not_a_chord() {
+        use gdk::ModifierType as M;
+        for name in [
+            "Control_L",
+            "Control_R",
+            "Shift_L",
+            "Shift_R",
+            "Alt_L",
+            "Alt_R",
+            "Meta_L",
+            "Meta_R",
+        ] {
+            assert_eq!(
+                Chord::from_event(key(name), M::CONTROL_MASK | M::SHIFT_MASK),
+                None,
+                "{name}"
+            );
+        }
     }
 }
