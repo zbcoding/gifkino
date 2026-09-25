@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Overlays
+
+- Clicking an overlay's band in the strip picks every frame it covers, so the
+  canvas and the sidebar edit it on all of them together instead of
+  splitting off the frame on screen. The overlay editor now stays up while
+  several frames are in scope, headed with how many frames the change will
+  reach. Clicking a single thumbnail still narrows the edit to that frame.
+- A stroke or outline colour picked while its width is 0 sticks. It used to
+  snap back to the default, so a swatch clicked before raising the width
+  never took effect.
+- Dragging an overlay snaps its edges or centre onto the canvas edges and
+  centre lines, with a dashed guide shown while it holds there — Impasto's
+  canvas-guide snap. Corner resizes snap the dragged corner the same way.
+  Toggle it from the grid button at the bottom of the tool rail, or with
+  Ctrl+Alt+G. It is on by default and not saved between sessions.
+
 ## 0.1.4 — 2026-09-23
 
 ### Frames

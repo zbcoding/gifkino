@@ -419,4 +419,24 @@ mod tests {
             "the stroke band still draws"
         );
     }
+
+    // The sidebar keeps a stroke's colour at width 0 so a swatch picked there
+    // sticks; width 0 must still paint no edge at all.
+    #[test]
+    fn a_zero_width_stroke_paints_nothing() {
+        for shape in [Shape::Rect, Shape::Ellipse, Shape::Arrow] {
+            let mut d = Document::from_frames(vec![Frame::new(RgbaImage::new(40, 40), 10)]);
+            let kind = OverlayKind::Shape(ShapeOverlay {
+                shape,
+                fill: Some([0, 255, 0, 255]),
+                stroke: Some(([255, 0, 0, 255], 0.0)),
+            });
+            d.add_overlay("a", kind, Transform::at(0.0, 0.0, 40.0, 40.0), 0..1);
+            let out = composite(&d, 0, &no_text).unwrap();
+            assert!(
+                out.pixels().all(|p| p.0 != [255, 0, 0, 255]),
+                "{shape:?} drew its zero-width stroke"
+            );
+        }
+    }
 }

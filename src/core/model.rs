@@ -156,7 +156,8 @@ pub struct TextOverlay {
     pub font: String,
     pub size_px: f32,
     pub color: Rgba8,
-    /// Outline color and width, the readable-over-anything default.
+    /// Outline color and width, the readable-over-anything default. Width 0
+    /// paints nothing but keeps the colour the sidebar shows.
     pub outline: Option<(Rgba8, f32)>,
     pub align: TextAlign,
     /// Smooth glyph edges. On, because a caption is read, not counted; off is
@@ -190,6 +191,7 @@ pub enum Shape {
 pub struct ShapeOverlay {
     pub shape: Shape,
     pub fill: Option<Rgba8>,
+    /// Width 0 paints nothing but keeps the colour, as `TextOverlay::outline`.
     pub stroke: Option<(Rgba8, f32)>,
 }
 
