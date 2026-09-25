@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Canvas
+
+- Picking an overlay turns the crop tool off and shows its outline and
+  grips. With the tool armed, text clicked on the canvas or in the timeline
+  was selected invisibly, so it looked like nothing happened.
+  - Clicking an overlay's band in the timeline, or adding an overlay, leaves
+    the crop tool even when a box is drawn.
+  - On the canvas, a click on text picks it only before a box is drawn. With
+    a box up, a press starts a new box, so a box can still start over text.
+  - Clicking frame thumbnails keeps the box: zoom and crop-and-keep-size act
+    on the selected frames, so picking frames is part of using the tool.
+
 ## 0.1.4 — 2026-09-23
 
 ### Frames

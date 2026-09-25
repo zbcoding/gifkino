@@ -1308,6 +1308,7 @@ impl Component for App {
                 let (change, ids) = self.editor.edit(added, touched, |d| {
                     d.add_overlay_over(name, kind, transform, &frames)
                 });
+                self.leave_crop();
                 self.selected_overlay = ids
                     .iter()
                     .copied()
@@ -1322,10 +1323,7 @@ impl Component for App {
                 self.toast_if_document_wide(&sender, &change, self.frame_count());
             }
             Msg::SelectOverlay(id) => {
-                self.selected_overlay = id;
-                if let Some(id) = id {
-                    self.seek_to_overlay(id);
-                }
+                self.pick_overlay(id);
             }
             Msg::EditText(text) => {
                 let Some(id) = self.selected_overlay else {
@@ -1524,13 +1522,15 @@ impl Component for App {
             }
             Msg::Escape => {
                 if self.crop_tool {
-                    self.crop_tool = false;
-                    self.crop_rect = None;
+                    self.leave_crop();
                 } else {
                     self.selected_overlay = None;
                 }
             }
             Msg::CanvasPress { x, y, scale, state } => {
+                if self.crop_yields_to(x, y) {
+                    self.leave_crop();
+                }
                 if self.crop_tool {
                     self.crop_rect = Some((x, y, 0.0, 0.0));
                     self.drag = Some(Drag {
@@ -2203,7 +2203,7 @@ impl Component for App {
         }
         // The three buttons act on the drawn box; before one exists there is
         // nothing for them to do.
-        let crop = self.crop_rect.filter(|(_, _, w, h)| *w >= 2.0 && *h >= 2.0);
+        let crop = self.usable_crop();
         widgets.crop_apply.set_sensitive(idle && crop.is_some());
         widgets.zoom_apply.set_sensitive(idle && crop.is_some());
         widgets.shrink_apply.set_sensitive(idle && crop.is_some());
@@ -2825,6 +2825,41 @@ impl App {
         self.selected_overlay = Some(id);
         self.after_edit();
         self.toast_if_document_wide(sender, &change, self.frame_count());
+    }
+
+    /// The crop box, once it is big enough to act on. A bare click leaves a
+    /// zero-size rect behind, which is not a box.
+    fn usable_crop(&self) -> Option<(f32, f32, f32, f32)> {
+        self.crop_rect.filter(|(_, _, w, h)| *w >= 2.0 && *h >= 2.0)
+    }
+
+    /// Whether a canvas press at `(x, y)` is a pick rather than a crop box: it
+    /// lands on an overlay before any box is drawn. With a box up, the press
+    /// redraws the box instead, so a box can start on top of text.
+    fn crop_yields_to(&self, x: f32, y: f32) -> bool {
+        self.crop_tool
+            && self.usable_crop().is_none()
+            && self
+                .editor
+                .doc
+                .overlays_on(self.playhead)
+                .any(|o| contains(o.transform, x, y))
+    }
+
+    /// Select an overlay from the timeline or layer list, or clear the pick.
+    fn pick_overlay(&mut self, id: Option<OverlayId>) {
+        self.selected_overlay = id;
+        if let Some(id) = id {
+            self.leave_crop();
+            self.seek_to_overlay(id);
+        }
+    }
+
+    /// Turn the crop tool off and forget its box. Picking an overlay does
+    /// this too: an armed tool hides the selection's outline.
+    fn leave_crop(&mut self) {
+        self.crop_tool = false;
+        self.crop_rect = None;
     }
 
     /// Everything a document change invalidates.
@@ -7792,6 +7827,34 @@ mod tests {
 
         app.playhead = 1;
         assert_eq!(app.editing_overlay(), Some(id), "memory: back on its frame");
+    }
+
+    /// Regression: an armed crop tool hid the selected overlay's outline, so
+    /// picking text looked like nothing happened. Picking from the timeline
+    /// leaves the tool, box or not. On the canvas, a press on text is a pick
+    /// only while no box is drawn; with a box up it redraws the box.
+    #[test]
+    fn picking_an_overlay_leaves_crop() {
+        let mut app = app_with(doc(4), ScopeChoice::ThisFrame, Vec::new(), 0);
+        let id = app.editor.doc.add_overlay(
+            "cap",
+            OverlayKind::Text(TextOverlay::default()),
+            Transform::at(10.0, 10.0, 20.0, 20.0),
+            0..4,
+        );
+        app.crop_tool = true;
+
+        app.crop_rect = Some((15.0, 15.0, 0.0, 0.0)); // a bare click, no drag
+        assert!(app.crop_yields_to(15.0, 15.0), "on text, no box: a pick");
+        assert!(!app.crop_yields_to(1.0, 1.0), "off text: a new box");
+
+        app.crop_rect = Some((0.0, 0.0, 40.0, 40.0));
+        assert!(!app.crop_yields_to(15.0, 15.0), "box up: redraw it");
+
+        app.pick_overlay(Some(id));
+        assert!(!app.crop_tool);
+        assert_eq!(app.crop_rect, None);
+        assert_eq!(app.editing_overlay(), Some(id));
     }
 
     /// The layer list reads top-down like the canvas stacks — the last
