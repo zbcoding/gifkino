@@ -37,6 +37,12 @@
   found again by their pixel key, which a copy shares, so the second hop
   grabbed the copy just moved and left the picked frame behind.
 
+### Import
+
+- With an automatic frame rate and "drop 1 in N" on, the import dialog no
+  longer refuses its own default plan. The rate was rounded up to one kept
+  frame over the memory cap, which greyed out Import.
+
 ## 0.1.4 — 2026-09-23
 
 ### Frames

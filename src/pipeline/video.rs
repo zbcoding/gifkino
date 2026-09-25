@@ -274,8 +274,11 @@ pub fn plan_for(source: VideoInfo, options: &ImportOptions) -> ImportPlan {
     if options.fps.is_none()
         && let Some(seconds) = planned_seconds.filter(|d| *d > 0.5)
     {
+        // The most decoded frames whose kept share still fits the cap. Floored
+        // rather than exact: rounding up lands one kept frame over the cap,
+        // and the plan refuses itself.
         let affordable = match drop_nth {
-            Some(n) => cap as f64 * n as f64 / (n - 1) as f64,
+            Some(n) => (cap.saturating_mul(n) / (n - 1)) as f64,
             None => cap as f64,
         };
         fps = fps.min((affordable / seconds).max(2.0));
@@ -905,5 +908,43 @@ mod tests {
             .estimated_frames(25.0),
             None
         );
+    }
+
+    /// The automatic rate counts the drop in: dropping one frame in N keeps
+    /// only N-1 of every N decoded, so the budget affords a decode rate N/(N-1)
+    /// times higher — and the thinned, dropped plan still fits.
+    #[test]
+    fn the_drop_buys_the_automatic_rate_more_frames() {
+        let info = VideoInfo {
+            width: 1280,
+            height: 720,
+            fps: 60.0,
+            duration_s: Some(120.0),
+        };
+        let plain = plan_for(info.clone(), &ImportOptions::default());
+        assert!(plain.fps < 60.0, "thinned to fit: {}", plain.fps);
+        for n in [2usize, 3, 4, 7] {
+            let dropped = plan_for(
+                info.clone(),
+                &ImportOptions {
+                    drop_nth: Some(n),
+                    ..Default::default()
+                },
+            );
+            let ratio = dropped.fps / plain.fps;
+            let want = n as f64 / (n - 1) as f64;
+            assert!(
+                (ratio - want).abs() < 0.01,
+                "drop 1 in {n}: {} fps vs {} fps",
+                dropped.fps,
+                plain.fps
+            );
+            assert!(
+                !dropped.over_budget(),
+                "drop 1 in {n}: the automatic plan is refused: {:?} frames, cap {}",
+                dropped.frames(),
+                dropped.cap
+            );
+        }
     }
 }
