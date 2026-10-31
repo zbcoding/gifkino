@@ -255,21 +255,27 @@ pub(super) fn resize_bytes(w: u32, h: u32, frames: usize) -> Option<usize> {
         .checked_mul(frames)
 }
 
+/// The resize dialog's widgets the memory summary reads and writes.
+#[derive(Clone)]
+pub(super) struct ResizeForm {
+    dialog: adw::AlertDialog,
+    summary: gtk::Label,
+    width: gtk::SpinButton,
+    height: gtk::SpinButton,
+}
+
 /// Refreshes the resize dialog's memory summary and whether Apply may run. A
 /// big canvas on a long document dwarfs the GIF itself, so the cost shows
 /// before the worker starts rather than as a toast after it refuses.
 pub(super) fn refresh_resize_summary(
-    dialog: &adw::AlertDialog,
-    summary: &gtk::Label,
-    width: &gtk::SpinButton,
-    height: &gtk::SpinButton,
+    form: &ResizeForm,
     cw: u32,
     ch: u32,
     frames: usize,
     oper_max: usize,
     total_max: usize,
 ) {
-    let (w, h) = (width.value() as u32, height.value() as u32);
+    let (w, h) = (form.width.value() as u32, form.height.value() as u32);
     let fits = resize_fits_budgets(cw, ch, w, h, frames, oper_max, total_max);
     let mut text = match resize_bytes(w, h, frames) {
         Some(bytes) => fill(t("{size} in memory"), &[("size", &size(bytes))]),
@@ -283,8 +289,8 @@ pub(super) fn refresh_resize_summary(
             "That resize would use more memory than the configured limit.",
         ));
     }
-    summary.set_label(&text);
-    dialog.set_response_enabled("apply", fits);
+    form.summary.set_label(&text);
+    form.dialog.set_response_enabled("apply", fits);
 }
 
 /// Reads the entry text so keystrokes recompute the peer before the spin
@@ -427,9 +433,13 @@ pub(super) fn build_resize_dialog(
     dialog.set_response_appearance("apply", adw::ResponseAppearance::Suggested);
     dialog.set_default_response(Some("apply"));
     dialog.set_close_response("cancel");
-    refresh_resize_summary(
-        &dialog, &summary, &width, &height, cw, ch, frames, oper_max, total_max,
-    );
+    let form = ResizeForm {
+        dialog: dialog.clone(),
+        summary: summary.clone(),
+        width: width.clone(),
+        height: height.clone(),
+    };
+    refresh_resize_summary(&form, cw, ch, frames, oper_max, total_max);
     (dialog, width, height, lock, summary)
 }
 
@@ -454,17 +464,16 @@ pub(super) fn resize_dialog(
     let (dialog, width, height, lock, summary) =
         build_resize_dialog(cw, ch, frames, oper_max, total_max);
     link_aspect_fields(&width, &height, &lock, cw, ch);
+    let form = ResizeForm {
+        dialog: dialog.clone(),
+        summary,
+        width: width.clone(),
+        height: height.clone(),
+    };
     for spin in [&width, &height] {
-        let (dialog, summary, width, height) = (
-            dialog.clone(),
-            summary.clone(),
-            width.clone(),
-            height.clone(),
-        );
+        let form = form.clone();
         spin.connect_value_changed(move |_| {
-            refresh_resize_summary(
-                &dialog, &summary, &width, &height, cw, ch, frames, oper_max, total_max,
-            );
+            refresh_resize_summary(&form, cw, ch, frames, oper_max, total_max);
         });
     }
 
