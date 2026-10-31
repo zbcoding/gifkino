@@ -1,7 +1,3 @@
-// The model and pipeline are built ahead of the chrome that drives them: the
-// risky parts land first as tested logic (design.md, Build order).
-#![allow(dead_code)]
-
 mod core;
 mod desktop;
 mod i18n;
