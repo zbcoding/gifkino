@@ -119,6 +119,88 @@ impl App {
         });
     }
 
+    /// Shift+click: pick the run between the anchor and frame `i`, in either
+    /// direction. A second Shift+click re-picks from the same anchor, so the
+    /// anchor survives.
+    pub(super) fn extend_selection(&mut self, i: usize) {
+        let i = self.clamp_frame(i);
+        let anchor = self.clamp_frame(self.anchor.unwrap_or(self.playhead));
+        self.selection = run_between(anchor, i);
+        self.anchor = Some(anchor);
+        self.playhead = i;
+        self.scope = ScopeChoice::Range;
+    }
+
+    /// Ctrl+click: add or remove frame `i` anywhere, which is the whole
+    /// difference from Shift — the result need not be a run.
+    pub(super) fn toggle_selection(&mut self, i: usize) {
+        let i = self.clamp_frame(i);
+        if self.selection.is_empty() {
+            self.selection.push(self.playhead);
+        }
+        toggle_frame(&mut self.selection, i);
+        self.anchor = Some(i);
+        self.playhead = i;
+        self.scope = if self.selection.is_empty() {
+            ScopeChoice::ThisFrame
+        } else {
+            ScopeChoice::Range
+        };
+    }
+
+    /// Delete: the picked overlay if there is one, else the picked frames.
+    pub(super) fn delete_selection(&mut self, sender: &ComponentSender<Self>) {
+        if let Some(id) = self.selected_overlay.take() {
+            self.delete_overlay(id, sender);
+            return;
+        }
+        if self.selection.is_empty() {
+            return;
+        }
+        let frames = std::mem::take(&mut self.selection);
+        let touched = frames.len();
+        let total = self.frame_count();
+        let (change, _) = self.editor.edit(n("Frames deleted"), touched, |d| {
+            d.delete_frames_at(&frames)
+        });
+        self.scope = ScopeChoice::ThisFrame;
+        self.after_edit();
+        self.toast_if_document_wide(sender, &change, total);
+    }
+
+    /// Step the frames in scope one place earlier or later.
+    pub(super) fn nudge_selection(&mut self, earlier: bool, sender: &ComponentSender<Self>) {
+        let picked = self.scope_frames();
+        let Some(gap) = selection_nudge_gap(&picked, earlier, self.frame_count()) else {
+            return;
+        };
+        let to = move_target_for_set(&picked, gap);
+        if let Some(change) = self.move_picked(&picked, to) {
+            self.toast_if_document_wide(sender, &change, self.frame_count());
+        }
+    }
+
+    /// A strip drag from frame `from` dropped on divider `gap`. A drag that
+    /// started inside the active selection moves the whole selection;
+    /// anywhere else it is a plain one-frame drag.
+    pub(super) fn move_selection_to(
+        &mut self,
+        from: usize,
+        gap: usize,
+        sender: &ComponentSender<Self>,
+    ) {
+        let multi = self.selection.len() > 1 && self.selection.contains(&from);
+        let picked: Vec<usize> = if multi {
+            self.selection.clone()
+        } else {
+            vec![from]
+        };
+        let to = move_target_for_set(&picked, gap);
+        if let Some(change) = self.move_picked(&picked, to) {
+            self.toast_if_document_wide(sender, &change, self.frame_count());
+        }
+    }
+
     /// Move `picked` so the run lands at `to`, an index into the list with
     /// the picked frames already removed — what `move_target_for_set`
     /// produces from a divider gap. One history step; the selection follows

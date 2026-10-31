@@ -133,33 +133,8 @@ impl Component for App {
                 // became a hundred-frame edit.
                 self.scope = ScopeChoice::ThisFrame;
             }
-            Msg::ExtendSelection(i) => {
-                // Shift picks a run between the anchor and here, in either
-                // direction, and re-picks from the same anchor if it is
-                // shift-clicked again — so the anchor survives the message.
-                let i = self.clamp_frame(i);
-                let anchor = self.clamp_frame(self.anchor.unwrap_or(self.playhead));
-                self.selection = run_between(anchor, i);
-                self.anchor = Some(anchor);
-                self.playhead = i;
-                self.scope = ScopeChoice::Range;
-            }
-            Msg::ToggleSelection(i) => {
-                // Ctrl adds or removes one frame anywhere, which is the whole
-                // difference from Shift: the result need not be a run.
-                let i = self.clamp_frame(i);
-                if self.selection.is_empty() {
-                    self.selection.push(self.playhead);
-                }
-                toggle_frame(&mut self.selection, i);
-                self.anchor = Some(i);
-                self.playhead = i;
-                self.scope = if self.selection.is_empty() {
-                    ScopeChoice::ThisFrame
-                } else {
-                    ScopeChoice::Range
-                };
-            }
+            Msg::ExtendSelection(i) => self.extend_selection(i),
+            Msg::ToggleSelection(i) => self.toggle_selection(i),
             Msg::SetScope(choice) => {
                 if choice != ScopeChoice::Range || !self.selection.is_empty() {
                     self.scope = choice;
@@ -172,21 +147,7 @@ impl Component for App {
             Msg::SelectBand(Some(id)) => self.select_band(id),
             Msg::SelectBand(None) => self.selected_overlay = None,
             Msg::EditText(text) => self.edit_text(text),
-            Msg::DeleteSelection => {
-                if let Some(id) = self.selected_overlay.take() {
-                    self.delete_overlay(id, &sender);
-                } else if !self.selection.is_empty() {
-                    let frames = std::mem::take(&mut self.selection);
-                    let touched = frames.len();
-                    let total = self.frame_count();
-                    let (change, _) = self.editor.edit(n("Frames deleted"), touched, |d| {
-                        d.delete_frames_at(&frames)
-                    });
-                    self.scope = ScopeChoice::ThisFrame;
-                    self.after_edit();
-                    self.toast_if_document_wide(&sender, &change, total);
-                }
-            }
+            Msg::DeleteSelection => self.delete_selection(&sender),
             Msg::DeleteOverlay(id) => {
                 self.delete_overlay(id, &sender);
             }
@@ -221,31 +182,8 @@ impl Component for App {
             Msg::SeekKeepSelection(i) => {
                 self.playhead = self.clamp_frame(i);
             }
-            Msg::MoveSelection { earlier } => {
-                let picked = self.scope_frames();
-                let Some(gap) = selection_nudge_gap(&picked, earlier, self.frame_count()) else {
-                    return;
-                };
-                let to = move_target_for_set(&picked, gap);
-                if let Some(change) = self.move_picked(&picked, to) {
-                    self.toast_if_document_wide(&sender, &change, self.frame_count());
-                }
-            }
-            Msg::MoveSelectionTo { from, gap } => {
-                // A drag that started on a frame inside the active selection
-                // moves the whole selection; anywhere else it is a plain
-                // one-frame drag.
-                let multi = self.selection.len() > 1 && self.selection.contains(&from);
-                let picked: Vec<usize> = if multi {
-                    self.selection.clone()
-                } else {
-                    vec![from]
-                };
-                let to = move_target_for_set(&picked, gap);
-                if let Some(change) = self.move_picked(&picked, to) {
-                    self.toast_if_document_wide(&sender, &change, self.frame_count());
-                }
-            }
+            Msg::MoveSelection { earlier } => self.nudge_selection(earlier, &sender),
+            Msg::MoveSelectionTo { from, gap } => self.move_selection_to(from, gap, &sender),
             Msg::MoveFrame(from, to) => {
                 let total = self.frame_count();
                 if from >= total || to >= total || from == to {
