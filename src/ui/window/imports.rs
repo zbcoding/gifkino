@@ -1006,6 +1006,26 @@ pub(super) fn clock_cs(seconds: f64) -> String {
     format!("{}:{:02}.{:02}", cs / 6000, (cs / 100) % 60, cs % 100)
 }
 
+/// Probe before decoding. ffprobe is cheap but it is still a subprocess, so it
+/// runs off the main thread like the decode does. Only ffmpeg's inputs get
+/// probed: a GIF arrives frame-exact and small, and a still image is one
+/// frame, so neither has a cost to warn about.
+pub(super) fn plan_import(
+    path: PathBuf,
+    options: ImportOptions,
+    cancel: Arc<AtomicBool>,
+    sender: &ComponentSender<App>,
+) {
+    if !pipeline::needs_ffmpeg(&path) {
+        load(path, None, options, cancel, sender);
+        return;
+    }
+    sender.spawn_command(move |out| {
+        let plan = video::plan(&path, &options).map_err(|e| e.to_string());
+        out.emit(Cmd::Planned(path, Box::new(plan)));
+    });
+}
+
 pub(super) fn load(
     path: PathBuf,
     plan: Option<ImportPlan>,

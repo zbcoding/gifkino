@@ -705,26 +705,6 @@ pub(super) fn crop_changes_canvas(
     cw > 0 && ch > 0 && !(x == 0 && y == 0 && w >= cw && h >= ch)
 }
 
-/// Probe before decoding. ffprobe is cheap but it is still a subprocess, so it
-/// runs off the main thread like the decode does. Only ffmpeg's inputs get
-/// probed: a GIF arrives frame-exact and small, and a still image is one
-/// frame, so neither has a cost to warn about.
-pub(super) fn plan_import(
-    path: PathBuf,
-    options: ImportOptions,
-    cancel: Arc<AtomicBool>,
-    sender: &ComponentSender<App>,
-) {
-    if !pipeline::needs_ffmpeg(&path) {
-        load(path, None, options, cancel, sender);
-        return;
-    }
-    sender.spawn_command(move |out| {
-        let plan = video::plan(&path, &options).map_err(|e| e.to_string());
-        out.emit(Cmd::Planned(path, Box::new(plan)));
-    });
-}
-
 /// How often a worker may post progress. A fast job would otherwise post a
 /// message per frame, and the main loop has to drain each one before it can
 /// draw any of them.
