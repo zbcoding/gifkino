@@ -17,35 +17,10 @@ fn doc(frames: usize) -> Document {
 /// on the model itself is GTK-owned, so this needs no window or sender.
 fn app_with(doc: Document, scope: ScopeChoice, selection: Vec<usize>, playhead: usize) -> App {
     App {
-        editor: Editor::new(doc),
-        caps: Caps::default(),
-        settings: Settings::default(),
-        path: None,
         playhead,
-        playing: false,
         scope,
         selection,
-        anchor: None,
-        selected_overlay: None,
-        busy: None,
-        estimate: None,
-        estimate_pending: None,
-        keymap: Rc::new(RefCell::new(Keymap::default())),
-        drag: None,
-        snap: true,
-        guides: Guides::default(),
-        crop_tool: false,
-        crop_rect: None,
-        bands_expanded: false,
-        strip_keys: RefCell::new(Vec::new()),
-        strip_zoom: Rc::new(Cell::new(1.0)),
-        strip_pitch: Rc::new(Cell::new(cell_pitch(THUMB_BOX, 1.0))),
-        strip_zoom_shown: Cell::new(1.0),
-        canvas_shown: Cell::new(None),
-        rev: 0,
-        import_at: None,
-        import_budget: None,
-        clipboard: Vec::new(),
+        ..App::new(doc, Caps::default(), Settings::default(), Keymap::default())
     }
 }
 

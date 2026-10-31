@@ -35,37 +35,12 @@ impl Component for App {
         relm4::set_global_css(CSS);
         register_tool_icons();
 
-        let model = App {
-            editor: Editor::new(Document::default()),
-            caps: Caps::probe(),
-            settings: Settings::load(),
-            path: None,
-            playhead: 0,
-            playing: false,
-            scope: ScopeChoice::ThisFrame,
-            selection: Vec::new(),
-            anchor: None,
-            selected_overlay: None,
-            busy: None,
-            estimate: None,
-            estimate_pending: None,
-            keymap: Rc::new(RefCell::new(Keymap::load())),
-            drag: None,
-            snap: true,
-            guides: Guides::default(),
-            crop_tool: false,
-            crop_rect: None,
-            bands_expanded: false,
-            strip_keys: RefCell::new(Vec::new()),
-            strip_zoom: Rc::new(Cell::new(1.0)),
-            strip_pitch: Rc::new(Cell::new(cell_pitch(THUMB_BOX, 1.0))),
-            strip_zoom_shown: Cell::new(1.0),
-            canvas_shown: Cell::new(None),
-            rev: 0,
-            import_at: None,
-            import_budget: None,
-            clipboard: Vec::new(),
-        };
+        let model = App::new(
+            Document::default(),
+            Caps::probe(),
+            Settings::load(),
+            Keymap::load(),
+        );
 
         let widgets = build(&root, &model, &sender);
         install_shortcuts(&root, &sender, model.keymap.clone());

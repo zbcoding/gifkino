@@ -942,6 +942,41 @@ pub struct Widgets {
 }
 
 impl App {
+    /// A window model on `doc` with nothing picked, playing or in flight.
+    fn new(doc: Document, caps: Caps, settings: Settings, keymap: Keymap) -> Self {
+        App {
+            editor: Editor::new(doc),
+            caps,
+            settings,
+            path: None,
+            playhead: 0,
+            playing: false,
+            scope: ScopeChoice::ThisFrame,
+            selection: Vec::new(),
+            anchor: None,
+            selected_overlay: None,
+            busy: None,
+            estimate: None,
+            estimate_pending: None,
+            keymap: Rc::new(RefCell::new(keymap)),
+            drag: None,
+            snap: true,
+            guides: Guides::default(),
+            crop_tool: false,
+            crop_rect: None,
+            bands_expanded: false,
+            strip_keys: RefCell::new(Vec::new()),
+            strip_zoom: Rc::new(Cell::new(1.0)),
+            strip_pitch: Rc::new(Cell::new(cell_pitch(THUMB_BOX, 1.0))),
+            strip_zoom_shown: Cell::new(1.0),
+            canvas_shown: Cell::new(None),
+            rev: 0,
+            import_at: None,
+            import_budget: None,
+            clipboard: Vec::new(),
+        }
+    }
+
     fn text_fn(&self) -> TextRasterizer<'static> {
         &rasterize
     }
