@@ -220,8 +220,12 @@ impl BindingEditor {
         }
     }
 
-    /// Hands the edited keymap to the app, which applies and saves it.
-    fn commit(&self) {
+    /// Every edit to the bindings: apply `edit`, redraw the rows, and hand the
+    /// keymap to the app, which applies and saves it. One path, so no button
+    /// can change the list without saving it.
+    fn change(&self, edit: impl FnOnce(&mut Keymap)) {
+        edit(&mut self.working.borrow_mut());
+        self.refresh();
         self.sender
             .input(Msg::SetKeymap(Box::new(self.working.borrow().clone())));
     }
@@ -240,10 +244,8 @@ impl BindingEditor {
             let Some(mods) = Mods::from_event(key, state) else {
                 return glib::Propagation::Stop;
             };
-            self.working.borrow_mut().set_mods(modal, mods);
             self.capturing_modal.set(None);
-            self.refresh();
-            self.commit();
+            self.change(|k| k.set_mods(modal, mods));
             return glib::Propagation::Stop;
         }
         let Some(action) = self.capturing.get() else {
@@ -257,10 +259,8 @@ impl BindingEditor {
         let Some(chord) = Chord::from_event(key, state) else {
             return glib::Propagation::Stop;
         };
-        self.working.borrow_mut().set(action, vec![chord]);
         self.capturing.set(None);
-        self.refresh();
-        self.commit();
+        self.change(|k| k.set(action, vec![chord]));
         glib::Propagation::Stop
     }
 }
@@ -305,8 +305,7 @@ fn add_action_groups(page: &adw::PreferencesPage, editor: &BindingEditor) {
         {
             let editor = editor.clone();
             clear.connect_clicked(move |_| {
-                editor.working.borrow_mut().set(action, Vec::new());
-                editor.refresh();
+                editor.change(|k| k.set(action, Vec::new()));
             });
         }
         if let Some(g) = &group {
@@ -336,9 +335,7 @@ fn canvas_group(editor: &BindingEditor) -> adw::PreferencesGroup {
         {
             let editor = editor.clone();
             clear.connect_clicked(move |_| {
-                editor.working.borrow_mut().set_mods(modal, Mods::default());
-                editor.refresh();
-                editor.commit();
+                editor.change(|k| k.set_mods(modal, Mods::default()));
             });
         }
         group.add(&row);
@@ -381,9 +378,7 @@ fn file_group(root: &adw::ApplicationWindow, editor: &BindingEditor) -> adw::Pre
                     };
                     match std::fs::read_to_string(&path) {
                         Ok(text) => {
-                            editor.working.borrow_mut().apply(&text);
-                            editor.refresh();
-                            editor.commit();
+                            editor.change(|k| k.apply(&text));
                         }
                         Err(e) => editor.sender.input(Msg::Toast(fill(
                             t("Could not read {path}: {error}"),
@@ -425,9 +420,7 @@ fn file_group(root: &adw::ApplicationWindow, editor: &BindingEditor) -> adw::Pre
     {
         let editor = editor.clone();
         reset.connect_clicked(move |_| {
-            *editor.working.borrow_mut() = Keymap::default();
-            editor.refresh();
-            editor.commit();
+            editor.change(|k| *k = Keymap::default());
         });
     }
     file_group.add(&file_row);
