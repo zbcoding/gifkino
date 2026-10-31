@@ -108,14 +108,44 @@ impl Trim {
     }
 }
 
+/// The drop that thins anything: one frame in every `n`, for `n` of two or
+/// more. Fewer than two keeps everything, so it is no drop at all.
+fn thinning(drop_nth: Option<usize>) -> Option<usize> {
+    drop_nth.filter(|n| *n >= 2)
+}
+
 /// Frames left after dropping one in every `n`, counted the way
 /// `Document::drop_every_nth` drops them: frame 0 always stays and every Nth
 /// goes. Fewer than two keeps everything.
 pub fn kept_frames(decoded: usize, drop_nth: Option<usize>) -> usize {
-    match drop_nth.filter(|n| *n >= 2) {
+    match thinning(drop_nth) {
         Some(n) => decoded - decoded / n,
         None => decoded,
     }
+}
+
+/// The most decoded frames whose kept share still fits in `kept`. Floored
+/// rather than exact: rounding up lands one kept frame over.
+fn decoded_for_kept(kept: usize, drop_nth: Option<usize>) -> usize {
+    match thinning(drop_nth) {
+        Some(n) => kept.saturating_mul(n) / (n - 1),
+        None => kept,
+    }
+}
+
+/// The rate `fps` of decoded frames plays at once the drop has taken its share
+/// out: N-1 of every N stay to cover the same stretch of time.
+fn kept_rate(fps: f64, drop_nth: Option<usize>) -> f64 {
+    match thinning(drop_nth) {
+        Some(n) => fps * (n - 1) as f64 / n as f64,
+        None => fps,
+    }
+}
+
+/// Seconds of input from `start_s` on: the trimmed span when there is one,
+/// the rest of the clip otherwise. `None` when neither says.
+fn seconds_taken(source: &VideoInfo, start_s: f64, span_s: Option<f64>) -> Option<f64> {
+    span_s.or_else(|| source.duration_s.map(|d| (d - start_s).max(0.0)))
 }
 
 #[derive(Clone, Debug)]
@@ -187,11 +217,12 @@ impl ImportPlan {
     /// Frames the decoder hands over before the drop takes any out. What
     /// `-frames:v` and the progress bar count.
     pub fn decoded_frames(&self) -> Option<usize> {
-        let seconds = match self.span_s {
-            Some(span) => span,
-            None => (self.source.duration_s? - self.start_s).max(0.0),
-        };
-        Some((seconds * self.fps).round().max(1.0) as usize)
+        Some((self.seconds()? * self.fps).round().max(1.0) as usize)
+    }
+
+    /// Seconds of input the plan takes.
+    fn seconds(&self) -> Option<f64> {
+        seconds_taken(&self.source, self.start_s, self.span_s)
     }
 
     pub fn bytes(&self) -> Option<usize> {
@@ -211,10 +242,7 @@ impl ImportPlan {
     /// drop takes out, which is what keeps a thinned import the same length as
     /// the clip it came from.
     pub fn playback_fps(&self) -> f64 {
-        match self.drop_nth {
-            Some(n) if n >= 2 => self.fps * (n - 1) as f64 / n as f64,
-            _ => self.fps,
-        }
+        kept_rate(self.fps, self.drop_nth)
     }
 }
 
@@ -261,10 +289,10 @@ pub fn plan_for(source: VideoInfo, options: &ImportOptions) -> ImportPlan {
         Some(trim) => trim.resolve(&source),
         None => (0.0, None),
     };
-    let drop_nth = options.drop_nth.filter(|n| *n >= 2);
+    let drop_nth = thinning(options.drop_nth);
     // Seconds the automatic rate has to fit its frames into: the trimmed span
     // when there is one, the rest of the clip otherwise.
-    let planned_seconds = span_s.or_else(|| source.duration_s.map(|d| (d - start_s).max(0.0)));
+    let planned_seconds = seconds_taken(&source, start_s, span_s);
 
     // An explicit rate is the user's call: honour it and let `cap` truncate,
     // which the preview says out loud. Only the automatic rate gets thinned to
@@ -274,13 +302,8 @@ pub fn plan_for(source: VideoInfo, options: &ImportOptions) -> ImportPlan {
     if options.fps.is_none()
         && let Some(seconds) = planned_seconds.filter(|d| *d > 0.5)
     {
-        // The most decoded frames whose kept share still fits the cap. Floored
-        // rather than exact: rounding up lands one kept frame over the cap,
-        // and the plan refuses itself.
-        let affordable = match drop_nth {
-            Some(n) => (cap.saturating_mul(n) / (n - 1)) as f64,
-            None => cap as f64,
-        };
+        // The most decoded frames whose kept share still fits the cap.
+        let affordable = decoded_for_kept(cap, drop_nth) as f64;
         fps = fps.min((affordable / seconds).max(2.0));
     }
     ImportPlan {
@@ -314,35 +337,24 @@ pub fn sample_frames(path: &Path, plan: &ImportPlan, count: usize) -> Result<Vec
     let count = count.max(1);
     let frame_bytes = plan.width as usize * plan.height as usize * 4;
     let mut out = Vec::with_capacity(count);
+    // Spread the samples across what the plan actually takes, which is the
+    // trimmed span when there is one — a sample from outside it would be
+    // describing a file nobody is importing.
+    let spread = plan.seconds().filter(|d| *d > 0.5);
+    let options = [
+        "-frames:v".to_string(),
+        "1".to_string(),
+        "-vf".to_string(),
+        format!("scale={}:{}", plan.width, plan.height),
+    ];
 
     for i in 0..count {
-        let mut cmd = Command::new("ffmpeg");
-        cmd.args(["-v", "error"]);
-        // Spread the samples across what the plan actually takes, which is the
-        // trimmed span when there is one — a sample from outside it would be
-        // describing a file nobody is importing.
-        let span = plan
-            .span_s
-            .or_else(|| plan.source.duration_s.map(|d| (d - plan.start_s).max(0.0)));
-        match span.filter(|d| *d > 0.5) {
-            Some(seconds) => {
-                let at = plan.start_s + seconds * (i as f64 + 0.5) / count as f64;
-                cmd.arg("-ss").arg(format!("{at:.3}"));
-            }
+        let at = match spread {
+            Some(seconds) => plan.start_s + seconds * (i as f64 + 0.5) / count as f64,
             // No span to spread across, so take the opening frames instead.
-            None => {
-                let at = plan.start_s + i as f64 / plan.fps.max(1.0);
-                if at > 0.0 {
-                    cmd.arg("-ss").arg(format!("{at:.3}"));
-                }
-            }
-        }
-        let mut out_bytes = cmd
-            .arg("-i")
-            .arg(path)
-            .args(["-frames:v", "1", "-vf"])
-            .arg(format!("scale={}:{}", plan.width, plan.height))
-            .args(["-f", "rawvideo", "-pix_fmt", "rgba", "-"])
+            None => plan.start_s + i as f64 / plan.fps.max(1.0),
+        };
+        let mut out_bytes = ffmpeg_rgba(path, at, &options)
             .output()
             .context("running ffmpeg")?;
 
@@ -363,6 +375,23 @@ pub fn sample_frames(path: &Path, plan: &ImportPlan, count: usize) -> Result<Vec
     Ok(out)
 }
 
+/// ffmpeg decoding `path` from `start_s` to raw RGBA on stdout, with
+/// `output_options` (the caller's `-t`, `-vf`, `-frames:v`) ahead of the
+/// output. The seek goes before `-i`, so it jumps by keyframe instead of
+/// decoding the clip to get there.
+fn ffmpeg_rgba(path: &Path, start_s: f64, output_options: &[String]) -> Command {
+    let mut cmd = Command::new("ffmpeg");
+    cmd.args(["-v", "error"]);
+    if start_s > 0.0 {
+        cmd.arg("-ss").arg(format!("{start_s:.3}"));
+    }
+    cmd.arg("-i")
+        .arg(path)
+        .args(output_options)
+        .args(["-f", "rawvideo", "-pix_fmt", "rgba", "-"]);
+    cmd
+}
+
 /// Decode exactly this plan. The import dialog hands back a plan the user
 /// edited, and running it verbatim is what makes the preview honest.
 pub fn import_planned(
@@ -381,6 +410,11 @@ pub fn import_planned(
         ..
     } = *plan;
 
+    let mut options = Vec::new();
+    // `-t` after the input bounds the output.
+    if let Some(span) = span_s {
+        options.extend(["-t".to_string(), format!("{span:.3}")]);
+    }
     let mut filters = Vec::new();
     if (w, h) != (plan.source.width, plan.source.height) {
         // Explicit height, not -2: the picker is allowed to change the aspect.
@@ -389,20 +423,8 @@ pub fn import_planned(
     if (fps - plan.source.fps).abs() > 0.01 {
         filters.push(format!("fps={fps}"));
     }
-
-    let mut cmd = Command::new("ffmpeg");
-    cmd.args(["-v", "error"]);
-    // Ahead of `-i`, so the seek jumps by keyframe instead of decoding the
-    // clip to get there. `-t` after the input bounds the output.
-    if start_s > 0.0 {
-        cmd.arg("-ss").arg(format!("{start_s:.3}"));
-    }
-    cmd.arg("-i").arg(path);
-    if let Some(span) = span_s {
-        cmd.arg("-t").arg(format!("{span:.3}"));
-    }
     if !filters.is_empty() {
-        cmd.arg("-vf").arg(filters.join(","));
+        options.extend(["-vf".to_string(), filters.join(",")]);
     }
     // A backstop, not the policy: a plan that fits never reaches this, and an
     // over-budget one is refused before it gets here. It exists for streams
@@ -410,13 +432,13 @@ pub fn import_planned(
     // against. It counts decoded frames, so the drop has to be added back:
     // `cap` is a ceiling on the frames that are kept.
     let decode_cap = match drop_nth {
-        Some(n) => (cap.saturating_mul(n) / (n - 1)).saturating_add(1),
+        Some(_) => decoded_for_kept(cap, drop_nth).saturating_add(1),
         None => cap,
     };
-    cmd.arg("-frames:v").arg(decode_cap.to_string());
-    cmd.args(["-f", "rawvideo", "-pix_fmt", "rgba", "-"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    options.extend(["-frames:v".to_string(), decode_cap.to_string()]);
+
+    let mut cmd = ffmpeg_rgba(path, start_s, &options);
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
     let mut child = cmd.spawn().context("running ffmpeg")?;
     let mut stdout = child.stdout.take().expect("piped");
