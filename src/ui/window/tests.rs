@@ -1741,13 +1741,13 @@ fn linked_resize_fields_track_each_other_live() {
         240,
         "committed height recomputes width"
     );
-    width.set_text("320".into());
+    width.set_text("320");
     assert_eq!(
         height.value() as u32,
         180,
         "keystrokes recompute before the spin commits them"
     );
-    width.set_text("".into());
+    width.set_text("");
     assert_eq!(
         height.value() as u32,
         180,
@@ -1864,7 +1864,7 @@ fn the_advanced_import_rows_explain_themselves_without_crowding() {
     // Every explained row carries its question mark directly after the
     // label, not out beyond the control and not in front of the text.
     let mut labelled = Vec::new();
-    let mut next = advanced.clone().upcast::<gtk::Widget>().first_child();
+    let mut next = advanced.upcast_ref::<gtk::Widget>().first_child();
     let mut stack = Vec::new();
     while let Some(child) = next {
         if let Some(button) = child.downcast_ref::<gtk::MenuButton>() {

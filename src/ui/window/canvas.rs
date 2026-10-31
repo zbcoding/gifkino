@@ -227,7 +227,7 @@ pub(super) fn install_canvas_gestures(
         });
     }
     {
-        let (to_image, sender) = (to_image.clone(), sender.clone());
+        let sender = sender.clone();
         drag.connect_drag_update(move |gesture, dx, dy| {
             let Some((sx, sy)) = gesture.start_point() else {
                 return;

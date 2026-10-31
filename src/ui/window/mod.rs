@@ -1138,7 +1138,7 @@ impl App {
         let count = self.frame_count();
         self.leave_crop();
         self.selected_overlay = Some(id);
-        self.selection = range.clone().filter(|i| *i < count).collect();
+        self.selection = range.filter(|i| *i < count).collect();
         self.anchor = self.selection.first().copied();
         self.scope = ScopeChoice::Range;
         self.seek_to_overlay(id);
