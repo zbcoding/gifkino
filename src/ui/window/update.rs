@@ -249,7 +249,7 @@ impl Component for App {
                 }
             }
             Msg::Seek(i) => {
-                self.playhead = i.min(self.frame_count().saturating_sub(1));
+                self.playhead = self.clamp_frame(i);
                 self.selection.clear();
                 self.anchor = Some(self.playhead);
                 // A seek is navigation to one frame, which is also choosing
@@ -262,11 +262,8 @@ impl Component for App {
                 // Shift picks a run between the anchor and here, in either
                 // direction, and re-picks from the same anchor if it is
                 // shift-clicked again — so the anchor survives the message.
-                let i = i.min(self.frame_count().saturating_sub(1));
-                let anchor = self
-                    .anchor
-                    .unwrap_or(self.playhead)
-                    .min(self.frame_count().saturating_sub(1));
+                let i = self.clamp_frame(i);
+                let anchor = self.clamp_frame(self.anchor.unwrap_or(self.playhead));
                 self.selection = run_between(anchor, i);
                 self.anchor = Some(anchor);
                 self.playhead = i;
@@ -275,7 +272,7 @@ impl Component for App {
             Msg::ToggleSelection(i) => {
                 // Ctrl adds or removes one frame anywhere, which is the whole
                 // difference from Shift: the result need not be a run.
-                let i = i.min(self.frame_count().saturating_sub(1));
+                let i = self.clamp_frame(i);
                 if self.selection.is_empty() {
                     self.selection.push(self.playhead);
                 }
@@ -403,7 +400,6 @@ impl Component for App {
                     let (change, _) = self.editor.edit(n("Frames deleted"), touched, |d| {
                         d.delete_frames_at(&frames)
                     });
-                    self.playhead = self.playhead.min(self.frame_count().saturating_sub(1));
                     self.scope = ScopeChoice::ThisFrame;
                     self.after_edit();
                     self.toast_if_document_wide(&sender, &change, total);
@@ -441,7 +437,7 @@ impl Component for App {
                 self.run_frame_op(op, frames, &sender);
             }
             Msg::SeekKeepSelection(i) => {
-                self.playhead = i.min(self.frame_count().saturating_sub(1));
+                self.playhead = self.clamp_frame(i);
             }
             Msg::MoveSelection { earlier } => {
                 let picked = self.scope_frames();
@@ -781,7 +777,7 @@ impl Component for App {
                 dx as f32,
                 dy as f32,
             );
-            self.playhead = at.min(self.frame_count().saturating_sub(1));
+            self.playhead = self.clamp_frame(at);
             self.after_edit();
             // Always toasted, unlike a scoped edit: the frames land off the
             // playhead's frame, and a grown canvas redrew every one of them.

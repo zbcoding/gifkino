@@ -444,7 +444,7 @@ impl App {
     /// Everything a document change invalidates.
     pub(super) fn after_edit(&mut self) {
         self.rev += 1;
-        self.playhead = self.playhead.min(self.frame_count().saturating_sub(1));
+        self.playhead = self.clamp_frame(self.playhead);
         let count = self.frame_count();
         self.selection.retain(|i| *i < count);
         if self.selection.is_empty() && self.scope == ScopeChoice::Range {

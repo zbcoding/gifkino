@@ -947,6 +947,11 @@ impl App {
         self.editor.doc.frames.len()
     }
 
+    /// Frame index `i`, pulled back onto the last frame (0 with none).
+    fn clamp_frame(&self, i: usize) -> usize {
+        i.min(self.frame_count().saturating_sub(1))
+    }
+
     fn scope(&self) -> Scope {
         match self.scope {
             ScopeChoice::ThisFrame => Scope::ThisFrame,
@@ -1080,7 +1085,7 @@ impl App {
         if let Some(o) = self.editor.doc.overlay(id)
             && !o.range.contains(&self.playhead)
         {
-            self.playhead = o.range.start.min(self.frame_count().saturating_sub(1));
+            self.playhead = self.clamp_frame(o.range.start);
         }
     }
 
