@@ -345,6 +345,38 @@ fn the_canvas_key_moves_whenever_the_picture_would() {
     moved(&app, "edit on the frame on screen");
 }
 
+/// Regression: a release whose scope misses the dragged overlay puts it back
+/// without recording an edit, and used to leave `rev` where the last drag
+/// step had it — so a size measured mid-drag, of the moved box, still
+/// passed for the restored document's and was never measured again.
+#[test]
+fn a_release_that_puts_the_overlay_back_retires_the_estimate() {
+    let mut app = app_with(doc(3), ScopeChoice::Range, vec![2], 0);
+    let id = app.editor.doc.add_overlay(
+        "box",
+        OverlayKind::Shape(ShapeOverlay {
+            shape: Shape::Rect,
+            fill: Some([1, 2, 3, 255]),
+            stroke: None,
+        }),
+        Transform::at(1.0, 1.0, 4.0, 4.0),
+        0..1,
+    );
+    app.canvas_press(2.0, 2.0, 1.0, NO_MODS);
+    app.canvas_drag(4.0, 2.0, NO_MODS);
+    // The debounce fired while the button was held: this measures the box
+    // where the drag had it.
+    app.estimate = Some((app.rev, 1234));
+
+    assert!(app.canvas_release().is_none(), "nothing in scope to commit");
+    assert_eq!(transform_of(&app, id), Transform::at(1.0, 1.0, 4.0, 4.0));
+    assert_ne!(
+        app.estimate.map(|(rev, _)| rev),
+        Some(app.rev),
+        "the mid-drag measurement must not pass for the restored document"
+    );
+}
+
 /// A dragged corner of an upright box pulls onto a guide. Locked to its
 /// aspect, or rotated, it follows the pointer: the guide would have to be
 /// solved back through the resize.

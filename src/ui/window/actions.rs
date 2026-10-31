@@ -401,6 +401,9 @@ impl App {
         // the frames keep where it was.
         let span = self.edit_span(id);
         if span.is_empty() {
+            // Nothing to record, but the overlay just moved back: a size
+            // measured while it was away describes a picture that is gone.
+            self.rev += 1;
             return None;
         }
         let label = match drag.mode {
