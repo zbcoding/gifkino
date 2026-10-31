@@ -37,6 +37,20 @@
   re-copies every thumbnail, or rescales every one when the strip is zoomed
   out. Playback and selection changes no longer scan the selection once per
   thumbnail.
+- The canvas redraws only when the picture on it changes, rather than after
+  every message, including each tick of a progress bar.
+- Opening and exporting a GIF do less work per frame: the palette is built
+  once per export instead of once per frame.
+
+### Fixes
+
+- Releasing a dragged overlay that the scope does not reach puts it back
+  and now also refreshes the size estimate, which could keep the number
+  measured mid-drag.
+- Delete and Duplicate in the strip's right-click menu grey out while a job
+  runs, as they already did in the Frames menu.
+- The Undo and Redo tooltips are translated and show the bound keys as soon
+  as the window opens, not only after the first action.
 
 ## 0.1.5 — 2026-09-25
 
