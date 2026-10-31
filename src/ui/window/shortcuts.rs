@@ -138,59 +138,152 @@ pub(super) fn shortcuts_dialog(
     let dialog = adw::PreferencesDialog::new();
     dialog.set_title(t("Keyboard shortcuts"));
     let page = adw::PreferencesPage::new();
-
-    let working = Rc::new(RefCell::new(keymap.borrow().clone()));
-    // Which row is waiting for a keypress, if any. Chords and canvas modifiers
-    // capture the same way but read different halves of the event.
-    let capturing: Rc<RefCell<Option<Action>>> = Rc::new(RefCell::new(None));
-    let capturing_modal: Rc<RefCell<Option<Modal>>> = Rc::new(RefCell::new(None));
-    let rows: Rc<RefCell<Vec<(Action, adw::ActionRow, gtk::Button)>>> =
-        Rc::new(RefCell::new(Vec::new()));
-    let modal_rows: Rc<RefCell<Vec<(Modal, gtk::Button)>>> = Rc::new(RefCell::new(Vec::new()));
-
-    let refresh: Rc<dyn Fn()> = {
-        let (working, rows, capturing) = (working.clone(), rows.clone(), capturing.clone());
-        let (modal_rows, capturing_modal) = (modal_rows.clone(), capturing_modal.clone());
-        Rc::new(move || {
-            let map = working.borrow();
-            let conflicts = map.conflicts();
-            let waiting = *capturing.borrow();
-            let waiting_modal = *capturing_modal.borrow();
-            for (modal, button) in modal_rows.borrow().iter() {
-                let mods = map.mods(*modal);
-                button.set_label(&if waiting_modal == Some(*modal) {
-                    // Translators: A canvas modifier row waiting for the user to hold a key.
-                    t("Hold a modifier…").to_string()
-                } else if mods.is_empty() {
-                    t("Unassigned").to_string()
-                } else {
-                    mods.display()
-                });
-            }
-            for (action, row, button) in rows.borrow().iter() {
-                let chords: Vec<String> = map
-                    .chords(*action)
-                    .iter()
-                    .map(crate::keymap::Chord::display)
-                    .collect();
-                button.set_label(&if waiting == Some(*action) {
-                    t("Press a key…").to_string()
-                } else if chords.is_empty() {
-                    t("Unassigned").to_string()
-                } else {
-                    chords.join(", ")
-                });
-                let clash = conflicts.contains(action);
-                set_class(button.upcast_ref(), "bind-conflict", clash);
-                row.set_subtitle(if clash {
-                    t("Already used by another action")
-                } else {
-                    ""
-                });
-            }
-        })
+    let editor = BindingEditor {
+        working: Rc::new(RefCell::new(keymap.borrow().clone())),
+        capturing: Rc::default(),
+        capturing_modal: Rc::default(),
+        rows: Rc::default(),
+        modal_rows: Rc::default(),
+        sender: sender.clone(),
     };
+    add_action_groups(&page, &editor);
+    page.add(&canvas_group(&editor));
 
+    // Capture runs in the capture phase, so the dialog's own widgets never see
+    // the keystroke being bound.
+    let keys = gtk::EventControllerKey::new();
+    keys.set_propagation_phase(gtk::PropagationPhase::Capture);
+    {
+        let editor = editor.clone();
+        keys.connect_key_pressed(move |_, key, _, state| editor.capture(key, state));
+    }
+    dialog.add_controller(keys);
+
+    page.add(&file_group(root, &editor));
+    dialog.add(&page);
+    editor.refresh();
+    dialog.present(Some(root));
+}
+
+/// What every row and handler of the keybinding editor shares.
+#[derive(Clone)]
+struct BindingEditor {
+    /// The keymap being edited, handed to the app whole on each change.
+    working: Rc<RefCell<Keymap>>,
+    /// Which row is waiting for a keypress, if any. Chords and canvas
+    /// modifiers capture the same way but read different halves of the event.
+    capturing: Rc<Cell<Option<Action>>>,
+    capturing_modal: Rc<Cell<Option<Modal>>>,
+    rows: Rc<RefCell<Vec<(Action, adw::ActionRow, gtk::Button)>>>,
+    modal_rows: Rc<RefCell<Vec<(Modal, gtk::Button)>>>,
+    sender: ComponentSender<App>,
+}
+
+impl BindingEditor {
+    /// Writes every row's binding, the capture prompt, and the conflict marks.
+    fn refresh(&self) {
+        let map = self.working.borrow();
+        let conflicts = map.conflicts();
+        let waiting = self.capturing.get();
+        let waiting_modal = self.capturing_modal.get();
+        for (modal, button) in self.modal_rows.borrow().iter() {
+            let mods = map.mods(*modal);
+            button.set_label(&if waiting_modal == Some(*modal) {
+                // Translators: A canvas modifier row waiting for the user to hold a key.
+                t("Hold a modifier…").to_string()
+            } else if mods.is_empty() {
+                t("Unassigned").to_string()
+            } else {
+                mods.display()
+            });
+        }
+        for (action, row, button) in self.rows.borrow().iter() {
+            let chords: Vec<String> = map
+                .chords(*action)
+                .iter()
+                .map(crate::keymap::Chord::display)
+                .collect();
+            button.set_label(&if waiting == Some(*action) {
+                t("Press a key…").to_string()
+            } else if chords.is_empty() {
+                t("Unassigned").to_string()
+            } else {
+                chords.join(", ")
+            });
+            let clash = conflicts.contains(action);
+            set_class(button.upcast_ref(), "bind-conflict", clash);
+            row.set_subtitle(if clash {
+                t("Already used by another action")
+            } else {
+                ""
+            });
+        }
+    }
+
+    /// Hands the edited keymap to the app, which applies and saves it.
+    fn commit(&self) {
+        self.sender
+            .input(Msg::SetKeymap(Box::new(self.working.borrow().clone())));
+    }
+
+    /// A keypress while the dialog is up: the answer to whichever row is
+    /// waiting for one, or Escape to stop waiting.
+    fn capture(&self, key: gdk::Key, state: gdk::ModifierType) -> glib::Propagation {
+        if let Some(modal) = self.capturing_modal.get() {
+            if key == gdk::Key::Escape {
+                self.capturing_modal.set(None);
+                self.refresh();
+                return glib::Propagation::Stop;
+            }
+            // Anything that is not a modifier is not an answer to this
+            // question, so it is swallowed rather than bound.
+            let Some(mods) = Mods::from_event(key, state) else {
+                return glib::Propagation::Stop;
+            };
+            self.working.borrow_mut().set_mods(modal, mods);
+            self.capturing_modal.set(None);
+            self.refresh();
+            self.commit();
+            return glib::Propagation::Stop;
+        }
+        let Some(action) = self.capturing.get() else {
+            return glib::Propagation::Proceed;
+        };
+        if key == gdk::Key::Escape {
+            self.capturing.set(None);
+            self.refresh();
+            return glib::Propagation::Stop;
+        }
+        let Some(chord) = Chord::from_event(key, state) else {
+            return glib::Propagation::Stop;
+        };
+        self.working.borrow_mut().set(action, vec![chord]);
+        self.capturing.set(None);
+        self.refresh();
+        self.commit();
+        glib::Propagation::Stop
+    }
+}
+
+/// A binding row titled `title`: the button that shows the binding and
+/// starts a capture, then the one that clears it.
+fn binding_row(title: &str) -> (adw::ActionRow, gtk::Button, gtk::Button) {
+    let row = adw::ActionRow::builder().title(title).build();
+    let button = gtk::Button::with_label("");
+    button.set_valign(gtk::Align::Center);
+    button.set_width_request(150);
+    let clear = gtk::Button::from_icon_name("edit-clear-symbolic");
+    clear.set_valign(gtk::Align::Center);
+    clear.add_css_class("flat");
+    clear.set_tooltip_text(Some(t("Unbind")));
+    row.add_suffix(&button);
+    row.add_suffix(&clear);
+    (row, button, clear)
+}
+
+/// One group per `Action::group`, in `keymap::ACTIONS` order, with a chord
+/// row per action.
+fn add_action_groups(page: &adw::PreferencesPage, editor: &BindingEditor) {
     let mut group: Option<adw::PreferencesGroup> = None;
     let mut last = "";
     for action in crate::keymap::ACTIONS {
@@ -200,123 +293,62 @@ pub(super) fn shortcuts_dialog(
             page.add(&g);
             group = Some(g);
         }
-        let row = adw::ActionRow::builder().title(t(action.label())).build();
-        let button = gtk::Button::with_label("");
-        button.set_valign(gtk::Align::Center);
-        button.set_width_request(150);
+        let (row, button, clear) = binding_row(t(action.label()));
         {
-            let (capturing, capturing_modal, refresh) =
-                (capturing.clone(), capturing_modal.clone(), refresh.clone());
+            let editor = editor.clone();
             button.connect_clicked(move |_| {
-                *capturing_modal.borrow_mut() = None;
-                *capturing.borrow_mut() = Some(action);
-                refresh();
+                editor.capturing_modal.set(None);
+                editor.capturing.set(Some(action));
+                editor.refresh();
             });
         }
-        let clear = gtk::Button::from_icon_name("edit-clear-symbolic");
-        clear.set_valign(gtk::Align::Center);
-        clear.add_css_class("flat");
-        clear.set_tooltip_text(Some(t("Unbind")));
         {
-            let (working, refresh) = (working.clone(), refresh.clone());
+            let editor = editor.clone();
             clear.connect_clicked(move |_| {
-                working.borrow_mut().set(action, Vec::new());
-                refresh();
+                editor.working.borrow_mut().set(action, Vec::new());
+                editor.refresh();
             });
         }
-        row.add_suffix(&button);
-        row.add_suffix(&clear);
         if let Some(g) = &group {
             g.add(&row);
         }
-        rows.borrow_mut().push((action, row, button));
+        editor.rows.borrow_mut().push((action, row, button));
     }
+}
 
-    // Canvas modifiers: held during a drag rather than pressed as a chord, so
-    // they live in their own group and capture a bare modifier.
-    let canvas_group = adw::PreferencesGroup::builder()
+/// Canvas modifiers: held during a drag rather than pressed as a chord, so
+/// they live in their own group and capture a bare modifier.
+fn canvas_group(editor: &BindingEditor) -> adw::PreferencesGroup {
+    let group = adw::PreferencesGroup::builder()
         .title(t("Canvas"))
         .description(t("Held while dragging an overlay's grip."))
         .build();
     for modal in MODALS {
-        let row = adw::ActionRow::builder().title(t(modal.label())).build();
-        let button = gtk::Button::with_label("");
-        button.set_valign(gtk::Align::Center);
-        button.set_width_request(150);
+        let (row, button, clear) = binding_row(t(modal.label()));
         {
-            let (capturing, capturing_modal, refresh) =
-                (capturing.clone(), capturing_modal.clone(), refresh.clone());
+            let editor = editor.clone();
             button.connect_clicked(move |_| {
-                *capturing.borrow_mut() = None;
-                *capturing_modal.borrow_mut() = Some(modal);
-                refresh();
+                editor.capturing.set(None);
+                editor.capturing_modal.set(Some(modal));
+                editor.refresh();
             });
         }
-        let clear = gtk::Button::from_icon_name("edit-clear-symbolic");
-        clear.set_valign(gtk::Align::Center);
-        clear.add_css_class("flat");
-        clear.set_tooltip_text(Some(t("Unbind")));
         {
-            let (working, refresh, sender) = (working.clone(), refresh.clone(), sender.clone());
+            let editor = editor.clone();
             clear.connect_clicked(move |_| {
-                working.borrow_mut().set_mods(modal, Mods::default());
-                refresh();
-                sender.input(Msg::SetKeymap(Box::new(working.borrow().clone())));
+                editor.working.borrow_mut().set_mods(modal, Mods::default());
+                editor.refresh();
+                editor.commit();
             });
         }
-        row.add_suffix(&button);
-        row.add_suffix(&clear);
-        canvas_group.add(&row);
-        modal_rows.borrow_mut().push((modal, button));
+        group.add(&row);
+        editor.modal_rows.borrow_mut().push((modal, button));
     }
-    page.add(&canvas_group);
+    group
+}
 
-    // Capture runs in the capture phase, so the dialog's own widgets never see
-    // the keystroke being bound.
-    let keys = gtk::EventControllerKey::new();
-    keys.set_propagation_phase(gtk::PropagationPhase::Capture);
-    {
-        let (working, capturing, refresh) = (working.clone(), capturing.clone(), refresh.clone());
-        let sender = sender.clone();
-        let capturing_modal = capturing_modal.clone();
-        keys.connect_key_pressed(move |_, key, _, state| {
-            if let Some(modal) = *capturing_modal.borrow() {
-                if key == gdk::Key::Escape {
-                    *capturing_modal.borrow_mut() = None;
-                    refresh();
-                    return glib::Propagation::Stop;
-                }
-                // Anything that is not a modifier is not an answer to this
-                // question, so it is swallowed rather than bound.
-                let Some(mods) = Mods::from_event(key, state) else {
-                    return glib::Propagation::Stop;
-                };
-                working.borrow_mut().set_mods(modal, mods);
-                *capturing_modal.borrow_mut() = None;
-                refresh();
-                sender.input(Msg::SetKeymap(Box::new(working.borrow().clone())));
-                return glib::Propagation::Stop;
-            }
-            let Some(action) = *capturing.borrow() else {
-                return glib::Propagation::Proceed;
-            };
-            if key == gdk::Key::Escape {
-                *capturing.borrow_mut() = None;
-                refresh();
-                return glib::Propagation::Stop;
-            }
-            let Some(chord) = Chord::from_event(key, state) else {
-                return glib::Propagation::Stop;
-            };
-            working.borrow_mut().set(action, vec![chord]);
-            *capturing.borrow_mut() = None;
-            refresh();
-            sender.input(Msg::SetKeymap(Box::new(working.borrow().clone())));
-            glib::Propagation::Stop
-        });
-    }
-    dialog.add_controller(keys);
-
+/// Import, export and reset for the keybindings file.
+fn file_group(root: &adw::ApplicationWindow, editor: &BindingEditor) -> adw::PreferencesGroup {
     let file_group = adw::PreferencesGroup::builder()
         .title(t("Keybindings file"))
         .description(t("Bindings are saved as you change them."))
@@ -337,15 +369,9 @@ pub(super) fn shortcuts_dialog(
         file_row.add_suffix(b);
     }
     {
-        let (working, refresh, sender, parent) = (
-            working.clone(),
-            refresh.clone(),
-            sender.clone(),
-            root.clone(),
-        );
+        let (editor, parent) = (editor.clone(), root.clone());
         import.connect_clicked(move |_| {
-            let parent = parent.clone();
-            let (working, refresh, sender) = (working.clone(), refresh.clone(), sender.clone());
+            let editor = editor.clone();
             gtk::FileDialog::builder()
                 .title(t("Import keybindings"))
                 .build()
@@ -355,11 +381,11 @@ pub(super) fn shortcuts_dialog(
                     };
                     match std::fs::read_to_string(&path) {
                         Ok(text) => {
-                            working.borrow_mut().apply(&text);
-                            refresh();
-                            sender.input(Msg::SetKeymap(Box::new(working.borrow().clone())));
+                            editor.working.borrow_mut().apply(&text);
+                            editor.refresh();
+                            editor.commit();
                         }
-                        Err(e) => sender.input(Msg::Toast(fill(
+                        Err(e) => editor.sender.input(Msg::Toast(fill(
                             t("Could not read {path}: {error}"),
                             &[
                                 ("path", &path.display().to_string()),
@@ -371,10 +397,9 @@ pub(super) fn shortcuts_dialog(
         });
     }
     {
-        let (working, sender, parent) = (working.clone(), sender.clone(), root.clone());
+        let (editor, parent) = (editor.clone(), root.clone());
         export.connect_clicked(move |_| {
-            let parent = parent.clone();
-            let (working, sender) = (working.clone(), sender.clone());
+            let editor = editor.clone();
             let save = gtk::FileDialog::builder()
                 .title(t("Export keybindings"))
                 .build();
@@ -383,13 +408,13 @@ pub(super) fn shortcuts_dialog(
                 let Some(path) = res.ok().and_then(|f| f.path()) else {
                     return;
                 };
-                let text = working.borrow().to_text();
+                let text = editor.working.borrow().to_text();
                 match std::fs::write(&path, text) {
-                    Ok(()) => sender.input(Msg::Toast(fill(
+                    Ok(()) => editor.sender.input(Msg::Toast(fill(
                         t("Saved {path}"),
                         &[("path", &path.display().to_string())],
                     ))),
-                    Err(e) => sender.input(Msg::Toast(fill(
+                    Err(e) => editor.sender.input(Msg::Toast(fill(
                         t("Could not write: {error}"),
                         &[("error", &e.to_string())],
                     ))),
@@ -398,17 +423,13 @@ pub(super) fn shortcuts_dialog(
         });
     }
     {
-        let (working, refresh, sender) = (working.clone(), refresh.clone(), sender.clone());
+        let editor = editor.clone();
         reset.connect_clicked(move |_| {
-            *working.borrow_mut() = Keymap::default();
-            refresh();
-            sender.input(Msg::SetKeymap(Box::new(working.borrow().clone())));
+            *editor.working.borrow_mut() = Keymap::default();
+            editor.refresh();
+            editor.commit();
         });
     }
     file_group.add(&file_row);
-    page.add(&file_group);
-
-    dialog.add(&page);
-    refresh();
-    dialog.present(Some(root));
+    file_group
 }
