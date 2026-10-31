@@ -59,6 +59,12 @@
 - "Set delay…" in a frame's right-click menu opens with the frame's current
   delay, not the one it had when the strip was last rebuilt.
 - Changing a shortcut no longer rebuilds every thumbnail in the strip.
+- The GIF size estimate appears after opening a file or finishing a resize
+  or effect; it used to say "sizing…" until the next click or key.
+- A thumbnail's tooltip shows the frame's new delay right after it changes.
+- The delay dialogs accept delays up to 65535 cs, as the sidebar does. A
+  frame held longer than 60 s opened them clamped, and Apply saved the
+  clamped delay.
 
 ## 0.1.5 — 2026-09-25
 

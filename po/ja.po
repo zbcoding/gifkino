@@ -898,13 +898,13 @@ msgid "frames"
 msgstr "フレーム"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:188 src/ui/window/dialogs.rs:431 src/ui/window/dialogs.rs:543 src/ui/window/dialogs.rs:602 src/ui/window/dialogs.rs:647 src/ui/window/dialogs.rs:733 src/ui/window/dialogs.rs:791 src/ui/window/dialogs.rs:830 src/ui/window/imports.rs:83 src/ui/window/imports.rs:905
+#: src/ui/window/dialogs.rs:188 src/ui/window/dialogs.rs:431 src/ui/window/dialogs.rs:543 src/ui/window/dialogs.rs:604 src/ui/window/dialogs.rs:649 src/ui/window/dialogs.rs:735 src/ui/window/dialogs.rs:793 src/ui/window/dialogs.rs:832 src/ui/window/imports.rs:83 src/ui/window/imports.rs:905
 #, fuzzy
 msgid "Cancel"
 msgstr "キャンセル"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:189 src/ui/window/dialogs.rs:432 src/ui/window/dialogs.rs:544 src/ui/window/dialogs.rs:603 src/ui/window/dialogs.rs:648 src/ui/window/dialogs.rs:734 src/ui/window/dialogs.rs:792
+#: src/ui/window/dialogs.rs:189 src/ui/window/dialogs.rs:432 src/ui/window/dialogs.rs:544 src/ui/window/dialogs.rs:605 src/ui/window/dialogs.rs:650 src/ui/window/dialogs.rs:736 src/ui/window/dialogs.rs:794
 #, fuzzy
 msgid "Apply"
 msgstr "適用"
@@ -981,142 +981,142 @@ msgid "How long this frame is held, in hundredths of a second."
 msgstr "このフレームを表示し続ける長さ（100 分の 1 秒単位）。"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:583 src/ui/window/dialogs.rs:823
+#: src/ui/window/dialogs.rs:585 src/ui/window/dialogs.rs:825
 #, fuzzy
 msgid "Frame {number}"
 msgstr "フレーム {number}"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:628
+#: src/ui/window/dialogs.rs:630
 #, fuzzy
 msgid "Set delay for all frames"
 msgstr "すべてのフレームの表示時間を設定"
 
 #. Translators: GIF stores frame delays in centiseconds.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:630
+#: src/ui/window/dialogs.rs:632
 #, fuzzy
 msgid "How long every frame is held, in hundredths of a second."
 msgstr "すべてのフレームを表示し続ける長さ（100 分の 1 秒単位）。"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:640
+#: src/ui/window/dialogs.rs:642
 #, fuzzy
 msgid "All {count} frames"
 msgstr "すべてのフレーム（{count}）"
 
 #. Translators: A fade color.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:664
+#: src/ui/window/dialogs.rs:666
 #, fuzzy
 msgid "Black"
 msgstr "黒"
 
 #. Translators: A fade color.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:666
+#: src/ui/window/dialogs.rs:668
 #, fuzzy
 msgid "White"
 msgstr "白"
 
 #. Translators: A fade color: the frames fade to see-through.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:668
+#: src/ui/window/dialogs.rs:670
 #, fuzzy
 msgid "Transparent"
 msgstr "透明"
 
 #. Translators: Dialog title; the frames in scope brighten in from a solid color.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:683
+#: src/ui/window/dialogs.rs:685
 #, fuzzy
 msgid "Fade in"
 msgstr "フェードイン"
 
 #. Translators: Dialog title; the frames in scope sink out to a solid color.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:685
+#: src/ui/window/dialogs.rs:687
 #, fuzzy
 msgid "Fade out"
 msgstr "フェードアウト"
 
 #. Translators: Shown when Fade in/out is picked with only one frame in scope.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:691
+#: src/ui/window/dialogs.rs:693
 #, fuzzy
 msgid "Select the frames to fade across in the strip first: Shift+click for a run, or pick All frames."
 msgstr "まずストリップでフェードするフレームを選択してください。Shift+クリックで範囲を選ぶか、「すべてのフレーム」を選びます。"
 
 #. Translators: Dismisses a dialog that only explains something.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:697 src/ui/window/dialogs.rs:767
+#: src/ui/window/dialogs.rs:699 src/ui/window/dialogs.rs:769
 #, fuzzy
 msgid "Close"
 msgstr "閉じる"
 
 #. Translators: {count} is a number of frames, at least 2.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:703
+#: src/ui/window/dialogs.rs:705
 #, fuzzy
 msgid "The {count} frames in scope climb from a solid color to the full picture."
 msgstr "範囲内の{count}フレームが単色から元の画像へと変わります。"
 
 #. Translators: {count} is a number of frames, at least 2.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:705
+#: src/ui/window/dialogs.rs:707
 #, fuzzy
 msgid "The {count} frames in scope sink from the full picture to a solid color."
 msgstr "範囲内の{count}フレームが元の画像から単色へと変わります。"
 
 #. Translators: Subtitle on the Transparent fade color.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:717
+#: src/ui/window/dialogs.rs:719
 #, fuzzy
 msgid "A GIF pixel is either opaque or clear, so this fade shows as dithering."
 msgstr "GIFのピクセルは不透明か透明のどちらかなので、このフェードはディザリングとして表示されます。"
 
 #. Translators: Dialog title for blending the end of the animation into its start.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:760
+#: src/ui/window/dialogs.rs:762
 #, fuzzy
 msgid "Cross-fade the loop"
 msgstr "ループをクロスフェード"
 
 #. Translators: Shown when the document has a single frame.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:765
+#: src/ui/window/dialogs.rs:767
 #, fuzzy
 msgid "A loop cross-fade needs at least two frames."
 msgstr "ループのクロスフェードには2フレーム以上が必要です。"
 
 #. Translators: Body of the loop cross-fade dialog.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:774
+#: src/ui/window/dialogs.rs:776
 #, fuzzy
 msgid "The last frames dissolve into the first ones, so the end plays into the start without a cut. The first frames are then removed, since the dissolve already shows them: the animation gets that many frames shorter."
 msgstr "最後のフレームが最初のフレームへ溶け込み、終わりから始まりへ切れ目なくつながります。クロスフェードがすでに見せているため、最初のフレームはその後削除され、アニメーションはその分だけ短くなります。"
 
 #. Translators: How many frames at each end the loop cross-fade blends.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:786
+#: src/ui/window/dialogs.rs:788
 #, fuzzy
 msgid "Frames to blend"
 msgstr "ブレンドするフレーム数"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:814
+#: src/ui/window/dialogs.rs:816
 #, fuzzy
 msgid "Move frame"
 msgstr "フレームを移動"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:815
+#: src/ui/window/dialogs.rs:817
 #, fuzzy
 msgid "Where should this frame go?"
 msgstr "このフレームをどこに移動しますか？"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:831
+#: src/ui/window/dialogs.rs:833
 #, fuzzy
 msgid "Move"
 msgstr "移動"
@@ -1507,7 +1507,7 @@ msgstr "ループをクロスフェード"
 
 #. Translators: Past-tense edit name, used inside "{change} on {count} frames".
 #. AI-generated translation; human review requested.
-#: src/ui/window/mod.rs:1055 src/ui/window/update.rs:423
+#: src/ui/window/mod.rs:1059 src/ui/window/update.rs:439
 #, fuzzy
 msgid "Delay set"
 msgstr "表示時間を設定"
@@ -1710,14 +1710,14 @@ msgid "Copy selected frames"
 msgstr "選択したフレームをコピー"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/strip.rs:545
+#: src/ui/window/strip.rs:546
 #, fuzzy
 msgid "Edited outside; overlays skip this frame"
 msgstr "外部で編集されました。オーバーレイはこのフレームを飛ばします"
 
 #. Translators: "cs" is centiseconds, the unit GIF stores frame delays in.
 #. AI-generated translation; human review requested.
-#: src/ui/window/strip.rs:550
+#: src/ui/window/strip.rs:556
 #, fuzzy
 msgid "Frame {number} · {delay} cs"
 msgstr "フレーム {number} · {delay} cs"
@@ -1729,25 +1729,25 @@ msgid "Exported to {path} · {size} KB"
 msgstr "{path} に書き出しました · {size} KB"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/update.rs:355
+#: src/ui/window/update.rs:371
 #, fuzzy
 msgid "{count} frame copied"
 msgstr "{count} 件のフレームをコピーしました"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/update.rs:355
+#: src/ui/window/update.rs:371
 #, fuzzy
 msgid "{count} frames copied"
 msgstr "{count} 件のフレームをコピーしました"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/update.rs:375
+#: src/ui/window/update.rs:391
 #, fuzzy
 msgid "Frame moved"
 msgstr "フレームを移動"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/update.rs:515 src/ui/window/update.rs:530
+#: src/ui/window/update.rs:531 src/ui/window/update.rs:546
 #, fuzzy
 msgid "Frames removed"
 msgstr "フレームを削除"
@@ -1872,44 +1872,44 @@ msgid "{count} frames"
 msgstr "{count} フレーム"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/view.rs:435
+#: src/ui/window/view.rs:442
 #, fuzzy
 msgid "▾ {count} overlay rows"
 msgstr "▾ オーバーレイ {count} 行"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/view.rs:540
+#: src/ui/window/view.rs:547
 #, fuzzy
 msgid "{width} × {height} at {x}, {y}"
 msgstr "{width} × {height}（位置 {x}, {y}）"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/view.rs:548
+#: src/ui/window/view.rs:555
 #, fuzzy
 msgid "Drag a box on the canvas."
 msgstr "キャンバス上でドラッグして範囲を指定してください。"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/view.rs:591
+#: src/ui/window/view.rs:598
 #, fuzzy
 msgid "≈ {size} as a GIF"
 msgstr "GIF でおよそ {size}"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/view.rs:597
+#: src/ui/window/view.rs:604
 #, fuzzy
 msgid "≈ {size} as a GIF (updating…)"
 msgstr "GIF でおよそ {size}（更新中…）"
 
 #. Translators: Shown while the exported GIF size is still being measured.
 #. AI-generated translation; human review requested.
-#: src/ui/window/view.rs:602
+#: src/ui/window/view.rs:609
 #, fuzzy
 msgid "sizing…"
 msgstr "サイズを計算中…"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/view.rs:609
+#: src/ui/window/view.rs:616
 #, fuzzy
 msgid "{width} × {height} · {frames} frames · {overlays} overlays"
 msgstr "{width} × {height} · {frames} フレーム · オーバーレイ {overlays} 個"

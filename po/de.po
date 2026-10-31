@@ -898,13 +898,13 @@ msgid "frames"
 msgstr "Bildern"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:188 src/ui/window/dialogs.rs:431 src/ui/window/dialogs.rs:543 src/ui/window/dialogs.rs:602 src/ui/window/dialogs.rs:647 src/ui/window/dialogs.rs:733 src/ui/window/dialogs.rs:791 src/ui/window/dialogs.rs:830 src/ui/window/imports.rs:83 src/ui/window/imports.rs:905
+#: src/ui/window/dialogs.rs:188 src/ui/window/dialogs.rs:431 src/ui/window/dialogs.rs:543 src/ui/window/dialogs.rs:604 src/ui/window/dialogs.rs:649 src/ui/window/dialogs.rs:735 src/ui/window/dialogs.rs:793 src/ui/window/dialogs.rs:832 src/ui/window/imports.rs:83 src/ui/window/imports.rs:905
 #, fuzzy
 msgid "Cancel"
 msgstr "Abbrechen"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:189 src/ui/window/dialogs.rs:432 src/ui/window/dialogs.rs:544 src/ui/window/dialogs.rs:603 src/ui/window/dialogs.rs:648 src/ui/window/dialogs.rs:734 src/ui/window/dialogs.rs:792
+#: src/ui/window/dialogs.rs:189 src/ui/window/dialogs.rs:432 src/ui/window/dialogs.rs:544 src/ui/window/dialogs.rs:605 src/ui/window/dialogs.rs:650 src/ui/window/dialogs.rs:736 src/ui/window/dialogs.rs:794
 #, fuzzy
 msgid "Apply"
 msgstr "Anwenden"
@@ -981,142 +981,142 @@ msgid "How long this frame is held, in hundredths of a second."
 msgstr "Wie lange dieses Bild stehen bleibt, in Hundertstelsekunden."
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:583 src/ui/window/dialogs.rs:823
+#: src/ui/window/dialogs.rs:585 src/ui/window/dialogs.rs:825
 #, fuzzy
 msgid "Frame {number}"
 msgstr "Bild {number}"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:628
+#: src/ui/window/dialogs.rs:630
 #, fuzzy
 msgid "Set delay for all frames"
 msgstr "Anzeigedauer für alle Bilder festlegen"
 
 #. Translators: GIF stores frame delays in centiseconds.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:630
+#: src/ui/window/dialogs.rs:632
 #, fuzzy
 msgid "How long every frame is held, in hundredths of a second."
 msgstr "Wie lange jedes Bild stehen bleibt, in Hundertstelsekunden."
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:640
+#: src/ui/window/dialogs.rs:642
 #, fuzzy
 msgid "All {count} frames"
 msgstr "Alle {count} Bilder"
 
 #. Translators: A fade color.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:664
+#: src/ui/window/dialogs.rs:666
 #, fuzzy
 msgid "Black"
 msgstr "Schwarz"
 
 #. Translators: A fade color.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:666
+#: src/ui/window/dialogs.rs:668
 #, fuzzy
 msgid "White"
 msgstr "Weiß"
 
 #. Translators: A fade color: the frames fade to see-through.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:668
+#: src/ui/window/dialogs.rs:670
 #, fuzzy
 msgid "Transparent"
 msgstr "Transparent"
 
 #. Translators: Dialog title; the frames in scope brighten in from a solid color.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:683
+#: src/ui/window/dialogs.rs:685
 #, fuzzy
 msgid "Fade in"
 msgstr "Einblenden"
 
 #. Translators: Dialog title; the frames in scope sink out to a solid color.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:685
+#: src/ui/window/dialogs.rs:687
 #, fuzzy
 msgid "Fade out"
 msgstr "Ausblenden"
 
 #. Translators: Shown when Fade in/out is picked with only one frame in scope.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:691
+#: src/ui/window/dialogs.rs:693
 #, fuzzy
 msgid "Select the frames to fade across in the strip first: Shift+click for a run, or pick All frames."
 msgstr "Wähle zuerst im Filmstreifen die Bilder für die Blende: Umschalt+Klick für eine Folge, oder „Alle Bilder“."
 
 #. Translators: Dismisses a dialog that only explains something.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:697 src/ui/window/dialogs.rs:767
+#: src/ui/window/dialogs.rs:699 src/ui/window/dialogs.rs:769
 #, fuzzy
 msgid "Close"
 msgstr "Schließen"
 
 #. Translators: {count} is a number of frames, at least 2.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:703
+#: src/ui/window/dialogs.rs:705
 #, fuzzy
 msgid "The {count} frames in scope climb from a solid color to the full picture."
 msgstr "Die {count} Bilder im Bereich gehen von einer Vollfarbe in das volle Bild über."
 
 #. Translators: {count} is a number of frames, at least 2.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:705
+#: src/ui/window/dialogs.rs:707
 #, fuzzy
 msgid "The {count} frames in scope sink from the full picture to a solid color."
 msgstr "Die {count} Bilder im Bereich gehen vom vollen Bild in eine Vollfarbe über."
 
 #. Translators: Subtitle on the Transparent fade color.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:717
+#: src/ui/window/dialogs.rs:719
 #, fuzzy
 msgid "A GIF pixel is either opaque or clear, so this fade shows as dithering."
 msgstr "Ein GIF-Pixel ist entweder deckend oder durchsichtig, daher erscheint diese Blende als Dithering."
 
 #. Translators: Dialog title for blending the end of the animation into its start.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:760
+#: src/ui/window/dialogs.rs:762
 #, fuzzy
 msgid "Cross-fade the loop"
 msgstr "Schleife überblenden"
 
 #. Translators: Shown when the document has a single frame.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:765
+#: src/ui/window/dialogs.rs:767
 #, fuzzy
 msgid "A loop cross-fade needs at least two frames."
 msgstr "Eine Schleifenüberblendung braucht mindestens zwei Bilder."
 
 #. Translators: Body of the loop cross-fade dialog.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:774
+#: src/ui/window/dialogs.rs:776
 #, fuzzy
 msgid "The last frames dissolve into the first ones, so the end plays into the start without a cut. The first frames are then removed, since the dissolve already shows them: the animation gets that many frames shorter."
 msgstr "Die letzten Bilder gehen in die ersten über, sodass das Ende ohne Schnitt in den Anfang läuft. Die ersten Bilder werden danach entfernt, weil die Überblendung sie schon zeigt: Die Animation wird um so viele Bilder kürzer."
 
 #. Translators: How many frames at each end the loop cross-fade blends.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:786
+#: src/ui/window/dialogs.rs:788
 #, fuzzy
 msgid "Frames to blend"
 msgstr "Zu überblendende Bilder"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:814
+#: src/ui/window/dialogs.rs:816
 #, fuzzy
 msgid "Move frame"
 msgstr "Bild verschieben"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:815
+#: src/ui/window/dialogs.rs:817
 #, fuzzy
 msgid "Where should this frame go?"
 msgstr "Wohin soll dieses Bild verschoben werden?"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:831
+#: src/ui/window/dialogs.rs:833
 #, fuzzy
 msgid "Move"
 msgstr "Verschieben"
@@ -1507,7 +1507,7 @@ msgstr "Schleife übergeblendet"
 
 #. Translators: Past-tense edit name, used inside "{change} on {count} frames".
 #. AI-generated translation; human review requested.
-#: src/ui/window/mod.rs:1055 src/ui/window/update.rs:423
+#: src/ui/window/mod.rs:1059 src/ui/window/update.rs:439
 #, fuzzy
 msgid "Delay set"
 msgstr "Anzeigedauer gesetzt"
@@ -1710,14 +1710,14 @@ msgid "Copy selected frames"
 msgstr "Ausgewählte Bilder kopieren"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/strip.rs:545
+#: src/ui/window/strip.rs:546
 #, fuzzy
 msgid "Edited outside; overlays skip this frame"
 msgstr "Extern bearbeitet; Overlays überspringen dieses Bild"
 
 #. Translators: "cs" is centiseconds, the unit GIF stores frame delays in.
 #. AI-generated translation; human review requested.
-#: src/ui/window/strip.rs:550
+#: src/ui/window/strip.rs:556
 #, fuzzy
 msgid "Frame {number} · {delay} cs"
 msgstr "Bild {number} · {delay} cs"
@@ -1729,25 +1729,25 @@ msgid "Exported to {path} · {size} KB"
 msgstr "Exportiert nach {path} · {size} KB"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/update.rs:355
+#: src/ui/window/update.rs:371
 #, fuzzy
 msgid "{count} frame copied"
 msgstr "{count} Bild kopiert"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/update.rs:355
+#: src/ui/window/update.rs:371
 #, fuzzy
 msgid "{count} frames copied"
 msgstr "{count} Bilder kopiert"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/update.rs:375
+#: src/ui/window/update.rs:391
 #, fuzzy
 msgid "Frame moved"
 msgstr "Bild verschoben"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/update.rs:515 src/ui/window/update.rs:530
+#: src/ui/window/update.rs:531 src/ui/window/update.rs:546
 #, fuzzy
 msgid "Frames removed"
 msgstr "Bilder entfernt"
@@ -1872,44 +1872,44 @@ msgid "{count} frames"
 msgstr "{count} Bilder"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/view.rs:435
+#: src/ui/window/view.rs:442
 #, fuzzy
 msgid "▾ {count} overlay rows"
 msgstr "▾ {count} Overlay-Zeilen"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/view.rs:540
+#: src/ui/window/view.rs:547
 #, fuzzy
 msgid "{width} × {height} at {x}, {y}"
 msgstr "{width} × {height} bei {x}, {y}"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/view.rs:548
+#: src/ui/window/view.rs:555
 #, fuzzy
 msgid "Drag a box on the canvas."
 msgstr "Ziehen Sie einen Rahmen auf der Leinwand auf."
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/view.rs:591
+#: src/ui/window/view.rs:598
 #, fuzzy
 msgid "≈ {size} as a GIF"
 msgstr "≈ {size} als GIF"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/view.rs:597
+#: src/ui/window/view.rs:604
 #, fuzzy
 msgid "≈ {size} as a GIF (updating…)"
 msgstr "≈ {size} als GIF (wird aktualisiert…)"
 
 #. Translators: Shown while the exported GIF size is still being measured.
 #. AI-generated translation; human review requested.
-#: src/ui/window/view.rs:602
+#: src/ui/window/view.rs:609
 #, fuzzy
 msgid "sizing…"
 msgstr "Größe wird ermittelt…"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/view.rs:609
+#: src/ui/window/view.rs:616
 #, fuzzy
 msgid "{width} × {height} · {frames} frames · {overlays} overlays"
 msgstr "{width} × {height} · {frames} Bilder · {overlays} Overlays"

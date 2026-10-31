@@ -18,7 +18,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: gifkino\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-31 23:21+0000\n"
+"POT-Creation-Date: 2026-10-31 23:43+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -642,11 +642,11 @@ msgstr ""
 msgid "frames"
 msgstr ""
 
-#: src/ui/window/dialogs.rs:188 src/ui/window/dialogs.rs:431 src/ui/window/dialogs.rs:543 src/ui/window/dialogs.rs:602 src/ui/window/dialogs.rs:647 src/ui/window/dialogs.rs:733 src/ui/window/dialogs.rs:791 src/ui/window/dialogs.rs:830 src/ui/window/imports.rs:83 src/ui/window/imports.rs:905
+#: src/ui/window/dialogs.rs:188 src/ui/window/dialogs.rs:431 src/ui/window/dialogs.rs:543 src/ui/window/dialogs.rs:604 src/ui/window/dialogs.rs:649 src/ui/window/dialogs.rs:735 src/ui/window/dialogs.rs:793 src/ui/window/dialogs.rs:832 src/ui/window/imports.rs:83 src/ui/window/imports.rs:905
 msgid "Cancel"
 msgstr ""
 
-#: src/ui/window/dialogs.rs:189 src/ui/window/dialogs.rs:432 src/ui/window/dialogs.rs:544 src/ui/window/dialogs.rs:603 src/ui/window/dialogs.rs:648 src/ui/window/dialogs.rs:734 src/ui/window/dialogs.rs:792
+#: src/ui/window/dialogs.rs:189 src/ui/window/dialogs.rs:432 src/ui/window/dialogs.rs:544 src/ui/window/dialogs.rs:605 src/ui/window/dialogs.rs:650 src/ui/window/dialogs.rs:736 src/ui/window/dialogs.rs:794
 msgid "Apply"
 msgstr ""
 
@@ -699,102 +699,102 @@ msgstr ""
 msgid "How long this frame is held, in hundredths of a second."
 msgstr ""
 
-#: src/ui/window/dialogs.rs:583 src/ui/window/dialogs.rs:823
+#: src/ui/window/dialogs.rs:585 src/ui/window/dialogs.rs:825
 msgid "Frame {number}"
 msgstr ""
 
-#: src/ui/window/dialogs.rs:628
+#: src/ui/window/dialogs.rs:630
 msgid "Set delay for all frames"
 msgstr ""
 
 #. Translators: GIF stores frame delays in centiseconds.
-#: src/ui/window/dialogs.rs:630
+#: src/ui/window/dialogs.rs:632
 msgid "How long every frame is held, in hundredths of a second."
 msgstr ""
 
-#: src/ui/window/dialogs.rs:640
+#: src/ui/window/dialogs.rs:642
 msgid "All {count} frames"
 msgstr ""
 
 #. Translators: A fade color.
-#: src/ui/window/dialogs.rs:664
+#: src/ui/window/dialogs.rs:666
 msgid "Black"
 msgstr ""
 
 #. Translators: A fade color.
-#: src/ui/window/dialogs.rs:666
+#: src/ui/window/dialogs.rs:668
 msgid "White"
 msgstr ""
 
 #. Translators: A fade color: the frames fade to see-through.
-#: src/ui/window/dialogs.rs:668
+#: src/ui/window/dialogs.rs:670
 msgid "Transparent"
 msgstr ""
 
 #. Translators: Dialog title; the frames in scope brighten in from a solid color.
-#: src/ui/window/dialogs.rs:683
+#: src/ui/window/dialogs.rs:685
 msgid "Fade in"
 msgstr ""
 
 #. Translators: Dialog title; the frames in scope sink out to a solid color.
-#: src/ui/window/dialogs.rs:685
+#: src/ui/window/dialogs.rs:687
 msgid "Fade out"
 msgstr ""
 
 #. Translators: Shown when Fade in/out is picked with only one frame in scope.
-#: src/ui/window/dialogs.rs:691
+#: src/ui/window/dialogs.rs:693
 msgid "Select the frames to fade across in the strip first: Shift+click for a run, or pick All frames."
 msgstr ""
 
 #. Translators: Dismisses a dialog that only explains something.
-#: src/ui/window/dialogs.rs:697 src/ui/window/dialogs.rs:767
+#: src/ui/window/dialogs.rs:699 src/ui/window/dialogs.rs:769
 msgid "Close"
 msgstr ""
 
 #. Translators: {count} is a number of frames, at least 2.
-#: src/ui/window/dialogs.rs:703
+#: src/ui/window/dialogs.rs:705
 msgid "The {count} frames in scope climb from a solid color to the full picture."
 msgstr ""
 
 #. Translators: {count} is a number of frames, at least 2.
-#: src/ui/window/dialogs.rs:705
+#: src/ui/window/dialogs.rs:707
 msgid "The {count} frames in scope sink from the full picture to a solid color."
 msgstr ""
 
 #. Translators: Subtitle on the Transparent fade color.
-#: src/ui/window/dialogs.rs:717
+#: src/ui/window/dialogs.rs:719
 msgid "A GIF pixel is either opaque or clear, so this fade shows as dithering."
 msgstr ""
 
 #. Translators: Dialog title for blending the end of the animation into its start.
-#: src/ui/window/dialogs.rs:760
+#: src/ui/window/dialogs.rs:762
 msgid "Cross-fade the loop"
 msgstr ""
 
 #. Translators: Shown when the document has a single frame.
-#: src/ui/window/dialogs.rs:765
+#: src/ui/window/dialogs.rs:767
 msgid "A loop cross-fade needs at least two frames."
 msgstr ""
 
 #. Translators: Body of the loop cross-fade dialog.
-#: src/ui/window/dialogs.rs:774
+#: src/ui/window/dialogs.rs:776
 msgid "The last frames dissolve into the first ones, so the end plays into the start without a cut. The first frames are then removed, since the dissolve already shows them: the animation gets that many frames shorter."
 msgstr ""
 
 #. Translators: How many frames at each end the loop cross-fade blends.
-#: src/ui/window/dialogs.rs:786
+#: src/ui/window/dialogs.rs:788
 msgid "Frames to blend"
 msgstr ""
 
-#: src/ui/window/dialogs.rs:814
+#: src/ui/window/dialogs.rs:816
 msgid "Move frame"
 msgstr ""
 
-#: src/ui/window/dialogs.rs:815
+#: src/ui/window/dialogs.rs:817
 msgid "Where should this frame go?"
 msgstr ""
 
-#: src/ui/window/dialogs.rs:831
+#: src/ui/window/dialogs.rs:833
 msgid "Move"
 msgstr ""
 
@@ -1063,7 +1063,7 @@ msgid "Loop cross-faded"
 msgstr ""
 
 #. Translators: Past-tense edit name, used inside "{change} on {count} frames".
-#: src/ui/window/mod.rs:1055 src/ui/window/update.rs:423
+#: src/ui/window/mod.rs:1059 src/ui/window/update.rs:439
 msgid "Delay set"
 msgstr ""
 
@@ -1204,12 +1204,12 @@ msgstr ""
 msgid "Copy selected frames"
 msgstr ""
 
-#: src/ui/window/strip.rs:545
+#: src/ui/window/strip.rs:546
 msgid "Edited outside; overlays skip this frame"
 msgstr ""
 
 #. Translators: "cs" is centiseconds, the unit GIF stores frame delays in.
-#: src/ui/window/strip.rs:550
+#: src/ui/window/strip.rs:556
 msgid "Frame {number} · {delay} cs"
 msgstr ""
 
@@ -1217,19 +1217,19 @@ msgstr ""
 msgid "Exported to {path} · {size} KB"
 msgstr ""
 
-#: src/ui/window/update.rs:355
+#: src/ui/window/update.rs:371
 msgid "{count} frame copied"
 msgstr ""
 
-#: src/ui/window/update.rs:355
+#: src/ui/window/update.rs:371
 msgid "{count} frames copied"
 msgstr ""
 
-#: src/ui/window/update.rs:375
+#: src/ui/window/update.rs:391
 msgid "Frame moved"
 msgstr ""
 
-#: src/ui/window/update.rs:515 src/ui/window/update.rs:530
+#: src/ui/window/update.rs:531 src/ui/window/update.rs:546
 msgid "Frames removed"
 msgstr ""
 
@@ -1316,31 +1316,31 @@ msgstr ""
 msgid "{count} frames"
 msgstr ""
 
-#: src/ui/window/view.rs:435
+#: src/ui/window/view.rs:442
 msgid "▾ {count} overlay rows"
 msgstr ""
 
-#: src/ui/window/view.rs:540
+#: src/ui/window/view.rs:547
 msgid "{width} × {height} at {x}, {y}"
 msgstr ""
 
-#: src/ui/window/view.rs:548
+#: src/ui/window/view.rs:555
 msgid "Drag a box on the canvas."
 msgstr ""
 
-#: src/ui/window/view.rs:591
+#: src/ui/window/view.rs:598
 msgid "≈ {size} as a GIF"
 msgstr ""
 
-#: src/ui/window/view.rs:597
+#: src/ui/window/view.rs:604
 msgid "≈ {size} as a GIF (updating…)"
 msgstr ""
 
 #. Translators: Shown while the exported GIF size is still being measured.
-#: src/ui/window/view.rs:602
+#: src/ui/window/view.rs:609
 msgid "sizing…"
 msgstr ""
 
-#: src/ui/window/view.rs:609
+#: src/ui/window/view.rs:616
 msgid "{width} × {height} · {frames} frames · {overlays} overlays"
 msgstr ""
