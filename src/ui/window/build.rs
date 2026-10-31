@@ -14,6 +14,104 @@ pub(super) fn build(
 
     let rail = tool_rail(model, sender);
     let canvas = canvas_view(sender);
+    let transport = transport_row(sender);
+    let strip = strip_area(model, sender);
+    let paned = editor_paned(&rail, &canvas, &transport, &strip);
+
+    let sidebar = properties_sidebar(sender);
+    let split = adw::OverlaySplitView::builder()
+        .sidebar_position(gtk::PackType::End)
+        .content(&paned)
+        .sidebar(&sidebar.scroll)
+        .build();
+    add_breakpoints(root, &split, &header);
+
+    let stack = gtk::Stack::new();
+    stack.add_named(&status, Some("empty"));
+    stack.add_named(&split, Some("editor"));
+
+    let toolbar = adw::ToolbarView::new();
+    toolbar.add_top_bar(&header.bar);
+    toolbar.add_top_bar(&import.row);
+    toolbar.set_content(Some(&stack));
+
+    let toasts = adw::ToastOverlay::new();
+    toasts.set_child(Some(&toolbar));
+    root.set_content(Some(&toasts));
+
+    let actions = install_win_actions(root, &keymap, sender);
+    Widgets {
+        title: header.title,
+        stack,
+        import_bar: import.bar,
+        import_cancel: import.cancel,
+        toasts,
+        canvas: canvas.picture,
+        canvas_frame: canvas.frame,
+        strip: strip.strip,
+        bands: strip.bands,
+        play: transport.play,
+        time: transport.time,
+        undo: header.undo,
+        redo: header.redo,
+        actions,
+        export: header.export,
+        scope_buttons: transport.scope_buttons,
+        properties: sidebar.properties,
+        text_entry: sidebar.text.entry,
+        text_row: sidebar.text.row,
+        text_group: sidebar.text.group,
+        frame_group: sidebar.frame.group,
+        frame_delay: sidebar.frame.delay,
+        delay_row: sidebar.frame.delay_row,
+        overlay_list: sidebar.layers.list,
+        overlay_list_scroll: sidebar.layers.scroll,
+        overlay_list_group: sidebar.layers.group,
+        overlay_list_ids: sidebar.layers.ids,
+        scope_mirror: strip.scope_mirror,
+        drop_dividers: strip.drop_dividers,
+        text_rows: sidebar.overlay.text_rows,
+        shape_rows: sidebar.overlay.shape_rows,
+        overlay_group: sidebar.overlay.group,
+        font_button: sidebar.overlay.font_button,
+        text_size: sidebar.overlay.text_size,
+        fill_button: sidebar.overlay.fill_button,
+        fill_on: sidebar.overlay.fill_on,
+        outline_button: sidebar.overlay.outline_button,
+        outline_width: sidebar.overlay.outline_width,
+        align_buttons: sidebar.overlay.align_buttons,
+        antialias: sidebar.overlay.antialias,
+        stroke_button: sidebar.overlay.stroke_button,
+        stroke_width: sidebar.overlay.stroke_width,
+        crop_group: sidebar.crop.group,
+        crop_label: sidebar.crop.label,
+        crop_button: rail.crop_button,
+        crop_apply: sidebar.crop.crop_apply,
+        zoom_apply: sidebar.crop.zoom_apply,
+        shrink_apply: sidebar.crop.shrink_apply,
+        snap_button: rail.snap_button,
+        tool_buttons: rail.tool_buttons,
+        shape_button: rail.shape_button,
+        shape_tool: rail.shape_tool,
+        bands_scroll: strip.bands_scroll,
+        bands_expander: strip.bands_expander,
+        canvas_overlay: canvas.overlay,
+        canvas_state: canvas.state,
+        doc_info: sidebar.doc_info,
+        bands_model: strip.bands_model,
+        thumb_textures: ThumbTextures::new(),
+        sync: sidebar.sync,
+    }
+}
+
+/// The editor's main column: the tool rail beside the canvas, over the
+/// footer's transport, scope, bands and strip.
+fn editor_paned(
+    rail: &Rail,
+    canvas: &CanvasView,
+    transport: &Transport,
+    strip: &StripArea,
+) -> gtk::Paned {
     let canvas_row = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     canvas_row.append(&rail.rail);
     canvas_row.append(&gtk::Separator::new(gtk::Orientation::Vertical));
@@ -22,31 +120,46 @@ pub(super) fn build(
     // Footer: transport, scope, bands, strip.
     let footer = gtk::Box::new(gtk::Orientation::Vertical, 6);
     footer.set_margin_all(8);
-    let transport = transport_row(sender);
     footer.append(&transport.row);
-    let strip = strip_area(model, sender);
     footer.append(&strip.scroll);
     footer.append(&strip.bar);
 
     // No fixed split: the footer asks for what the strip and its bands
     // actually need, and the canvas gets everything else. Adding an overlay
     // row costs the canvas one row, not a third of the window.
-    let paned = gtk::Paned::builder()
+    gtk::Paned::builder()
         .orientation(gtk::Orientation::Vertical)
         .start_child(&canvas_row)
         .end_child(&footer)
         .resize_start_child(true)
         .resize_end_child(false)
         .shrink_end_child(false)
-        .build();
+        .build()
+}
 
-    // Properties: one contextual page, an AdwPreferencesGroup so the rows come
-    // out consistent for free.
+/// The properties sidebar: one contextual page of panels, scrolling, and the
+/// flag its setters check before echoing a value back.
+struct Sidebar {
+    scroll: gtk::ScrolledWindow,
+    properties: gtk::Box,
+    /// Every sidebar setter fires its own notify handler, so `update_view`
+    /// holds this up to say "this value came from the model, do not send it
+    /// back".
+    sync: Rc<Cell<bool>>,
+    frame: FramePanel,
+    layers: LayerList,
+    text: TextPanel,
+    overlay: OverlayEditor,
+    crop: CropPanel,
+    doc_info: gtk::Label,
+}
+
+/// Properties: one contextual page, an AdwPreferencesGroup so the rows come
+/// out consistent for free.
+fn properties_sidebar(sender: &ComponentSender<App>) -> Sidebar {
     let properties = gtk::Box::new(gtk::Orientation::Vertical, 12);
     properties.set_margin_all(12);
     properties.set_size_request(280, -1);
-    // Every sidebar setter fires its own notify handler, so `update_view` holds
-    // this up to say "this value came from the model, do not send it back".
     let sync = Rc::new(Cell::new(false));
     let frame = frame_panel(sender, &sync);
     let layers = layer_list(sender, &sync);
@@ -68,95 +181,22 @@ pub(super) fn build(
     // editor is up, so it scrolls; without this the rows below the fold —
     // the colour pickers, the crop buttons, the document summary — were
     // simply unreachable.
-    let properties_scroll = gtk::ScrolledWindow::builder()
+    let scroll = gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::Never)
         .vscrollbar_policy(gtk::PolicyType::Automatic)
         .propagate_natural_width(true)
         .child(&properties)
         .build();
-    let split = adw::OverlaySplitView::builder()
-        .sidebar_position(gtk::PackType::End)
-        .content(&paned)
-        .sidebar(&properties_scroll)
-        .build();
-    add_breakpoints(root, &split, &header);
-
-    let stack = gtk::Stack::new();
-    stack.add_named(&status, Some("empty"));
-    stack.add_named(&split, Some("editor"));
-
-    let toolbar = adw::ToolbarView::new();
-    toolbar.add_top_bar(&header.bar);
-    toolbar.add_top_bar(&import.row);
-    toolbar.set_content(Some(&stack));
-
-    let toasts = adw::ToastOverlay::new();
-    toasts.set_child(Some(&toolbar));
-    root.set_content(Some(&toasts));
-
-    let actions = install_win_actions(root, &keymap, sender);
-
-    Widgets {
-        title: header.title,
-        stack,
-        import_bar: import.bar,
-        import_cancel: import.cancel,
-        toasts,
-        canvas: canvas.picture,
-        canvas_frame: canvas.frame,
-        strip: strip.strip,
-        bands: strip.bands,
-        play: transport.play,
-        time: transport.time,
-        undo: header.undo,
-        redo: header.redo,
-        actions,
-        export: header.export,
-        scope_buttons: transport.scope_buttons,
+    Sidebar {
+        scroll,
         properties,
-        text_entry: text.entry,
-        text_row: text.row,
-        text_group: text.group,
-        frame_group: frame.group,
-        frame_delay: frame.delay,
-        delay_row: frame.delay_row,
-        overlay_list: layers.list,
-        overlay_list_scroll: layers.scroll,
-        overlay_list_group: layers.group,
-        overlay_list_ids: layers.ids,
-        scope_mirror: strip.scope_mirror,
-        drop_dividers: strip.drop_dividers,
-        text_rows: overlay.text_rows,
-        shape_rows: overlay.shape_rows,
-        overlay_group: overlay.group,
-        font_button: overlay.font_button,
-        text_size: overlay.text_size,
-        fill_button: overlay.fill_button,
-        fill_on: overlay.fill_on,
-        outline_button: overlay.outline_button,
-        outline_width: overlay.outline_width,
-        align_buttons: overlay.align_buttons,
-        antialias: overlay.antialias,
-        stroke_button: overlay.stroke_button,
-        stroke_width: overlay.stroke_width,
-        crop_group: crop.group,
-        crop_label: crop.label,
-        crop_button: rail.crop_button,
-        crop_apply: crop.crop_apply,
-        zoom_apply: crop.zoom_apply,
-        shrink_apply: crop.shrink_apply,
-        snap_button: rail.snap_button,
-        tool_buttons: rail.tool_buttons,
-        shape_button: rail.shape_button,
-        shape_tool: rail.shape_tool,
-        bands_scroll: strip.bands_scroll,
-        bands_expander: strip.bands_expander,
-        canvas_overlay: canvas.overlay,
-        canvas_state: canvas.state,
-        doc_info,
-        bands_model: strip.bands_model,
-        thumb_textures: ThumbTextures::new(),
         sync,
+        frame,
+        layers,
+        text,
+        overlay,
+        crop,
+        doc_info,
     }
 }
 
@@ -779,31 +819,8 @@ fn overlay_editor(sender: &ComponentSender<App>, sync: &Rc<Cell<bool>>) -> Overl
         .title(t("Overlay"))
         .visible(false)
         .build();
-    // Deleting the overlay belongs with the controls that edit it — the same
-    // one the band menu in the strip acts on. Destructive, so it takes the
-    // accent-free red styling rather than sitting in the row list where a
-    // stray click while changing a colour would land on it.
-    let overlay_delete = gtk::Button::from_icon_name("user-trash-symbolic");
-    overlay_delete.set_valign(gtk::Align::Center);
-    overlay_delete.add_css_class("flat");
-    overlay_delete.add_css_class("destructive-action");
-    overlay_delete.set_tooltip_text(Some(t("Delete overlay")));
-    connect(&overlay_delete, sender, || Msg::DeleteSelection);
-    group.set_header_suffix(Some(&overlay_delete));
-    let font_button = gtk::FontDialogButton::new(Some(gtk::FontDialog::new()));
-    font_button.set_valign(gtk::Align::Center);
-    {
-        let (sender, sync) = (sender.clone(), sync.clone());
-        font_button.connect_font_desc_notify(move |b| {
-            if let Some(desc) = b.font_desc()
-                && !sync.get()
-            {
-                sender.input(Msg::SetOverlayProp(OverlayProp::Font(
-                    desc.to_str().to_string(),
-                )));
-            }
-        });
-    }
+    group.set_header_suffix(Some(&overlay_delete_button(sender)));
+    let font_button = font_field(sender, sync);
     let font_row = suffixed(t("Font"), &font_button);
 
     let text_size = gtk::SpinButton::with_range(4.0, 512.0, 1.0);
@@ -892,6 +909,37 @@ fn overlay_editor(sender: &ComponentSender<App>, sync: &Rc<Cell<bool>>) -> Overl
         ],
         shape_rows: vec![stroke_row.into()],
     }
+}
+
+/// Deleting the overlay belongs with the controls that edit it — the same
+/// one the band menu in the strip acts on. Destructive, so it takes the
+/// accent-free red styling rather than sitting in the row list where a
+/// stray click while changing a colour would land on it.
+fn overlay_delete_button(sender: &ComponentSender<App>) -> gtk::Button {
+    let button = gtk::Button::from_icon_name("user-trash-symbolic");
+    button.set_valign(gtk::Align::Center);
+    button.add_css_class("flat");
+    button.add_css_class("destructive-action");
+    button.set_tooltip_text(Some(t("Delete overlay")));
+    connect(&button, sender, || Msg::DeleteSelection);
+    button
+}
+
+/// The overlay's font picker, which sends every pick the model did not write.
+fn font_field(sender: &ComponentSender<App>, sync: &Rc<Cell<bool>>) -> gtk::FontDialogButton {
+    let font_button = gtk::FontDialogButton::new(Some(gtk::FontDialog::new()));
+    font_button.set_valign(gtk::Align::Center);
+    let (sender, sync) = (sender.clone(), sync.clone());
+    font_button.connect_font_desc_notify(move |b| {
+        if let Some(desc) = b.font_desc()
+            && !sync.get()
+        {
+            sender.input(Msg::SetOverlayProp(OverlayProp::Font(
+                desc.to_str().to_string(),
+            )));
+        }
+    });
+    font_button
 }
 
 /// The fill row: a switch for shapes, where a fill is optional, and the

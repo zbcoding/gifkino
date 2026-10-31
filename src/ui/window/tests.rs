@@ -2250,13 +2250,10 @@ fn the_preview_tracks_the_chosen_resolution() {
     );
 }
 
-/// The trim fields take what a person types at a video: bare seconds, a
-/// timecode, or a frame number. A typo is `Invalid` rather than a silent
-/// whole-clip import, because that is the mistake that costs minutes and
-/// gigabytes — and so is a time the file does not reach, which would
-/// otherwise be clamped into an import nobody asked for.
+/// A typed time is held to what a GIF can hold: hundredths of a second. A
+/// typo is `None` rather than a guess, so the trim it feeds turns `Invalid`.
 #[test]
-fn the_trim_fields_read_timecodes_and_frames() {
+fn typed_seconds_read_to_the_hundredth() {
     assert_eq!(parse_seconds("12.5"), Some(12.5));
     assert_eq!(
         parse_seconds("0:01.123"),
@@ -2274,14 +2271,25 @@ fn the_trim_fields_read_timecodes_and_frames() {
     for junk in ["", "abc", "1:2:3:4", "-5", "1:", "0:0x"] {
         assert_eq!(parse_seconds(junk), None, "on {junk:?}");
     }
+}
 
-    // 20 seconds at 25 fps: 500 frames, indices 0 to 499.
-    let source = VideoInfo {
+/// 20 seconds at 25 fps: 500 frames, indices 0 to 499.
+fn twenty_second_clip() -> VideoInfo {
+    VideoInfo {
         width: 640,
         height: 480,
         fps: 25.0,
         duration_s: Some(20.0),
-    };
+    }
+}
+
+/// The trim fields take what a person types at a video: bare seconds, a
+/// timecode, or a frame number. A typo is `Invalid` rather than a silent
+/// whole-clip import, because that is the mistake that costs minutes and
+/// gigabytes.
+#[test]
+fn the_trim_fields_read_timecodes_and_frames() {
+    let source = twenty_second_clip();
     let read = |in_frames, from: &str, to: &str| read_trim(in_frames, from, to, &source);
 
     assert_eq!(read(false, "", ""), TrimInput::Whole);
@@ -2325,8 +2333,19 @@ fn the_trim_fields_read_timecodes_and_frames() {
         "an end at its start is an empty import, not a whole one"
     );
     assert_eq!(read(false, "10", "5"), TrimInput::Invalid);
+    assert_eq!(
+        TrimInput::Invalid.trim(),
+        None,
+        "an invalid pair never reaches a plan"
+    );
+}
 
-    // Past the end of the file: refused, not quietly pulled back to it.
+/// A time the file does not reach is `Invalid` too: clamped, it would be an
+/// import nobody asked for.
+#[test]
+fn a_trim_past_the_end_of_the_file_is_refused() {
+    let source = twenty_second_clip();
+    let read = |in_frames, from: &str, to: &str| read_trim(in_frames, from, to, &source);
     assert_eq!(
         read(false, "", "20.01"),
         TrimInput::Invalid,
@@ -2360,12 +2379,6 @@ fn the_trim_fields_read_timecodes_and_frames() {
             start: 0.0,
             end: Some(9999.0)
         })
-    );
-
-    assert_eq!(
-        TrimInput::Invalid.trim(),
-        None,
-        "an invalid pair never reaches a plan"
     );
 }
 

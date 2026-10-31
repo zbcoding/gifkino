@@ -78,82 +78,154 @@ pub(super) fn confirm_oversize(
     // A measurement belongs to the settings it was taken at. Changing anything
     // retires it and any measurement still in flight.
     let generation = Rc::new(std::cell::Cell::new(0u64));
-
     let measure = gif_size_measurer(path, &chosen, &summary, &generation);
 
-    // The budget the plan is measured against and the import will run under:
-    // whatever the memory field says, in bytes.
-    let chosen_budget = Rc::new(Cell::new(max_bytes));
-
-    let refresh = {
-        let (source, chosen) = (source.clone(), chosen.clone());
-        let dialog = dialog.clone();
-        let (width, height, rate) = (width.clone(), height.clone(), rate.clone());
-        let (trim_units, start, end) = (trim_units.clone(), start.clone(), end.clone());
-        let (drop_nth, ignore_limit) = (drop_nth.clone(), ignore_limit.clone());
-        let generation = generation.clone();
-        let chosen_budget = chosen_budget.clone();
-        move || {
-            generation.set(generation.get() + 1);
-            let started_at = generation.get();
-
-            let in_frames = trim_units.selected() == 1;
-            let trim = read_trim(in_frames, &start.text(), &end.text(), &source);
-            flag_trim_fields(&start, &end, matches!(trim, TrimInput::Invalid));
-
-            // Switched off, the configured budget stands. Switched on, the
-            // ceiling is set past anything a decode could reach rather than
-            // removed: `cap` is still what stops a stream with no duration,
-            // and `usize::MAX` would overflow the arithmetic that derives it.
-            let bytes = if ignore_limit.is_active() {
-                NO_IMPORT_LIMIT
-            } else {
-                max_bytes
-            };
-            chosen_budget.set(bytes);
-            let target = (requested_dimension(&width), requested_dimension(&height));
-            let options = ImportOptions {
-                target: Some(target),
-                fps: Some(rate.value()),
-                trim: trim.trim(),
-                drop_nth: Some(drop_nth.value() as usize),
-                max_bytes: bytes,
-                ..Default::default()
-            };
-            let plan = video::plan_for(source.clone(), &options);
-            summary.set_label(&plan_summary(&plan, None));
-            // A file whose container names no duration has no count to
-            // extrapolate a GIF size from, and the preview says so instead —
-            // so the ffmpeg spawns behind the measurement would be thrown away.
-            let fits = !plan.over_budget() && !matches!(trim, TrimInput::Invalid);
-            let worth_measuring = fits && plan.frames().is_some();
-            *chosen.borrow_mut() = plan;
-            dialog.set_response_enabled("import", fits);
-
-            // No point spending ffmpeg on settings that cannot be imported.
-            if worth_measuring {
-                let (generation, measure) = (generation.clone(), measure.clone());
-                glib::timeout_add_local_once(MEASURE_DEBOUNCE, move || {
-                    if generation.get() == started_at {
-                        measure();
-                    }
-                });
-            }
-        }
-    };
     dialog.add_response("cancel", t("Cancel"));
     dialog.add_response("import", t("Import"));
     dialog.set_response_appearance("import", adw::ResponseAppearance::Suggested);
     dialog.set_default_response(Some("cancel"));
     dialog.set_close_response("cancel");
 
-    let refresh = Rc::new(refresh);
-    refresh();
+    let form = Rc::new(ImportForm {
+        dialog: dialog.clone(),
+        source,
+        summary,
+        width,
+        height,
+        rate,
+        trim_units,
+        start,
+        end,
+        drop_nth,
+        ignore_limit,
+        max_bytes,
+        chosen,
+        chosen_budget: Rc::new(Cell::new(max_bytes)),
+        generation,
+        measure,
+    });
+    form.refresh();
 
-    let set_pair = link_aspect_fields(&width, &height, &lock, source.width, source.height);
+    let set_pair = link_aspect_fields(
+        &form.width,
+        &form.height,
+        &lock,
+        form.source.width,
+        form.source.height,
+    );
+    connect_size_presets(&form, &presets, sizes, custom, &lock, set_pair);
+    connect_refresh(&form);
+
+    let sender = sender.clone();
+    let path = path.to_path_buf();
+    dialog.choose(Some(root), gio::Cancellable::NONE, move |response| {
+        if response == "import" {
+            sender.input(Msg::LoadConfirmed(
+                path,
+                Box::new(form.chosen.borrow().clone()),
+                form.chosen_budget.get(),
+            ));
+        }
+    });
+}
+
+/// The import dialog's fields and the plan they steer: what every change to
+/// the form rebuilds the preview from, and what the Import response runs.
+struct ImportForm {
+    dialog: adw::AlertDialog,
+    source: VideoInfo,
+    summary: gtk::Label,
+    width: gtk::SpinButton,
+    height: gtk::SpinButton,
+    rate: gtk::SpinButton,
+    trim_units: gtk::DropDown,
+    start: gtk::Entry,
+    end: gtk::Entry,
+    drop_nth: gtk::SpinButton,
+    ignore_limit: gtk::Switch,
+    /// The configured memory budget, which the switch lifts for one import.
+    max_bytes: usize,
+    chosen: Rc<RefCell<ImportPlan>>,
+    /// The budget the plan is measured against and the import will run under:
+    /// whatever the memory field says, in bytes.
+    chosen_budget: Rc<Cell<usize>>,
+    generation: Rc<Cell<u64>>,
+    measure: Rc<dyn Fn()>,
+}
+
+impl ImportForm {
+    /// Rebuilds the plan from the fields, previews it, decides whether Import
+    /// may run, and schedules a GIF size measurement once the typing settles.
+    fn refresh(&self) {
+        self.generation.set(self.generation.get() + 1);
+        let started_at = self.generation.get();
+
+        let in_frames = self.trim_units.selected() == 1;
+        let trim = read_trim(
+            in_frames,
+            &self.start.text(),
+            &self.end.text(),
+            &self.source,
+        );
+        flag_trim_fields(&self.start, &self.end, matches!(trim, TrimInput::Invalid));
+
+        // Switched off, the configured budget stands. Switched on, the
+        // ceiling is set past anything a decode could reach rather than
+        // removed: `cap` is still what stops a stream with no duration,
+        // and `usize::MAX` would overflow the arithmetic that derives it.
+        let bytes = if self.ignore_limit.is_active() {
+            NO_IMPORT_LIMIT
+        } else {
+            self.max_bytes
+        };
+        self.chosen_budget.set(bytes);
+        let target = (
+            requested_dimension(&self.width),
+            requested_dimension(&self.height),
+        );
+        let options = ImportOptions {
+            target: Some(target),
+            fps: Some(self.rate.value()),
+            trim: trim.trim(),
+            drop_nth: Some(self.drop_nth.value() as usize),
+            max_bytes: bytes,
+            ..Default::default()
+        };
+        let plan = video::plan_for(self.source.clone(), &options);
+        self.summary.set_label(&plan_summary(&plan, None));
+        // A file whose container names no duration has no count to
+        // extrapolate a GIF size from, and the preview says so instead —
+        // so the ffmpeg spawns behind the measurement would be thrown away.
+        let fits = !plan.over_budget() && !matches!(trim, TrimInput::Invalid);
+        let worth_measuring = fits && plan.frames().is_some();
+        *self.chosen.borrow_mut() = plan;
+        self.dialog.set_response_enabled("import", fits);
+
+        // No point spending ffmpeg on settings that cannot be imported.
+        if !worth_measuring {
+            return;
+        }
+        let (generation, measure) = (self.generation.clone(), self.measure.clone());
+        glib::timeout_add_local_once(MEASURE_DEBOUNCE, move || {
+            if generation.get() == started_at {
+                measure();
+            }
+        });
+    }
+}
+
+/// The "Import at" dropdown: a preset writes its pair into the size fields,
+/// and only Custom (index `custom`) lets them and the aspect lock be edited.
+fn connect_size_presets(
+    form: &Rc<ImportForm>,
+    presets: &gtk::DropDown,
+    sizes: Vec<(u32, u32)>,
+    custom: usize,
+    lock: &adw::SwitchRow,
+    set_pair: Rc<dyn Fn(u32, u32)>,
+) {
     {
-        let (width, height, lock) = (width.clone(), height.clone(), lock.clone());
-        let (refresh, set_pair) = (refresh.clone(), set_pair.clone());
+        let (form, lock) = (form.clone(), lock.clone());
         presets.connect_selected_notify(move |drop| {
             let picked = drop.selected() as usize;
             // Custom starts from wherever the last preset left the spins. A
@@ -163,64 +235,57 @@ pub(super) fn confirm_oversize(
             if let Some((w, h)) = sizes.get(picked) {
                 set_pair(*w, *h);
             }
-            width.set_sensitive(picked == custom);
-            height.set_sensitive(picked == custom);
+            form.width.set_sensitive(picked == custom);
+            form.height.set_sensitive(picked == custom);
             lock.set_sensitive(picked == custom);
-            refresh();
+            form.refresh();
         });
     }
-    width.set_sensitive(false);
-    height.set_sensitive(false);
+    form.width.set_sensitive(false);
+    form.height.set_sensitive(false);
     lock.set_sensitive(false);
-    for spin in [&width, &height] {
+}
+
+/// Every field of the import form refreshes the plan as it changes.
+fn connect_refresh(form: &Rc<ImportForm>) {
+    for spin in [&form.width, &form.height] {
         // Both commit paths, the way the resize dialog links its fields: the
         // entry's `changed` for keystrokes the spin has not committed yet, and
         // `value-changed` for arrows, Enter and the aspect lock's own writes.
-        let refresh = refresh.clone();
-        let commit = refresh.clone();
-        spin.connect_changed(move |_| refresh());
-        spin.connect_value_changed(move |_| commit());
+        let refresh = form.clone();
+        let commit = form.clone();
+        spin.connect_changed(move |_| refresh.refresh());
+        spin.connect_value_changed(move |_| commit.refresh());
     }
     {
-        let refresh = refresh.clone();
-        rate.connect_value_changed(move |_| refresh());
+        let refresh = form.clone();
+        form.rate.connect_value_changed(move |_| refresh.refresh());
     }
     {
         // Both commit paths, like the size fields: a typed drop count moves
         // the preview as it is typed, not only when the field commits.
-        let refresh = refresh.clone();
-        let commit = refresh.clone();
-        drop_nth.connect_changed(move |_| refresh());
-        drop_nth.connect_value_changed(move |_| commit());
+        let refresh = form.clone();
+        let commit = form.clone();
+        form.drop_nth.connect_changed(move |_| refresh.refresh());
+        form.drop_nth
+            .connect_value_changed(move |_| commit.refresh());
     }
     {
-        let refresh = refresh.clone();
-        ignore_limit.connect_active_notify(move |_| refresh());
+        let refresh = form.clone();
+        form.ignore_limit
+            .connect_active_notify(move |_| refresh.refresh());
     }
-    for entry in [&start, &end] {
-        let refresh = refresh.clone();
-        entry.connect_changed(move |_| refresh());
+    for entry in [&form.start, &form.end] {
+        let refresh = form.clone();
+        entry.connect_changed(move |_| refresh.refresh());
     }
-    {
-        let refresh = refresh.clone();
-        trim_units.connect_selected_notify(move |units| {
-            // The example follows the unit: a timecode reads as nonsense in a
-            // field that wants a frame number.
-            set_trim_examples(&start, &end, units.selected() == 1, &source);
-            refresh();
-        });
-    }
-
-    let sender = sender.clone();
-    let path = path.to_path_buf();
-    dialog.choose(Some(root), gio::Cancellable::NONE, move |response| {
-        if response == "import" {
-            sender.input(Msg::LoadConfirmed(
-                path,
-                Box::new(chosen.borrow().clone()),
-                chosen_budget.get(),
-            ));
-        }
+    let refresh = form.clone();
+    form.trim_units.connect_selected_notify(move |units| {
+        // The example follows the unit: a timecode reads as nonsense in a
+        // field that wants a frame number.
+        let in_frames = units.selected() == 1;
+        set_trim_examples(&refresh.start, &refresh.end, in_frames, &refresh.source);
+        refresh.refresh();
     });
 }
 
