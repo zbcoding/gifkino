@@ -53,42 +53,11 @@ impl Component for App {
     }
 
     fn update(&mut self, msg: Msg, sender: ComponentSender<Self>, root: &Self::Root) {
-        let blocked = self.busy.as_ref().is_some_and(|busy| match busy.kind {
-            BusyKind::Import => msg.requires_idle() || msg.edits_document(),
-            BusyKind::Resize
-            | BusyKind::Zoom
-            | BusyKind::Shrink
-            | BusyKind::Crop
-            | BusyKind::Fit
-            | BusyKind::Effect => {
-                msg.requires_idle()
-                    && !(matches!(msg, Msg::DeleteSelection) && self.selected_overlay.is_some())
-            }
-            // An export encodes a snapshot, so edits stay safe while it runs;
-            // only a second job fighting over the one bar waits.
-            BusyKind::Export => msg.requires_idle() && !msg.edits_document(),
-        });
-        if blocked {
+        if self.busy_blocks(&msg) {
             return;
         }
         match msg {
-            Msg::Open => {
-                let dialog = gtk::FileDialog::builder().title(t("Open")).build();
-                let filter = gtk::FileFilter::new();
-                filter.set_name(Some(t("Videos and GIFs")));
-                filter.add_mime_type("video/*");
-                filter.add_mime_type("image/gif");
-                let filters = gio::ListStore::new::<gtk::FileFilter>();
-                filters.append(&filter);
-                dialog.set_filters(Some(&filters));
-
-                let sender = sender.clone();
-                dialog.open(Some(root), gio::Cancellable::NONE, move |res| {
-                    if let Some(path) = res.ok().and_then(|f| f.path()) {
-                        sender.input(Msg::Load(path));
-                    }
-                });
-            }
+            Msg::Open => open_file_dialog(root, &sender),
             Msg::Load(path) => {
                 self.import_at = None;
                 self.start_import(path, &sender);
@@ -125,73 +94,13 @@ impl Component for App {
                     cancel.store(true, Ordering::Relaxed);
                 }
             }
-            Msg::Estimate(rev) => {
-                if rev != self.rev || self.frame_count() == 0 {
-                    return;
-                }
-                let settings = ExportSettings::default();
-                // Composite on the main thread (Pango is not Send), encode off
-                // it, exactly as the real export does.
-                let sample = Encodable::sample_document(
-                    &self.editor.doc,
-                    &rasterize,
-                    &settings,
-                    gif_pipeline::ESTIMATE_SAMPLES,
-                );
-                let total = self.frame_count();
-                sender.spawn_oneshot_command(move || {
-                    let out = gif_pipeline::estimate_size(&sample, total, &settings)
-                        .map_err(|e| e.to_string());
-                    Cmd::Estimated(rev, out)
-                });
-            }
-            Msg::Export => {
-                if self.frame_count() == 0 {
-                    return;
-                }
-                let dialog = gtk::FileDialog::builder().title(t("Export GIF")).build();
-                dialog.set_initial_name(Some(
-                    self.path
-                        .as_ref()
-                        .and_then(|p| p.file_stem())
-                        .map(|s| format!("{}.gif", s.to_string_lossy()))
-                        .unwrap_or_else(|| "export.gif".into())
-                        .as_str(),
-                ));
-                // Composite on the main thread (Pango is not Send), encode off it.
-                let settings = ExportSettings::default();
-                let enc = Encodable::from_document(&self.editor.doc, &rasterize, &settings);
-                let frames = enc.frames;
-                let sender = sender.clone();
-                dialog.save(Some(root), gio::Cancellable::NONE, move |res| {
-                    let Some(path) = res.ok().and_then(|f| f.path()) else {
-                        return;
-                    };
-                    sender.input(Msg::BeginExport {
-                        path,
-                        frames,
-                        settings,
-                    });
-                });
-            }
+            Msg::Estimate(rev) => self.measure_estimate(rev, &sender),
+            Msg::Export => self.export_dialog(root, &sender),
             Msg::BeginExport {
                 path,
                 frames,
                 settings,
-            } => {
-                let total = frames.len();
-                self.busy = Some(Busy::new(BusyKind::Export, Some(total), None));
-                let enc = Encodable { frames };
-                sender.spawn_command(move |out| {
-                    let mut progress = work_progress(&out);
-                    // bind so the closure captures the PathBuf, not `*path`
-                    let path = path;
-                    let result = gif_pipeline::export_path(&path, &enc, &settings, &mut progress)
-                        .map(|size| (path, size))
-                        .map_err(|e| e.to_string());
-                    out.emit(Cmd::Exported(result));
-                });
-            }
+            } => self.begin_export(path, frames, settings, &sender),
             Msg::Undo => {
                 if self.editor.undo() {
                     self.after_edit();
@@ -256,59 +165,13 @@ impl Component for App {
                     self.scope = choice;
                 }
             }
-            Msg::AddOverlay(tool) => {
-                if self.frame_count() == 0 {
-                    return;
-                }
-                let frames = self.scope_frames();
-                if frames.is_empty() {
-                    return;
-                }
-                let (kind, transform) = tool.new_overlay(self.editor.doc.size());
-                let touched = frames.len();
-                let (change, ids) = self.editor.edit(tool.added_label(), touched, |d| {
-                    d.add_overlay_over(tool_label(tool), kind, transform, &frames)
-                });
-                self.leave_crop();
-                self.selected_overlay = ids
-                    .iter()
-                    .copied()
-                    .find(|&id| {
-                        self.editor
-                            .doc
-                            .overlay(id)
-                            .is_some_and(|o| o.range.contains(&self.playhead))
-                    })
-                    .or(ids.first().copied());
-                self.after_edit();
-                self.toast_if_document_wide(&sender, &change, self.frame_count());
-            }
+            Msg::AddOverlay(tool) => self.add_overlay(tool, &sender),
             Msg::SelectOverlay(id) => {
                 self.pick_overlay(id);
             }
             Msg::SelectBand(Some(id)) => self.select_band(id),
             Msg::SelectBand(None) => self.selected_overlay = None,
-            Msg::EditText(text) => {
-                let Some(id) = self.selected_overlay else {
-                    return;
-                };
-                // The scope decides which frames the text change lands on; a
-                // narrow scope splits the overlay so the rest keeps its text.
-                let span = self.edit_span(id);
-                if span.is_empty() {
-                    return;
-                }
-                let touched = span.len();
-                let (_, (edited, _)) = self.editor.edit(n("Text edited"), touched, |d| {
-                    d.edit_on_frames(id, span, |o| {
-                        if let OverlayKind::Text(t) = &mut o.kind {
-                            t.text = text;
-                        }
-                    })
-                });
-                self.selected_overlay = Some(edited);
-                self.after_edit();
-            }
+            Msg::EditText(text) => self.edit_text(text),
             Msg::DeleteSelection => {
                 if let Some(id) = self.selected_overlay.take() {
                     self.delete_overlay(id, &sender);
@@ -427,40 +290,7 @@ impl Component for App {
                 }
             }
             Msg::ToggleBandsExpanded => self.bands_expanded = !self.bands_expanded,
-            Msg::SetOverlayProp(prop) => {
-                let Some(id) = self.selected_overlay else {
-                    return;
-                };
-                let Some(overlay) = self.editor.doc.overlay(id) else {
-                    return;
-                };
-                if !prop.changes(&overlay.kind) {
-                    return;
-                }
-                self.seek_to_overlay(id);
-                // The scope decides which frames the restyle lands on; a
-                // narrow scope splits the overlay so the rest keeps its style.
-                let span = self.edit_span(id);
-                if span.is_empty() {
-                    return;
-                }
-                let touched = span.len();
-                let (_, (edited, _)) = self.editor.edit(n("Overlay restyled"), touched, |d| {
-                    d.edit_on_frames(id, span, |o| match (&mut o.kind, prop) {
-                        (OverlayKind::Text(t), OverlayProp::Font(f)) => t.font = f,
-                        (OverlayKind::Text(t), OverlayProp::TextSize(px)) => t.size_px = px,
-                        (OverlayKind::Text(t), OverlayProp::Fill(Some(c))) => t.color = c,
-                        (OverlayKind::Text(t), OverlayProp::Outline(o)) => t.outline = o,
-                        (OverlayKind::Text(t), OverlayProp::Align(a)) => t.align = a,
-                        (OverlayKind::Text(t), OverlayProp::Antialias(on)) => t.antialias = on,
-                        (OverlayKind::Shape(s), OverlayProp::Fill(c)) => s.fill = c,
-                        (OverlayKind::Shape(s), OverlayProp::Stroke(v)) => s.stroke = v,
-                        _ => {}
-                    })
-                });
-                self.selected_overlay = Some(edited);
-                self.after_edit();
-            }
+            Msg::SetOverlayProp(prop) => self.restyle_overlay(prop),
             Msg::ToggleCropTool => {
                 self.crop_tool = !self.crop_tool;
                 self.crop_rect = None;
@@ -557,30 +387,7 @@ impl Component for App {
                 self.after_edit();
                 self.toast_if_document_wide(&sender, &change, total);
             }
-            Msg::Resize(w, h) => {
-                let (w, h) = (w.max(1), h.max(1));
-                if self.frame_count() == 0 || (w, h) == self.editor.doc.size() {
-                    return;
-                }
-                // The operation budget caps the new frames and the total caps
-                // old plus new: the old frames stay resident in undo history
-                // while the worker holds the new ones.
-                let (cw, ch) = self.editor.doc.size();
-                let fits = resize_fits_budgets(
-                    cw,
-                    ch,
-                    w,
-                    h,
-                    self.frame_count(),
-                    self.settings.max_oper_bytes,
-                    self.settings.max_total_bytes,
-                );
-                if !fits {
-                    toast_over_memory_limit(&sender);
-                    return;
-                }
-                self.start_frame_work(FrameWork::Resize(w, h), &sender);
-            }
+            Msg::Resize(w, h) => self.start_resize(w, h, &sender),
             Msg::Mirror(axis) => {
                 let frames = self.scope_frames();
                 if !frames.is_empty() {

@@ -3,6 +3,26 @@
 use super::*;
 
 impl App {
+    /// Whether the job holding the bar makes `msg` wait: an import owns the
+    /// document outright, frame work only its frame indices.
+    pub(super) fn busy_blocks(&self, msg: &Msg) -> bool {
+        self.busy.as_ref().is_some_and(|busy| match busy.kind {
+            BusyKind::Import => msg.requires_idle() || msg.edits_document(),
+            BusyKind::Resize
+            | BusyKind::Zoom
+            | BusyKind::Shrink
+            | BusyKind::Crop
+            | BusyKind::Fit
+            | BusyKind::Effect => {
+                msg.requires_idle()
+                    && !(matches!(msg, Msg::DeleteSelection) && self.selected_overlay.is_some())
+            }
+            // An export encodes a snapshot, so edits stay safe while it runs;
+            // only a second job fighting over the one bar waits.
+            BusyKind::Export => msg.requires_idle() && !msg.edits_document(),
+        })
+    }
+
     /// Debounced so a run of keystrokes measures once, not once per character.
     pub(super) fn schedule_estimate(&mut self, sender: &ComponentSender<Self>) {
         let current = self.rev;
@@ -14,6 +34,88 @@ impl App {
         let sender = sender.clone();
         glib::timeout_add_local_once(MEASURE_DEBOUNCE, move || {
             sender.input(Msg::Estimate(current));
+        });
+    }
+
+    /// Measure the export size for revision `rev`, unless the document has
+    /// moved on since it was scheduled.
+    pub(super) fn measure_estimate(&self, rev: u64, sender: &ComponentSender<Self>) {
+        if rev != self.rev || self.frame_count() == 0 {
+            return;
+        }
+        let settings = ExportSettings::default();
+        // Composite on the main thread (Pango is not Send), encode off
+        // it, exactly as the real export does.
+        let sample = Encodable::sample_document(
+            &self.editor.doc,
+            &rasterize,
+            &settings,
+            gif_pipeline::ESTIMATE_SAMPLES,
+        );
+        let total = self.frame_count();
+        sender.spawn_oneshot_command(move || {
+            let out =
+                gif_pipeline::estimate_size(&sample, total, &settings).map_err(|e| e.to_string());
+            Cmd::Estimated(rev, out)
+        });
+    }
+
+    /// Ask where to save the GIF, named after the file that was opened. The
+    /// frames are composited now, so the export is of the document as it
+    /// stands when the dialog opens.
+    pub(super) fn export_dialog(
+        &self,
+        root: &adw::ApplicationWindow,
+        sender: &ComponentSender<Self>,
+    ) {
+        if self.frame_count() == 0 {
+            return;
+        }
+        let dialog = gtk::FileDialog::builder().title(t("Export GIF")).build();
+        dialog.set_initial_name(Some(
+            self.path
+                .as_ref()
+                .and_then(|p| p.file_stem())
+                .map(|s| format!("{}.gif", s.to_string_lossy()))
+                .unwrap_or_else(|| "export.gif".into())
+                .as_str(),
+        ));
+        // Composite on the main thread (Pango is not Send), encode off it.
+        let settings = ExportSettings::default();
+        let enc = Encodable::from_document(&self.editor.doc, &rasterize, &settings);
+        let frames = enc.frames;
+        let sender = sender.clone();
+        dialog.save(Some(root), gio::Cancellable::NONE, move |res| {
+            let Some(path) = res.ok().and_then(|f| f.path()) else {
+                return;
+            };
+            sender.input(Msg::BeginExport {
+                path,
+                frames,
+                settings,
+            });
+        });
+    }
+
+    /// Claim the bar and encode the composited frames to `path` off the
+    /// main thread.
+    pub(super) fn begin_export(
+        &mut self,
+        path: PathBuf,
+        frames: Vec<(image::RgbaImage, u16)>,
+        settings: ExportSettings,
+        sender: &ComponentSender<Self>,
+    ) {
+        self.busy = Some(Busy::new(BusyKind::Export, Some(frames.len()), None));
+        let enc = Encodable { frames };
+        sender.spawn_command(move |out| {
+            let mut progress = work_progress(&out);
+            // bind so the closure captures the PathBuf, not `*path`
+            let path = path;
+            let result = gif_pipeline::export_path(&path, &enc, &settings, &mut progress)
+                .map(|size| (path, size))
+                .map_err(|e| e.to_string());
+            out.emit(Cmd::Exported(result));
         });
     }
 
@@ -170,6 +272,85 @@ impl App {
         });
         self.after_edit();
         self.toast_if_document_wide(sender, &change, self.frame_count());
+    }
+
+    /// Add a fresh overlay of `tool`'s kind over the frames in scope, one
+    /// piece per run, and pick the piece on the frame on screen.
+    pub(super) fn add_overlay(&mut self, tool: Tool, sender: &ComponentSender<Self>) {
+        if self.frame_count() == 0 {
+            return;
+        }
+        let frames = self.scope_frames();
+        if frames.is_empty() {
+            return;
+        }
+        let (kind, transform) = tool.new_overlay(self.editor.doc.size());
+        let touched = frames.len();
+        let (change, ids) = self.editor.edit(tool.added_label(), touched, |d| {
+            d.add_overlay_over(tool_label(tool), kind, transform, &frames)
+        });
+        self.leave_crop();
+        self.selected_overlay = ids
+            .iter()
+            .copied()
+            .find(|&id| {
+                self.editor
+                    .doc
+                    .overlay(id)
+                    .is_some_and(|o| o.range.contains(&self.playhead))
+            })
+            .or(ids.first().copied());
+        self.after_edit();
+        self.toast_if_document_wide(sender, &change, self.frame_count());
+    }
+
+    /// Retype the selected text overlay. The scope decides which frames the
+    /// change lands on; a narrow scope splits the overlay so the rest keeps
+    /// its text.
+    pub(super) fn edit_text(&mut self, text: String) {
+        let Some(id) = self.selected_overlay else {
+            return;
+        };
+        let span = self.edit_span(id);
+        if span.is_empty() {
+            return;
+        }
+        let touched = span.len();
+        let (_, (edited, _)) = self.editor.edit(n("Text edited"), touched, |d| {
+            d.edit_on_frames(id, span, |o| {
+                if let OverlayKind::Text(t) = &mut o.kind {
+                    t.text = text;
+                }
+            })
+        });
+        self.selected_overlay = Some(edited);
+        self.after_edit();
+    }
+
+    /// Restyle the selected overlay, if `prop` would change it. The scope
+    /// decides which frames the restyle lands on; a narrow scope splits the
+    /// overlay so the rest keeps its style.
+    pub(super) fn restyle_overlay(&mut self, prop: OverlayProp) {
+        let Some(id) = self.selected_overlay else {
+            return;
+        };
+        let Some(overlay) = self.editor.doc.overlay(id) else {
+            return;
+        };
+        if !prop.changes(&overlay.kind) {
+            return;
+        }
+        self.seek_to_overlay(id);
+        let span = self.edit_span(id);
+        if span.is_empty() {
+            return;
+        }
+        let touched = span.len();
+        let (_, (edited, _)) = self.editor.edit(n("Overlay restyled"), touched, |d| {
+            d.edit_on_frames(id, span, |o| prop.apply(&mut o.kind))
+        });
+        self.selected_overlay = Some(edited);
+        self.after_edit();
     }
 
     /// Put one overlay on frames it does not cover yet: the band menu's copy,
@@ -466,6 +647,32 @@ impl App {
         }
         self.crop_tool = false;
         self.start_frame_work(FrameWork::Crop { rect }, sender);
+    }
+
+    /// Resample every frame to `w × h` on the worker, if the result fits the
+    /// memory budgets. The operation budget caps the new frames and the
+    /// total caps old plus new: the old frames stay resident in undo history
+    /// while the worker holds the new ones.
+    pub(super) fn start_resize(&mut self, w: u32, h: u32, sender: &ComponentSender<Self>) {
+        let (w, h) = (w.max(1), h.max(1));
+        let (cw, ch) = self.editor.doc.size();
+        if self.frame_count() == 0 || (w, h) == (cw, ch) {
+            return;
+        }
+        let fits = resize_fits_budgets(
+            cw,
+            ch,
+            w,
+            h,
+            self.frame_count(),
+            self.settings.max_oper_bytes,
+            self.settings.max_total_bytes,
+        );
+        if !fits {
+            toast_over_memory_limit(sender);
+            return;
+        }
+        self.start_frame_work(FrameWork::Resize(w, h), sender);
     }
 
     /// Probe and decode off the main thread. `import_at` has already been set

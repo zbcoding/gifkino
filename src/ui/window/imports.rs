@@ -732,6 +732,25 @@ pub(super) fn parse_seconds(text: &str) -> Option<f64> {
     Some((total * 100.0).round() / 100.0)
 }
 
+/// The Open chooser: whatever it picks replaces the document.
+pub(super) fn open_file_dialog(root: &impl IsA<gtk::Window>, sender: &ComponentSender<App>) {
+    let dialog = gtk::FileDialog::builder().title(t("Open")).build();
+    let filter = gtk::FileFilter::new();
+    filter.set_name(Some(t("Videos and GIFs")));
+    filter.add_mime_type("video/*");
+    filter.add_mime_type("image/gif");
+    let filters = gio::ListStore::new::<gtk::FileFilter>();
+    filters.append(&filter);
+    dialog.set_filters(Some(&filters));
+
+    let sender = sender.clone();
+    dialog.open(Some(root), gio::Cancellable::NONE, move |res| {
+        if let Some(path) = res.ok().and_then(|f| f.path()) {
+            sender.input(Msg::Load(path));
+        }
+    });
+}
+
 /// One file chooser for every splice, whether it was asked for from the file
 /// menu or from a frame's own context menu — the only difference is `at`.
 pub(super) fn pick_import_file(

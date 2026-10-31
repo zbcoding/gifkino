@@ -453,6 +453,21 @@ impl OverlayProp {
             _ => false,
         }
     }
+
+    /// Write this field onto `kind`; a field the kind lacks is ignored.
+    fn apply(self, kind: &mut OverlayKind) {
+        match (kind, self) {
+            (OverlayKind::Text(t), OverlayProp::Font(f)) => t.font = f,
+            (OverlayKind::Text(t), OverlayProp::TextSize(px)) => t.size_px = px,
+            (OverlayKind::Text(t), OverlayProp::Fill(Some(c))) => t.color = c,
+            (OverlayKind::Text(t), OverlayProp::Outline(o)) => t.outline = o,
+            (OverlayKind::Text(t), OverlayProp::Align(a)) => t.align = a,
+            (OverlayKind::Text(t), OverlayProp::Antialias(on)) => t.antialias = on,
+            (OverlayKind::Shape(s), OverlayProp::Fill(c)) => s.fill = c,
+            (OverlayKind::Shape(s), OverlayProp::Stroke(v)) => s.stroke = v,
+            _ => {}
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
