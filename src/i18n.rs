@@ -145,11 +145,8 @@ fn search_dirs() -> Vec<PathBuf> {
             dir = current.parent().map(Path::to_path_buf);
         }
     }
-    if let Some(data) = std::env::var_os("XDG_DATA_HOME") {
-        dirs.push(PathBuf::from(data).join("gifkino/po"));
-    }
-    if let Some(home) = std::env::var_os("HOME") {
-        dirs.push(PathBuf::from(home).join(".local/share/gifkino/po"));
+    if let Some(data) = crate::settings::xdg_dir("XDG_DATA_HOME", ".local/share") {
+        dirs.push(data.join("gifkino/po"));
     }
     dirs.push(PathBuf::from("/usr/share/gifkino/po"));
     dirs.push(PathBuf::from("/app/share/gifkino/po"));
