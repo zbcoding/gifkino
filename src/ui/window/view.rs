@@ -1,9 +1,10 @@
 //! Writes widgets from the model: `Component::update_view`'s body.
 
 use super::*;
+use crate::core::model::Overlay;
 
 impl App {
-    pub(super) fn sync_view(&self, widgets: &mut Widgets, sender: ComponentSender<Self>) {
+    pub(super) fn sync_view(&self, widgets: &mut Widgets, sender: &ComponentSender<Self>) {
         // Everything below writes widgets from the model, and a widget that is
         // written fires the handler that would send the value back. See
         // `connect_pair`.
@@ -12,57 +13,97 @@ impl App {
         widgets
             .stack
             .set_visible_child_name(if count == 0 { "empty" } else { "editor" });
+        self.sync_busy(widgets);
+        self.sync_title(widgets, count);
+        self.sync_tooltips(widgets);
+        let crop = self.usable_crop();
+        self.sync_actions(widgets, count, crop.is_some());
+        self.sync_playback(widgets);
+        self.sync_scope_buttons(widgets);
+        self.sync_canvas(widgets);
+        let in_scope = self.scope_frames();
+        self.sync_strip(widgets, sender, &in_scope);
+        self.sync_bands(widgets, count);
+        // Frame view: the delay of the frame(s) in scope, and a picker for
+        // the overlays sitting on the frame on screen. `overlay_group` below
+        // edits whichever row is picked. Once the scope names more than one
+        // frame, delay still applies to every one of them (`SetScopeDelay`),
+        // but the overlay picker gives way to a summary: which overlays sit
+        // on "the" frame has no single answer across several. An overlay
+        // already picked keeps its editor, reaching every frame in scope.
+        let multi = in_scope.len() > 1;
+        self.sync_frame_delay(widgets, count, &in_scope);
+        self.sync_layer_list(widgets, sender, multi);
+        // The overlay editor is part of the frame view: it shows only for an
+        // overlay that is actually on the frame on screen. Selecting one on
+        // another frame and navigating here leaves the plain frame view; going
+        // back to its frame brings the editor back. A multi-frame scope keeps
+        // it: the picked overlay is the answer to "which one", and the edit
+        // lands on every frame of it the scope covers — a band click picks
+        // the overlay's whole range for exactly that.
+        let selected = self
+            .editing_overlay()
+            .and_then(|id| self.editor.doc.overlay(id));
+        self.sync_overlay_editor(widgets, selected, multi);
+        self.sync_crop(widgets, crop);
+        self.sync_canvas_state(widgets, selected);
+        self.sync_doc_info(widgets, count);
+        widgets.sync.set(false);
+    }
 
+    /// The one progress bar, for an import or frame work in flight.
+    fn sync_busy(&self, widgets: &Widgets) {
         widgets.import_bar.set_visible(self.busy.is_some());
         widgets
             .import_cancel
             .set_visible(self.busy.as_ref().map(|busy| busy.kind) == Some(BusyKind::Import));
-        if let Some(busy) = &self.busy {
-            let (done, expected) = (busy.done, busy.total);
-            match expected.filter(|e| *e > 0) {
-                Some(total) => {
-                    widgets
-                        .import_bar
-                        .set_fraction((done as f64 / total as f64).min(1.0));
-                    // Each label marks its own literal: the extractor picks
-                    // msgids out of `t(...)` calls, not out of the match this
-                    // arms.
-                    let label = match &busy.kind {
-                        BusyKind::Import => t("Importing… {done} / {total} frames"),
-                        // Translators: Progress while every frame is being resized; both values are frame counts.
-                        BusyKind::Resize => t("Resizing… {done} / {total} frames"),
-                        // Translators: Progress while selected frames are being zoomed; both values are frame counts.
-                        BusyKind::Zoom => t("Zooming… {done} / {total} frames"),
-                        // Translators: Progress while this frame's crop is being applied.
-                        BusyKind::Shrink => t("Cropping this frame…"),
-                        // Translators: Progress while every frame is being cropped; both values are frame counts.
-                        BusyKind::Crop => t("Cropping… {done} / {total} frames"),
-                        // Translators: Progress while frames being spliced in are resized to
-                        // one canvas; both values are frame counts.
-                        BusyKind::Fit => t("Fitting… {done} / {total} frames"),
-                        // Translators: Progress while the document is being written out as a GIF; both values are frame counts.
-                        BusyKind::Export => t("Exporting… {done} / {total} frames"),
-                        // Translators: Progress while a mirror or fade is applied; both values are frame counts.
-                        BusyKind::Effect => t("Applying effect… {done} / {total} frames"),
-                    };
-                    widgets.import_bar.set_text(Some(&fill(
-                        label,
-                        &[("done", &done.to_string()), ("total", &total.to_string())],
-                    )));
-                }
-                // Only the import can lack a total: a container with no
-                // duration has nothing to be a fraction of. The frame works
-                // always know theirs.
-                None => {
-                    widgets.import_bar.pulse();
-                    widgets.import_bar.set_text(Some(&fill(
-                        t("Importing… {done} frames"),
-                        &[("done", &done.to_string())],
-                    )));
-                }
+        let Some(busy) = &self.busy else { return };
+        let (done, expected) = (busy.done, busy.total);
+        match expected.filter(|e| *e > 0) {
+            Some(total) => {
+                widgets
+                    .import_bar
+                    .set_fraction((done as f64 / total as f64).min(1.0));
+                // Each label marks its own literal: the extractor picks
+                // msgids out of `t(...)` calls, not out of the match this
+                // arms.
+                let label = match &busy.kind {
+                    BusyKind::Import => t("Importing… {done} / {total} frames"),
+                    // Translators: Progress while every frame is being resized; both values are frame counts.
+                    BusyKind::Resize => t("Resizing… {done} / {total} frames"),
+                    // Translators: Progress while selected frames are being zoomed; both values are frame counts.
+                    BusyKind::Zoom => t("Zooming… {done} / {total} frames"),
+                    // Translators: Progress while this frame's crop is being applied.
+                    BusyKind::Shrink => t("Cropping this frame…"),
+                    // Translators: Progress while every frame is being cropped; both values are frame counts.
+                    BusyKind::Crop => t("Cropping… {done} / {total} frames"),
+                    // Translators: Progress while frames being spliced in are resized to
+                    // one canvas; both values are frame counts.
+                    BusyKind::Fit => t("Fitting… {done} / {total} frames"),
+                    // Translators: Progress while the document is being written out as a GIF; both values are frame counts.
+                    BusyKind::Export => t("Exporting… {done} / {total} frames"),
+                    // Translators: Progress while a mirror or fade is applied; both values are frame counts.
+                    BusyKind::Effect => t("Applying effect… {done} / {total} frames"),
+                };
+                widgets.import_bar.set_text(Some(&fill(
+                    label,
+                    &[("done", &done.to_string()), ("total", &total.to_string())],
+                )));
+            }
+            // Only the import can lack a total: a container with no
+            // duration has nothing to be a fraction of. The frame works
+            // always know theirs.
+            None => {
+                widgets.import_bar.pulse();
+                widgets.import_bar.set_text(Some(&fill(
+                    t("Importing… {done} frames"),
+                    &[("done", &done.to_string())],
+                )));
             }
         }
+    }
 
+    fn sync_title(&self, widgets: &Widgets, count: usize) {
         widgets.title.set_title(
             &self
                 .path
@@ -82,18 +123,12 @@ impl App {
                 ),
             ],
         ));
+    }
 
-        // Tooltips are built from the keymap, never typed, so a rebind moves
-        // every hint with it.
+    /// Tooltips are built from the keymap, never typed, so a rebind moves
+    /// every hint with it.
+    fn sync_tooltips(&self, widgets: &Widgets) {
         let keys = self.keymap.borrow();
-        // Undo and redo would reorder frames, which the busy guard drops —
-        // grey the buttons instead of leaving clicks that do nothing.
-        widgets
-            .undo
-            .set_sensitive(self.busy.is_none() && self.editor.can_undo());
-        widgets
-            .redo
-            .set_sensitive(self.busy.is_none() && self.editor.can_redo());
         // Translators: {change} is the name of the edit, e.g. "Frames deleted".
         let named = |template: &'static str, label: Option<&str>| match label {
             Some(label) => fill(t(template), &[("change", &lookup(label))]),
@@ -119,12 +154,10 @@ impl App {
         for (tool, button) in &widgets.tool_buttons {
             button.set_tooltip_text(Some(&keys.tip(t(tool_label(*tool)), tool_action(*tool))));
         }
-        {
-            let shape = widgets.shape_tool.get();
-            widgets
-                .shape_button
-                .set_tooltip_text(Some(&keys.tip(t(tool_label(shape)), tool_action(shape))));
-        }
+        let shape = widgets.shape_tool.get();
+        widgets
+            .shape_button
+            .set_tooltip_text(Some(&keys.tip(t(tool_label(shape)), tool_action(shape))));
         widgets.crop_button.set_tooltip_text(Some(&keys.tip(
             t("Crop or zoom: drag a box on the canvas"),
             Action::ToolCrop,
@@ -132,9 +165,6 @@ impl App {
         widgets.snap_button.set_tooltip_text(Some(
             &keys.tip(t("Snap to edges and center"), Action::ToggleSnap),
         ));
-        if widgets.snap_button.is_active() != self.snap {
-            widgets.snap_button.set_active(self.snap);
-        }
         // The scope buttons are where multi-frame selection is discoverable at
         // all, so the hint lives on the tooltip rather than nowhere.
         widgets.scope_buttons[1].set_tooltip_text(Some(&format!(
@@ -142,11 +172,18 @@ impl App {
             keys.tip(t("Every frame in the document"), Action::SelectAll),
             t("Shift+click the strip for a run of frames, Ctrl+click to add to it"),
         )));
-        drop(keys);
-        widgets
-            .export
-            .set_sensitive(count > 0 && self.busy.is_none());
+    }
+
+    /// What can be clicked right now: buttons and `win` actions greyed while
+    /// there is nothing to act on or a busy guard would drop the click.
+    fn sync_actions(&self, widgets: &Widgets, count: usize, has_crop: bool) {
         let idle = self.busy.is_none();
+        let loaded = count > 0;
+        // Undo and redo would reorder frames, which the busy guard drops —
+        // grey the buttons instead of leaving clicks that do nothing.
+        widgets.undo.set_sensitive(idle && self.editor.can_undo());
+        widgets.redo.set_sensitive(idle && self.editor.can_redo());
+        widgets.export.set_sensitive(loaded && idle);
         for name in [
             "frame-delete",
             "frame-duplicate",
@@ -160,42 +197,17 @@ impl App {
             "fade-in",
             "fade-out",
             "loop-fade",
+            "export",
         ] {
-            if let Some(action) = widgets
-                .actions
-                .lookup_action(name)
-                .and_downcast::<gio::SimpleAction>()
-            {
-                action.set_enabled(idle && count > 0);
-            }
+            set_action_enabled(&widgets.actions, name, idle && loaded);
         }
-        if let Some(action) = widgets
-            .actions
-            .lookup_action("open")
-            .and_downcast::<gio::SimpleAction>()
-        {
-            action.set_enabled(idle);
-        }
-        if let Some(action) = widgets
-            .actions
-            .lookup_action("export")
-            .and_downcast::<gio::SimpleAction>()
-        {
-            action.set_enabled(idle && count > 0);
-        }
+        set_action_enabled(&widgets.actions, "open", idle);
         // The three buttons act on the drawn box; before one exists there is
         // nothing for them to do.
-        let crop = self.usable_crop();
-        widgets.crop_apply.set_sensitive(idle && crop.is_some());
-        widgets.zoom_apply.set_sensitive(idle && crop.is_some());
-        widgets.shrink_apply.set_sensitive(idle && crop.is_some());
-        if let Some(action) = widgets
-            .actions
-            .lookup_action("optimize-zoom-all")
-            .and_downcast::<gio::SimpleAction>()
-        {
-            action.set_enabled(idle && crop.is_some());
-        }
+        widgets.crop_apply.set_sensitive(idle && has_crop);
+        widgets.zoom_apply.set_sensitive(idle && has_crop);
+        widgets.shrink_apply.set_sensitive(idle && has_crop);
+        set_action_enabled(&widgets.actions, "optimize-zoom-all", idle && has_crop);
         let document_editing = !matches!(
             self.busy.as_ref().map(|busy| busy.kind),
             Some(BusyKind::Import)
@@ -207,20 +219,17 @@ impl App {
             "insert-ellipse",
             "insert-arrow",
         ] {
-            if let Some(action) = widgets
-                .actions
-                .lookup_action(name)
-                .and_downcast::<gio::SimpleAction>()
-            {
-                action.set_enabled(document_editing && count > 0);
-            }
+            set_action_enabled(&widgets.actions, name, document_editing && loaded);
         }
         for (_, button) in &widgets.tool_buttons {
-            button.set_sensitive(document_editing && count > 0);
+            button.set_sensitive(document_editing && loaded);
         }
         widgets
             .shape_button
-            .set_sensitive(document_editing && count > 0);
+            .set_sensitive(document_editing && loaded);
+    }
+
+    fn sync_playback(&self, widgets: &Widgets) {
         widgets.play.set_icon_name(if self.playing {
             "media-playback-pause-symbolic"
         } else {
@@ -234,7 +243,9 @@ impl App {
                 ("fps", &fps_of(&self.editor.doc).to_string()),
             ],
         ));
+    }
 
+    fn sync_scope_buttons(&self, widgets: &Widgets) {
         // Range only exists while there is a selection to bind it to.
         let picked = &self.selection;
         widgets.scope_buttons[2].set_visible(!picked.is_empty());
@@ -267,7 +278,9 @@ impl App {
                 button.set_active(i == active);
             }
         }
+    }
 
+    fn sync_canvas(&self, widgets: &Widgets) {
         if let Some(texture) = self.composite_playhead() {
             widgets.canvas.set_paintable(Some(&texture));
         }
@@ -279,7 +292,14 @@ impl App {
                 widgets.canvas_frame.remove_css_class("checkerboard");
             }
         }
+    }
 
+    fn sync_strip(
+        &self,
+        widgets: &mut Widgets,
+        sender: &ComponentSender<Self>,
+        in_scope: &[usize],
+    ) {
         let frame_keys = strip_keys(&self.editor.doc);
         let rebuilt = *self.strip_keys.borrow() != frame_keys;
         if rebuilt {
@@ -287,7 +307,7 @@ impl App {
             rebuild_strip(
                 &widgets.strip,
                 &self.editor.doc,
-                &sender,
+                sender,
                 &widgets.scope_mirror,
                 &widgets.drop_dividers,
                 &self.keymap.borrow(),
@@ -305,29 +325,12 @@ impl App {
         self.strip_pitch.set(cell_pitch(thumb_w, zoom));
         if rebuilt || self.strip_zoom_shown.get() != zoom {
             self.strip_zoom_shown.set(zoom);
-            let mut shown = std::collections::HashSet::new();
-            for (cell, frame) in thumb_children(&widgets.strip).zip(&self.editor.doc.frames) {
-                let Some(picture) = cell
-                    .first_child()
-                    .and_then(|overlay| overlay.first_child())
-                    .and_downcast::<gtk::Picture>()
-                else {
-                    continue;
-                };
-                let texture =
-                    thumb_texture(&mut widgets.thumb_textures, frame.key, &frame.thumb, zoom);
-                shown.insert((frame.key, texture.width()));
-                set_thumb_zoom(&picture, &texture, frame.thumb.dimensions(), zoom);
-            }
-            widgets
-                .thumb_textures
-                .retain(|entry, _| shown.contains(entry));
-            widgets.bands.queue_draw();
+            self.zoom_thumbs(widgets, zoom);
         }
-        let in_scope = self.scope_frames();
-        *widgets.scope_mirror.borrow_mut() = in_scope.clone();
+        *widgets.scope_mirror.borrow_mut() = in_scope.to_vec();
+        let count = self.frame_count();
         let (scoped, selected) = (
-            frame_mask(&in_scope, count),
+            frame_mask(in_scope, count),
             frame_mask(&self.selection, count),
         );
         for (i, thumb) in thumb_children(&widgets.strip).enumerate() {
@@ -339,7 +342,31 @@ impl App {
             );
             set_class(&thumb, "selected", selected.get(i) == Some(&true));
         }
+    }
 
+    /// Size every strip picture to `zoom`, dropping textures no cell shows.
+    fn zoom_thumbs(&self, widgets: &mut Widgets, zoom: f64) {
+        let mut shown = std::collections::HashSet::new();
+        for (cell, frame) in thumb_children(&widgets.strip).zip(&self.editor.doc.frames) {
+            let Some(picture) = cell
+                .first_child()
+                .and_then(|overlay| overlay.first_child())
+                .and_downcast::<gtk::Picture>()
+            else {
+                continue;
+            };
+            let texture = thumb_texture(&mut widgets.thumb_textures, frame.key, &frame.thumb, zoom);
+            shown.insert((frame.key, texture.width()));
+            set_thumb_zoom(&picture, &texture, frame.thumb.dimensions(), zoom);
+        }
+        widgets
+            .thumb_textures
+            .retain(|entry, _| shown.contains(entry));
+        widgets.bands.queue_draw();
+    }
+
+    /// The overlay bands under the strip, and the expander that caps them.
+    fn sync_bands(&self, widgets: &Widgets, count: usize) {
         let ranges: Vec<Range<usize>> = self
             .editor
             .doc
@@ -401,15 +428,9 @@ impl App {
                 &[("count", &hidden.to_string())],
             )
         });
+    }
 
-        // Frame view: the delay of the frame(s) in scope, and a picker for
-        // the overlays sitting on the frame on screen. `overlay_group` below
-        // edits whichever row is picked. Once the scope names more than one
-        // frame, delay still applies to every one of them (`SetScopeDelay`),
-        // but the overlay picker gives way to a summary: which overlays sit
-        // on "the" frame has no single answer across several. An overlay
-        // already picked keeps its editor, reaching every frame in scope.
-        let multi = in_scope.len() > 1;
+    fn sync_frame_delay(&self, widgets: &Widgets, count: usize, in_scope: &[usize]) {
         // Playback rewrites this every tick; typing into it would land on
         // whichever frame the next tick shows.
         set_sensitive_releasing_focus(
@@ -421,20 +442,16 @@ impl App {
         }
         widgets
             .frame_group
-            .set_title(&frame_scope_summary(self.scope, &in_scope));
-        widgets.delay_row.set_subtitle(&if multi {
-            fill(
-                // Translators: Shown under the delay field while multiple frames are selected; changing it applies to all of them at once.
-                tn(
-                    "Applies to {count} selected frame",
-                    "Applies to {count} selected frames",
-                    in_scope.len(),
-                ),
-                &[("count", &in_scope.len().to_string())],
-            )
+            .set_title(&frame_scope_summary(self.scope, in_scope));
+        widgets.delay_row.set_subtitle(&if in_scope.len() > 1 {
+            applies_to_frames(in_scope.len())
         } else {
             String::new()
         });
+    }
+
+    /// The sidebar's layer list for the frame on screen.
+    fn sync_layer_list(&self, widgets: &Widgets, sender: &ComponentSender<Self>, multi: bool) {
         // Topmost first, so the list reads the way the layers stack; see
         // `stacked_overlays`. `overlay_list_ids` holds that row order —
         // what the row-selected handler and each row's own buttons index by.
@@ -446,13 +463,9 @@ impl App {
             }
             let bottom = ids.len().saturating_sub(1);
             for (row, (id, name)) in stacked.iter().enumerate() {
-                widgets.overlay_list.append(&overlay_row(
-                    *id,
-                    name,
-                    row > 0,
-                    row < bottom,
-                    &sender,
-                ));
+                widgets
+                    .overlay_list
+                    .append(&overlay_row(*id, name, row > 0, row < bottom, sender));
             }
             *widgets.overlay_list_ids.borrow_mut() = ids.clone();
             let (keep, cap) = layer_list_heights(&widgets.overlay_list);
@@ -474,38 +487,19 @@ impl App {
         widgets
             .overlay_list_group
             .set_visible(!multi && !self.crop_tool && !stacked.is_empty());
+    }
 
-        let (w, h) = self.editor.doc.size();
-        // The overlay editor is part of the frame view: it shows only for an
-        // overlay that is actually on the frame on screen. Selecting one on
-        // another frame and navigating here leaves the plain frame view; going
-        // back to its frame brings the editor back. A multi-frame scope keeps
-        // it: the picked overlay is the answer to "which one", and the edit
-        // lands on every frame of it the scope covers — a band click picks
-        // the overlay's whole range for exactly that.
-        let selected = self
-            .editing_overlay()
-            .and_then(|id| self.editor.doc.overlay(id));
-        let kind = selected.map(|o| o.kind.clone());
+    /// The sidebar editor for `selected`, the overlay being edited, if any.
+    fn sync_overlay_editor(&self, widgets: &Widgets, selected: Option<&Overlay>, multi: bool) {
+        let kind = selected.map(|o| &o.kind);
         widgets.overlay_group.set_visible(kind.is_some());
         let is_text = matches!(kind, Some(OverlayKind::Text(_)));
         let is_shape = matches!(kind, Some(OverlayKind::Shape(_)));
         widgets.text_group.set_visible(!multi || is_text);
         let spread = selected.map_or(0, |o| self.edit_span(o.id).len());
-        widgets.overlay_group.set_description(
-            (spread > 1)
-                .then(|| {
-                    fill(
-                        tn(
-                            "Applies to {count} selected frame",
-                            "Applies to {count} selected frames",
-                            spread,
-                        ),
-                        &[("count", &spread.to_string())],
-                    )
-                })
-                .as_deref(),
-        );
+        widgets
+            .overlay_group
+            .set_description((spread > 1).then(|| applies_to_frames(spread)).as_deref());
         for row in &widgets.text_rows {
             row.set_visible(is_text);
         }
@@ -513,47 +507,14 @@ impl App {
             row.set_visible(is_shape);
         }
         widgets.text_row.set_visible(is_text);
-        match &kind {
-            Some(OverlayKind::Text(t)) => {
-                if widgets.text_entry.text() != t.text {
-                    widgets.text_entry.set_text(&t.text);
-                }
-                let want = pango::FontDescription::from_string(&t.font);
-                if widgets.font_button.font_desc().as_ref() != Some(&want) {
-                    widgets.font_button.set_font_desc(&want);
-                }
-                set_spin(&widgets.text_size, t.size_px as f64);
-                widgets.fill_button.set_rgba(t.color);
-                widgets.fill_on.set_visible(false);
-                widgets
-                    .outline_button
-                    .set_rgba(t.outline.map_or([0, 0, 0, 255], |(c, _)| c));
-                set_spin(
-                    &widgets.outline_width,
-                    t.outline.map_or(0.0, |(_, w)| w as f64),
-                );
-                for (align, button) in &widgets.align_buttons {
-                    button.set_active(*align == t.align);
-                }
-                widgets.antialias.set_active(t.antialias);
-            }
-            Some(OverlayKind::Shape(sh)) => {
-                widgets.fill_on.set_visible(true);
-                widgets.fill_on.set_active(sh.fill.is_some());
-                widgets
-                    .fill_button
-                    .set_rgba(sh.fill.unwrap_or([255, 60, 60, 255]));
-                widgets
-                    .stroke_button
-                    .set_rgba(sh.stroke.map_or([255, 60, 60, 255], |(c, _)| c));
-                set_spin(
-                    &widgets.stroke_width,
-                    sh.stroke.map_or(0.0, |(_, w)| w as f64),
-                );
-            }
+        match kind {
+            Some(OverlayKind::Text(t)) => sync_text_editor(widgets, t),
+            Some(OverlayKind::Shape(sh)) => sync_shape_editor(widgets, sh),
             _ => {}
         }
+    }
 
+    fn sync_crop(&self, widgets: &Widgets, crop: Option<(f32, f32, f32, f32)>) {
         widgets.crop_button.set_active(self.crop_tool);
         widgets.crop_group.set_visible(self.crop_tool);
         widgets.crop_label.set_label(&match crop {
@@ -568,8 +529,15 @@ impl App {
             ),
             None => t("Drag a box on the canvas.").into(),
         });
+    }
 
+    /// What the canvas overlay draws over the picture: boxes, guides, hints.
+    fn sync_canvas_state(&self, widgets: &Widgets, selected: Option<&Overlay>) {
+        if widgets.snap_button.is_active() != self.snap {
+            widgets.snap_button.set_active(self.snap);
+        }
         {
+            let (w, h) = self.editor.doc.size();
             let keys = self.keymap.borrow();
             let mut state = widgets.canvas_state.borrow_mut();
             state.image = (w as f32, h as f32);
@@ -595,7 +563,9 @@ impl App {
             state.move_hint = move_hint(&keys);
         }
         widgets.canvas_overlay.queue_draw();
+    }
 
+    fn sync_doc_info(&self, widgets: &Widgets, count: usize) {
         let estimate = match self.estimate {
             Some((rev, bytes)) if rev == self.rev => {
                 format!(
@@ -614,6 +584,7 @@ impl App {
             None if count > 0 => format!("\n{}", t("sizing…")),
             None => String::new(),
         };
+        let (w, h) = self.editor.doc.size();
         widgets.doc_info.set_label(&format!(
             "{}{estimate}",
             fill(
@@ -626,8 +597,68 @@ impl App {
                 ],
             )
         ));
-        widgets.sync.set(false);
     }
+}
+
+fn set_action_enabled(group: &gio::SimpleActionGroup, name: &str, enabled: bool) {
+    if let Some(action) = group
+        .lookup_action(name)
+        .and_downcast::<gio::SimpleAction>()
+    {
+        action.set_enabled(enabled);
+    }
+}
+
+/// The note under a field whose edit lands on `count` frames at once.
+fn applies_to_frames(count: usize) -> String {
+    fill(
+        // Translators: Shown under the delay field while multiple frames are selected; changing it applies to all of them at once.
+        tn(
+            "Applies to {count} selected frame",
+            "Applies to {count} selected frames",
+            count,
+        ),
+        &[("count", &count.to_string())],
+    )
+}
+
+fn sync_text_editor(widgets: &Widgets, t: &TextOverlay) {
+    if widgets.text_entry.text() != t.text {
+        widgets.text_entry.set_text(&t.text);
+    }
+    let want = pango::FontDescription::from_string(&t.font);
+    if widgets.font_button.font_desc().as_ref() != Some(&want) {
+        widgets.font_button.set_font_desc(&want);
+    }
+    set_spin(&widgets.text_size, t.size_px as f64);
+    widgets.fill_button.set_rgba(t.color);
+    widgets.fill_on.set_visible(false);
+    widgets
+        .outline_button
+        .set_rgba(t.outline.map_or([0, 0, 0, 255], |(c, _)| c));
+    set_spin(
+        &widgets.outline_width,
+        t.outline.map_or(0.0, |(_, w)| w as f64),
+    );
+    for (align, button) in &widgets.align_buttons {
+        button.set_active(*align == t.align);
+    }
+    widgets.antialias.set_active(t.antialias);
+}
+
+fn sync_shape_editor(widgets: &Widgets, sh: &ShapeOverlay) {
+    widgets.fill_on.set_visible(true);
+    widgets.fill_on.set_active(sh.fill.is_some());
+    widgets
+        .fill_button
+        .set_rgba(sh.fill.unwrap_or([255, 60, 60, 255]));
+    widgets
+        .stroke_button
+        .set_rgba(sh.stroke.map_or([255, 60, 60, 255], |(c, _)| c));
+    set_spin(
+        &widgets.stroke_width,
+        sh.stroke.map_or(0.0, |(_, w)| w as f64),
+    );
 }
 
 pub(super) fn timecode(cs: u32) -> String {

@@ -920,6 +920,6 @@ impl Component for App {
     }
 
     fn update_view(&self, widgets: &mut Widgets, sender: ComponentSender<Self>) {
-        self.sync_view(widgets, sender);
+        self.sync_view(widgets, &sender);
     }
 }
