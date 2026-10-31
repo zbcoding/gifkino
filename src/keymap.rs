@@ -222,7 +222,7 @@ impl Modal {
 }
 
 /// A set of held modifiers. Empty means unbound, which is never satisfied.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
 pub struct Mods {
     pub ctrl: bool,
     pub shift: bool,
@@ -234,15 +234,20 @@ impl Mods {
         self == Mods::default()
     }
 
+    /// The modifiers a key event's mask says are down.
+    fn from_mask(state: gdk::ModifierType) -> Self {
+        Mods {
+            ctrl: state.contains(gdk::ModifierType::CONTROL_MASK),
+            shift: state.contains(gdk::ModifierType::SHIFT_MASK),
+            alt: state.contains(gdk::ModifierType::ALT_MASK),
+        }
+    }
+
     /// The modifiers now down, given the key that was pressed. A key press
     /// reports the state *before* itself, so a bare Alt has to be read off the
     /// key name rather than the mask.
     pub fn from_event(key: gdk::Key, state: gdk::ModifierType) -> Option<Self> {
-        let mut mods = Mods {
-            ctrl: state.contains(gdk::ModifierType::CONTROL_MASK),
-            shift: state.contains(gdk::ModifierType::SHIFT_MASK),
-            alt: state.contains(gdk::ModifierType::ALT_MASK),
-        };
+        let mut mods = Mods::from_mask(state);
         match key.name()?.as_str() {
             name if name.starts_with("Control") => mods.ctrl = true,
             name if name.starts_with("Shift") => mods.shift = true,
@@ -255,14 +260,21 @@ impl Mods {
     pub fn parse(text: &str) -> Self {
         let mut mods = Mods::default();
         for part in text.split('+').map(str::trim).filter(|p| !p.is_empty()) {
-            match part.to_ascii_lowercase().as_str() {
-                "ctrl" | "control" => mods.ctrl = true,
-                "shift" => mods.shift = true,
-                "alt" | "meta" => mods.alt = true,
-                _ => {}
-            }
+            mods.add(part);
         }
         mods
+    }
+
+    /// Hold the modifier `token` names, as a config file spells it. False when
+    /// it names none, which in a chord makes it the key.
+    fn add(&mut self, token: &str) -> bool {
+        match token.to_ascii_lowercase().as_str() {
+            "ctrl" | "control" => self.ctrl = true,
+            "shift" => self.shift = true,
+            "alt" | "meta" => self.alt = true,
+            _ => return false,
+        }
+        true
     }
 
     /// Whether these modifiers are all down. A superset is still a match, so
@@ -293,19 +305,16 @@ impl Mods {
 /// ships bound to it.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Chord {
-    pub ctrl: bool,
-    pub shift: bool,
-    pub alt: bool,
+    pub mods: Mods,
     /// gdk key name, lowercased when it is a plain letter.
     pub key: String,
 }
 
 impl Chord {
+    #[cfg(test)]
     pub fn new(ctrl: bool, shift: bool, alt: bool, key: &str) -> Self {
         Chord {
-            ctrl,
-            shift,
-            alt,
+            mods: Mods { ctrl, shift, alt },
             key: normalize(key),
         }
     }
@@ -320,26 +329,19 @@ impl Chord {
             return None;
         }
         Some(Chord {
-            ctrl: state.contains(gdk::ModifierType::CONTROL_MASK),
-            shift: state.contains(gdk::ModifierType::SHIFT_MASK),
-            alt: state.contains(gdk::ModifierType::ALT_MASK),
+            mods: Mods::from_mask(state),
             key: normalize(&name),
         })
     }
 
     pub fn parse(text: &str) -> Option<Self> {
         let mut chord = Chord {
-            ctrl: false,
-            shift: false,
-            alt: false,
+            mods: Mods::default(),
             key: String::new(),
         };
         for part in text.split('+').map(str::trim).filter(|p| !p.is_empty()) {
-            match part.to_ascii_lowercase().as_str() {
-                "ctrl" | "control" => chord.ctrl = true,
-                "shift" => chord.shift = true,
-                "alt" | "meta" => chord.alt = true,
-                _ => chord.key = normalize(part),
+            if !chord.mods.add(part) {
+                chord.key = normalize(part);
             }
         }
         (!chord.key.is_empty()).then_some(chord)
@@ -353,22 +355,22 @@ impl Chord {
     }
 
     pub fn matches(&self, other: &Chord) -> bool {
-        self.ctrl == other.ctrl
-            && self.alt == other.alt
+        self.mods.ctrl == other.mods.ctrl
+            && self.mods.alt == other.mods.alt
             && self.key == other.key
-            && (!self.shift_matters() || self.shift == other.shift)
+            && (!self.shift_matters() || self.mods.shift == other.mods.shift)
     }
 
     /// What the tooltips and the shortcuts window show.
     pub fn display(&self) -> String {
         let mut out = String::new();
-        if self.ctrl {
+        if self.mods.ctrl {
             out.push_str("Ctrl+");
         }
-        if self.alt {
+        if self.mods.alt {
             out.push_str("Alt+");
         }
-        if self.shift && self.shift_matters() {
+        if self.mods.shift && self.shift_matters() {
             out.push_str("Shift+");
         }
         out.push_str(&pretty(&self.key));
@@ -385,14 +387,14 @@ impl Chord {
     pub fn accel(&self) -> Option<String> {
         let key = gdk_key_name(&self.key)?;
         let mut out = String::new();
-        if self.ctrl {
+        if self.mods.ctrl {
             out.push_str("<Control>");
         }
-        if self.alt {
+        if self.mods.alt {
             out.push_str("<Alt>");
         }
         // Same rule as `display`: no phantom Shift on a punctuation key.
-        if self.shift && self.shift_matters() {
+        if self.mods.shift && self.shift_matters() {
             out.push_str("<Shift>");
         }
         out.push_str(&key);
