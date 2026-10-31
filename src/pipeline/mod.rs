@@ -81,7 +81,7 @@ fn has_extension(path: &Path, want: &str) -> bool {
 /// and off the main thread.
 pub fn estimate_gif_size(path: &Path, plan: &video::ImportPlan) -> Result<usize> {
     let samples = video::sample_frames(path, plan, gif::ESTIMATE_SAMPLES)?;
-    let delay = (100.0 / plan.fps.max(1.0))
+    let delay = (100.0 / plan.playback_fps().max(1.0))
         .round()
         .clamp(1.0, u16::MAX as f64) as u16;
     let enc = gif::Encodable {
