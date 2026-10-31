@@ -27,38 +27,10 @@ pub(super) fn confirm_oversize(
     dialog.set_body_use_markup(true);
 
     let source = plan.source.clone();
-    let recommended = (plan.width, plan.height);
-    let mut sizes = vec![recommended];
-    sizes.extend(
-        video::size_presets(&source)
-            .into_iter()
-            .filter(|s| *s != recommended),
-    );
-
-    let mut labels: Vec<String> = sizes.iter().map(|(w, h)| format!("{w} × {h}")).collect();
-    labels[0] = fill(t("{size} (recommended)"), &[("size", &labels[0])]);
-    labels.push(t("Custom…").into());
-    let custom = labels.len() - 1;
-    let strings: Vec<&str> = labels.iter().map(String::as_str).collect();
-    let presets = gtk::DropDown::from_strings(&strings);
-
+    let (sizes, presets, custom) = size_choices(&source, (plan.width, plan.height));
     let width = size_spin(source.width, plan.width);
     let height = size_spin(source.height, plan.height);
-    // Without a rate control, shrinking the frame just buys back frame rate and
-    // the memory figure never moves, which makes the picker look broken.
-    let rate = gtk::SpinButton::with_range(1.0, source.fps.clamp(1.0, 50.0), 1.0);
-    rate.set_value(plan.fps.floor().max(1.0));
-    rate.set_width_chars(3);
-    rate.set_max_width_chars(3);
-    let custom_row = adw::ActionRow::builder().title(t("Size")).build();
-    let spins = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-    spins.set_valign(gtk::Align::Center);
-    spins.append(&width);
-    spins.append(&gtk::Label::new(Some("×")));
-    spins.append(&height);
-    // Translators: Abbreviation for pixels, shown after a pair of size fields.
-    spins.append(&gtk::Label::new(Some(t("px"))));
-    custom_row.add_suffix(&spins);
+    let custom_row = custom_size_row(&width, &height);
 
     let lock = adw::SwitchRow::builder()
         .title(t("Keep aspect ratio"))
@@ -69,14 +41,7 @@ pub(super) fn confirm_oversize(
     // and how much memory this one import may spend.
     let (advanced, trim_units, start, end, drop_nth, ignore_limit) = advanced_import_rows(&source);
 
-    let rate_row = adw::ActionRow::builder().title(t("Frame rate")).build();
-    rate.set_valign(gtk::Align::Center);
-    let rate_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-    rate_box.set_valign(gtk::Align::Center);
-    rate_box.append(&rate);
-    // Translators: Abbreviation for frames per second.
-    rate_box.append(&gtk::Label::new(Some(t("fps"))));
-    rate_row.add_suffix(&rate_box);
+    let (rate, rate_row) = rate_field(&source, plan.fps);
 
     let size_row = adw::ActionRow::builder().title(t("Import at")).build();
     presets.set_valign(gtk::Align::Center);
@@ -114,52 +79,19 @@ pub(super) fn confirm_oversize(
     // retires it and any measurement still in flight.
     let generation = Rc::new(std::cell::Cell::new(0u64));
 
-    let measure: Rc<dyn Fn()> = Rc::new({
-        let (chosen, summary, generation) = (chosen.clone(), summary.clone(), generation.clone());
-        let path = path.to_path_buf();
-        move || {
-            let started_at = generation.get();
-            let plan = chosen.borrow().clone();
-            let (summary, generation) = (summary.clone(), generation.clone());
-            let work = relm4::spawn_blocking({
-                let path = path.clone();
-                move || (crate::pipeline::estimate_gif_size(&path, &plan), plan)
-            });
-            glib::spawn_future_local(async move {
-                let Ok((result, plan)) = work.await else {
-                    return;
-                };
-                // The settings moved while we were measuring, so this answer is
-                // about a file nobody asked for any more.
-                if generation.get() != started_at {
-                    return;
-                }
-                match result {
-                    Ok(bytes) => summary.set_label(&plan_summary(&plan, Some(bytes))),
-                    Err(e) => summary.set_label(&format!(
-                        "{}\n{}",
-                        plan_summary(&plan, None),
-                        fill(
-                            t("Could not measure the size: {error}"),
-                            &[("error", &e.to_string())]
-                        ),
-                    )),
-                }
-            });
-        }
-    });
+    let measure = gif_size_measurer(path, &chosen, &summary, &generation);
 
     // The budget the plan is measured against and the import will run under:
     // whatever the memory field says, in bytes.
     let chosen_budget = Rc::new(Cell::new(max_bytes));
 
     let refresh = {
-        let (source, chosen, summary) = (source.clone(), chosen.clone(), summary.clone());
+        let (source, chosen) = (source.clone(), chosen.clone());
         let dialog = dialog.clone();
         let (width, height, rate) = (width.clone(), height.clone(), rate.clone());
         let (trim_units, start, end) = (trim_units.clone(), start.clone(), end.clone());
         let (drop_nth, ignore_limit) = (drop_nth.clone(), ignore_limit.clone());
-        let (generation, measure) = (generation.clone(), measure.clone());
+        let generation = generation.clone();
         let chosen_budget = chosen_budget.clone();
         move || {
             generation.set(generation.get() + 1);
@@ -167,18 +99,7 @@ pub(super) fn confirm_oversize(
 
             let in_frames = trim_units.selected() == 1;
             let trim = read_trim(in_frames, &start.text(), &end.text(), &source);
-            // A half-typed field is not a reason to preview something nobody
-            // asked for, so the field says so and Import waits for it.
-            for entry in [&start, &end] {
-                entry.remove_css_class("error");
-            }
-            if let TrimInput::Invalid = trim {
-                for entry in [&start, &end] {
-                    if !entry.text().trim().is_empty() {
-                        entry.add_css_class("error");
-                    }
-                }
-            }
+            flag_trim_fields(&start, &end, matches!(trim, TrimInput::Invalid));
 
             // Switched off, the configured budget stands. Switched on, the
             // ceiling is set past anything a decode could reach rather than
@@ -233,7 +154,6 @@ pub(super) fn confirm_oversize(
     {
         let (width, height, lock) = (width.clone(), height.clone(), lock.clone());
         let (refresh, set_pair) = (refresh.clone(), set_pair.clone());
-        let sizes = sizes.clone();
         presets.connect_selected_notify(move |drop| {
             let picked = drop.selected() as usize;
             // Custom starts from wherever the last preset left the spins. A
@@ -283,7 +203,6 @@ pub(super) fn confirm_oversize(
     }
     {
         let refresh = refresh.clone();
-        let (start, end) = (start.clone(), end.clone());
         trim_units.connect_selected_notify(move |units| {
             // The example follows the unit: a timecode reads as nonsense in a
             // field that wants a frame number.
@@ -303,6 +222,113 @@ pub(super) fn confirm_oversize(
             ));
         }
     });
+}
+
+/// A half-typed trim field is not a reason to preview something nobody asked
+/// for, so while the trim does not parse (`invalid`) every non-empty field
+/// says so, and Import waits for it.
+fn flag_trim_fields(start: &gtk::Entry, end: &gtk::Entry, invalid: bool) {
+    for entry in [start, end] {
+        entry.remove_css_class("error");
+        if invalid && !entry.text().trim().is_empty() {
+            entry.add_css_class("error");
+        }
+    }
+}
+
+/// The "Import at" choices: the plan's own size first, marked as the
+/// recommendation, then the source's presets, then Custom. Returns the sizes
+/// in dropdown order, the dropdown, and Custom's index in it.
+fn size_choices(
+    source: &VideoInfo,
+    recommended: (u32, u32),
+) -> (Vec<(u32, u32)>, gtk::DropDown, usize) {
+    let mut sizes = vec![recommended];
+    sizes.extend(
+        video::size_presets(source)
+            .into_iter()
+            .filter(|s| *s != recommended),
+    );
+    let mut labels: Vec<String> = sizes.iter().map(|(w, h)| format!("{w} × {h}")).collect();
+    labels[0] = fill(t("{size} (recommended)"), &[("size", &labels[0])]);
+    labels.push(t("Custom…").into());
+    let custom = labels.len() - 1;
+    let strings: Vec<&str> = labels.iter().map(String::as_str).collect();
+    (sizes, gtk::DropDown::from_strings(&strings), custom)
+}
+
+/// The Custom size row: the two size fields side by side.
+fn custom_size_row(width: &gtk::SpinButton, height: &gtk::SpinButton) -> adw::ActionRow {
+    let row = adw::ActionRow::builder().title(t("Size")).build();
+    let spins = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    spins.set_valign(gtk::Align::Center);
+    spins.append(width);
+    spins.append(&gtk::Label::new(Some("×")));
+    spins.append(height);
+    // Translators: Abbreviation for pixels, shown after a pair of size fields.
+    spins.append(&gtk::Label::new(Some(t("px"))));
+    row.add_suffix(&spins);
+    row
+}
+
+/// The frame-rate field, starting at the plan's `fps`, and its row. Without
+/// a rate control, shrinking the frame just buys back frame rate and the
+/// memory figure never moves, which makes the picker look broken.
+fn rate_field(source: &VideoInfo, fps: f64) -> (gtk::SpinButton, adw::ActionRow) {
+    let rate = gtk::SpinButton::with_range(1.0, source.fps.clamp(1.0, 50.0), 1.0);
+    rate.set_value(fps.floor().max(1.0));
+    rate.set_width_chars(3);
+    rate.set_max_width_chars(3);
+    rate.set_valign(gtk::Align::Center);
+    let rate_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    rate_box.set_valign(gtk::Align::Center);
+    rate_box.append(&rate);
+    // Translators: Abbreviation for frames per second.
+    rate_box.append(&gtk::Label::new(Some(t("fps"))));
+    let row = adw::ActionRow::builder().title(t("Frame rate")).build();
+    row.add_suffix(&rate_box);
+    (rate, row)
+}
+
+/// What measures the GIF size of the plan in `chosen` off the main thread and
+/// writes it into `summary` — unless the settings moved on (`generation`)
+/// while it ran, which makes the answer about a file nobody asked for.
+fn gif_size_measurer(
+    path: &Path,
+    chosen: &Rc<RefCell<ImportPlan>>,
+    summary: &gtk::Label,
+    generation: &Rc<Cell<u64>>,
+) -> Rc<dyn Fn()> {
+    let (chosen, summary, generation) = (chosen.clone(), summary.clone(), generation.clone());
+    let path = path.to_path_buf();
+    Rc::new(move || {
+        let started_at = generation.get();
+        let plan = chosen.borrow().clone();
+        let (summary, generation) = (summary.clone(), generation.clone());
+        let work = relm4::spawn_blocking({
+            let path = path.clone();
+            move || (crate::pipeline::estimate_gif_size(&path, &plan), plan)
+        });
+        glib::spawn_future_local(async move {
+            let Ok((result, plan)) = work.await else {
+                return;
+            };
+            if generation.get() != started_at {
+                return;
+            }
+            match result {
+                Ok(bytes) => summary.set_label(&plan_summary(&plan, Some(bytes))),
+                Err(e) => summary.set_label(&format!(
+                    "{}\n{}",
+                    plan_summary(&plan, None),
+                    fill(
+                        t("Could not measure the size: {error}"),
+                        &[("error", &e.to_string())]
+                    ),
+                )),
+            }
+        });
+    })
 }
 
 /// The import dialog's advanced section: which part of the file comes in, how
