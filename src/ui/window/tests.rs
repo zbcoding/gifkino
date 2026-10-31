@@ -86,30 +86,18 @@ fn scope_driven_tools_touch_exactly_what_the_scope_names() {
         };
         assert_eq!(&frames, want, "shrink must touch exactly the scoped frames");
 
-        // The panel's "Zoom and resize" (Msg::ApplyZoom) follows the same
-        // scope; the Image menu's "all frames" variant never does.
+        // The panel's "Zoom and resize" (Msg::ApplyZoom) and the band menu's
+        // "Copy overlay to selected frames" follow the same scope; their
+        // "all frames" variants never do.
         assert_eq!(
-            &app.zoom_frames(false),
+            &app.frames_or_scope(false),
             want,
-            "scoped zoom must touch exactly the scoped frames"
+            "scoped zoom and overlay copy must touch exactly the scoped frames"
         );
         assert_eq!(
-            app.zoom_frames(true),
+            app.frames_or_scope(true),
             (0..app.frame_count()).collect::<Vec<_>>(),
-            "'all frames' zoom must ignore the scope"
-        );
-
-        // The band menu's copy reads the same scope: "Copy overlay to
-        // selected frames" is the scope, "…to all frames" is not.
-        assert_eq!(
-            &app.copy_target_frames(false),
-            want,
-            "a scoped overlay copy must land on exactly the scoped frames"
-        );
-        assert_eq!(
-            app.copy_target_frames(true),
-            (0..app.frame_count()).collect::<Vec<_>>(),
-            "'all frames' copy must ignore the scope"
+            "'all frames' zoom and copy must ignore the scope"
         );
     }
 }

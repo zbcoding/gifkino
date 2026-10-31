@@ -172,28 +172,18 @@ impl App {
         self.toast_if_document_wide(sender, &change, self.frame_count());
     }
 
-    /// The frames a band-menu copy aims at. `all` is the whole document,
-    /// which is what the menu names when nothing but the overlay's own frame
-    /// is picked; otherwise the scope, so a Ctrl+clicked handful gets a piece
-    /// each and nothing between them.
-    pub(super) fn copy_target_frames(&self, all: bool) -> Vec<usize> {
-        if all {
-            (0..self.frame_count()).collect()
-        } else {
-            self.scope_frames()
-        }
-    }
-
-    /// Put one overlay on frames it does not cover yet: the band menu's copy.
-    /// A copy that has nowhere to land says so rather than spending an undo
-    /// step on a document it did not change.
+    /// Put one overlay on frames it does not cover yet: the band menu's copy,
+    /// to every frame (`all`) or to the scope, so a Ctrl+clicked handful gets
+    /// a piece each and nothing between them. A copy that has nowhere to land
+    /// says so rather than spending an undo step on a document it did not
+    /// change.
     pub(super) fn copy_overlay_to_frames(
         &mut self,
         id: OverlayId,
         all: bool,
         sender: &ComponentSender<Self>,
     ) {
-        let frames = self.copy_target_frames(all);
+        let frames = self.frames_or_scope(all);
         let Some(overlay) = self.editor.doc.overlay(id) else {
             return;
         };

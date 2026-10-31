@@ -1013,11 +1013,12 @@ impl App {
             .filter(|id| self.overlays_on(self.playhead).contains(id))
     }
 
-    /// Frames a zoom touches. The panel's "Zoom and resize" follows the frame
-    /// scope (`all` false); the Image menu's "Zoom and resize all frames"
-    /// ignores it and takes the whole document (`all` true). Regression: the
-    /// panel button used to hardcode `vec![self.playhead]`.
-    fn zoom_frames(&self, all: bool) -> Vec<usize> {
+    /// Every frame when `all`, else the frames in scope. The panel's "Zoom
+    /// and resize" and the band menu's "Copy overlay to selected frames"
+    /// follow the scope; the Image menu's "Zoom and resize all frames" and
+    /// "…to all frames" ignore it. Regression: the panel zoom used to
+    /// hardcode `vec![self.playhead]`.
+    fn frames_or_scope(&self, all: bool) -> Vec<usize> {
         if all {
             (0..self.frame_count()).collect()
         } else {

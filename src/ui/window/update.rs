@@ -577,8 +577,8 @@ impl Component for App {
                 };
                 self.start_crop(rect, &sender);
             }
-            Msg::ApplyZoom => self.start_zoom(self.zoom_frames(false), &sender),
-            Msg::ApplyZoomAll => self.start_zoom(self.zoom_frames(true), &sender),
+            Msg::ApplyZoom => self.start_zoom(self.frames_or_scope(false), &sender),
+            Msg::ApplyZoomAll => self.start_zoom(self.frames_or_scope(true), &sender),
             Msg::ApplyShrink => {
                 let Some(rect) = self.crop_rect.take() else {
                     return;
