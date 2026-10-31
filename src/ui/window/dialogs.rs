@@ -573,7 +573,9 @@ pub(super) fn delay_scope_dialog(
         // Translators: GIF stores frame delays in centiseconds.
         Some(t("How long this frame is held, in hundredths of a second.")),
     );
-    let spin = gtk::SpinButton::with_range(1.0, 6000.0, 1.0);
+    // GIF's own ceiling, as the sidebar's spin: anything lower clamps a long
+    // delay the moment the dialog opens, and Apply writes the clamped one.
+    let spin = gtk::SpinButton::with_range(1.0, u16::MAX as f64, 1.0);
     spin.set_value(delay_cs.max(1) as f64);
     spin.set_valign(gtk::Align::Center);
     let group = adw::PreferencesGroup::new();
@@ -631,7 +633,7 @@ pub(super) fn delay_all_dialog(
             "How long every frame is held, in hundredths of a second.",
         )),
     );
-    let spin = gtk::SpinButton::with_range(1.0, 6000.0, 1.0);
+    let spin = gtk::SpinButton::with_range(1.0, u16::MAX as f64, 1.0);
     spin.set_value(delay_cs.max(1) as f64);
     spin.set_valign(gtk::Align::Center);
     let group = adw::PreferencesGroup::new();
