@@ -249,14 +249,8 @@ impl App {
         }
         if self.crop_tool {
             self.crop_rect = Some((x, y, 0.0, 0.0));
-            self.drag = Some(Drag {
-                mode: DragMode::CropRect,
-                from: (x, y),
-                origin: Transform::at(x, y, 0.0, 0.0),
-                current: Transform::at(x, y, 0.0, 0.0),
-                snap_reach: 0.0,
-                moved: false,
-            });
+            let origin = Transform::at(x, y, 0.0, 0.0);
+            self.drag = Some(Drag::start(DragMode::CropRect, (x, y), origin, 0.0));
             return;
         }
         // A handle of the current selection wins over what is under the
@@ -274,25 +268,12 @@ impl App {
             let on_overlay =
                 contains(transform, x, y) || handle_at(transform, x, y, grab).is_some();
             if rotating && on_overlay {
-                self.drag = Some(Drag {
-                    mode: DragMode::Rotate,
-                    from: (x, y),
-                    origin: transform,
-                    current: transform,
-                    snap_reach,
-                    moved: false,
-                });
+                self.drag = Some(Drag::start(DragMode::Rotate, (x, y), transform, snap_reach));
                 return;
             }
             if let Some(corner) = handle_at(transform, x, y, grab) {
-                self.drag = Some(Drag {
-                    mode: DragMode::Resize(corner),
-                    from: (x, y),
-                    origin: transform,
-                    current: transform,
-                    snap_reach,
-                    moved: false,
-                });
+                let mode = DragMode::Resize(corner);
+                self.drag = Some(Drag::start(mode, (x, y), transform, snap_reach));
                 return;
             }
         }
@@ -307,18 +288,12 @@ impl App {
         match hit {
             Some((id, transform)) => {
                 self.selected_overlay = Some(id);
-                self.drag = Some(Drag {
-                    mode: if rotating {
-                        DragMode::Rotate
-                    } else {
-                        DragMode::Move
-                    },
-                    from: (x, y),
-                    origin: transform,
-                    current: transform,
-                    snap_reach,
-                    moved: false,
-                });
+                let mode = if rotating {
+                    DragMode::Rotate
+                } else {
+                    DragMode::Move
+                };
+                self.drag = Some(Drag::start(mode, (x, y), transform, snap_reach));
             }
             None => self.selected_overlay = None,
         }
@@ -494,12 +469,7 @@ impl App {
     /// to say where the frames land.
     pub(super) fn start_import(&mut self, path: PathBuf, sender: &ComponentSender<Self>) {
         let cancel = Arc::new(AtomicBool::new(false));
-        self.busy = Some(Busy {
-            kind: BusyKind::Import,
-            done: 0,
-            total: None,
-            cancel: Some(cancel.clone()),
-        });
+        self.busy = Some(Busy::new(BusyKind::Import, None, Some(cancel.clone())));
         // A new import starts from the configured budget. The raise the last
         // dialog asked for belonged to the file it was asked about, and it has
         // to outlive the decode itself — the fit chooser's own landing check
@@ -565,12 +535,7 @@ impl App {
             toast_over_memory_limit(sender);
             return;
         }
-        self.busy = Some(Busy {
-            kind: BusyKind::Fit,
-            done: 0,
-            total: None,
-            cancel: None,
-        });
+        self.busy = Some(Busy::new(BusyKind::Fit, None, None));
         run_splice(&self.editor.doc, at, frames, fit, sender);
     }
 
@@ -592,12 +557,8 @@ impl App {
 
     /// Claim the progress bar for `work` and hand it to the worker.
     pub(super) fn start_frame_work(&mut self, work: FrameWork, sender: &ComponentSender<Self>) {
-        self.busy = Some(Busy {
-            kind: work.busy_kind(),
-            done: 0,
-            total: Some(work.touched(&self.editor.doc)),
-            cancel: None,
-        });
+        let total = work.touched(&self.editor.doc);
+        self.busy = Some(Busy::new(work.busy_kind(), Some(total), None));
         run_frame_work(&self.editor.doc, work, sender);
     }
 }

@@ -512,6 +512,20 @@ struct Drag {
     moved: bool,
 }
 
+impl Drag {
+    /// A drag pressed at `from`, not yet moved off `origin`.
+    fn start(mode: DragMode, from: (f32, f32), origin: Transform, snap_reach: f32) -> Self {
+        Self {
+            mode,
+            from,
+            snap_reach,
+            origin,
+            current: origin,
+            moved: false,
+        }
+    }
+}
+
 /// Keep canvas gestures and a pending crop in the same image coordinate space
 /// when an asynchronous resize lands in the middle of an interaction: scaled
 /// by `(fx, fy)` and moved by `(dx, dy)`, the same as `Document::land` does
@@ -557,6 +571,18 @@ struct Busy {
     /// Stop flag shared with the import worker, so the X next to the bar can
     /// end a decode between progress ticks. Only an import can be cancelled.
     cancel: Option<Arc<AtomicBool>>,
+}
+
+impl Busy {
+    /// A job claiming the bar, with nothing done yet.
+    fn new(kind: BusyKind, total: Option<usize>, cancel: Option<Arc<AtomicBool>>) -> Self {
+        Self {
+            kind,
+            done: 0,
+            total,
+            cancel,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -135,12 +135,8 @@ impl Component for App {
             }
             Msg::LoadConfirmed(path, plan, budget) => {
                 let cancel = Arc::new(AtomicBool::new(false));
-                self.busy = Some(Busy {
-                    kind: BusyKind::Import,
-                    done: 0,
-                    total: plan.frames(),
-                    cancel: Some(cancel.clone()),
-                });
+                let total = plan.frames();
+                self.busy = Some(Busy::new(BusyKind::Import, total, Some(cancel.clone())));
                 // Only for this import, and only upwards from the configured
                 // budget: the plan was measured against it, and the frames it
                 // lands still have to pass the splice's own check.
@@ -209,12 +205,7 @@ impl Component for App {
                 settings,
             } => {
                 let total = frames.len();
-                self.busy = Some(Busy {
-                    kind: BusyKind::Export,
-                    done: 0,
-                    total: Some(total),
-                    cancel: None,
-                });
+                self.busy = Some(Busy::new(BusyKind::Export, Some(total), None));
                 let enc = Encodable { frames };
                 sender.spawn_command(move |out| {
                     let mut progress = work_progress(&out);
