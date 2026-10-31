@@ -347,12 +347,19 @@ impl Msg {
     /// worker is done. One-frame field edits are in here too: a delay changed
     /// mid-work would ride in the produced frame and be swapped back out.
     fn changes_frames(&self) -> bool {
+        self.edits_frames()
+            || matches!(
+                self,
+                Msg::Load(_) | Msg::LoadConfirmed(..) | Msg::LoadInto(_, _)
+            )
+    }
+
+    /// The edits among `changes_frames`: everything but the loads, which
+    /// replace or extend the document rather than edit it.
+    fn edits_frames(&self) -> bool {
         matches!(
             self,
-            Msg::Load(_)
-                | Msg::LoadConfirmed(..)
-                | Msg::LoadInto(_, _)
-                | Msg::Undo
+            Msg::Undo
                 | Msg::Redo
                 | Msg::DeleteSelection
                 | Msg::FrameOp(_)
@@ -395,42 +402,23 @@ impl Msg {
             )
     }
 
+    /// Every edit: the frame edits, plus those that touch only overlays or
+    /// arm the crop tool.
     fn edits_document(&self) -> bool {
-        matches!(
-            self,
-            Msg::Undo
-                | Msg::Redo
-                | Msg::AddOverlay(_)
-                | Msg::FrameOp(_)
-                | Msg::FramePaste
-                | Msg::DeleteOverlay(_)
-                | Msg::CopyOverlayToFrames { .. }
-                | Msg::RestackOverlay { .. }
-                | Msg::MoveSelection { .. }
-                | Msg::MoveSelectionTo { .. }
-                | Msg::SetScopeDelay(_)
-                | Msg::SetAllFramesDelay(_)
-                | Msg::EditText(_)
-                | Msg::SetOverlayProp(_)
-                | Msg::DeleteSelection
-                | Msg::CanvasPress { .. }
-                | Msg::CanvasDrag { .. }
-                | Msg::CanvasRelease
-                | Msg::ToggleCropTool
-                | Msg::ApplyCrop
-                | Msg::ApplyZoom
-                | Msg::ApplyZoomAll
-                | Msg::ApplyShrink
-                | Msg::CropAll(_, _, _, _)
-                | Msg::DropEveryNth(_)
-                | Msg::SmartDrop(_)
-                | Msg::Resize(_, _)
-                | Msg::Mirror(_)
-                | Msg::ApplyFade { .. }
-                | Msg::ApplyLoopFade(_)
-                | Msg::SpliceFrames { .. }
-                | Msg::MoveFrame(_, _)
-        )
+        self.edits_frames()
+            || matches!(
+                self,
+                Msg::AddOverlay(_)
+                    | Msg::DeleteOverlay(_)
+                    | Msg::CopyOverlayToFrames { .. }
+                    | Msg::RestackOverlay { .. }
+                    | Msg::EditText(_)
+                    | Msg::SetOverlayProp(_)
+                    | Msg::CanvasPress { .. }
+                    | Msg::CanvasDrag { .. }
+                    | Msg::CanvasRelease
+                    | Msg::ToggleCropTool
+            )
     }
 }
 
