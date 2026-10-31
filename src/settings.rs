@@ -4,7 +4,7 @@
 //! a packaging step this app does not have yet — and not a serialization crate
 //! for two dozen lines of parsing.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Frames live in RAM as RGBA, so these are the numbers that decide how much
 /// of a long video can be open at once. Three budgets: imports cap what one
@@ -53,38 +53,18 @@ impl Settings {
     }
     /// Anything missing or unparseable leaves the current value alone.
     fn apply(&mut self, text: &str) {
-        for line in text.lines() {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-            let Some((key, value)) = line.split_once('=') else {
-                continue;
-            };
-            match key.trim() {
+        for (key, value) in entries(text) {
+            match key {
                 "max_import_memory_mb" => {
-                    if let Ok(mb) = value.trim().parse::<usize>()
-                        && mb > 0
-                    {
-                        self.max_import_bytes = mb << 20;
-                    }
+                    self.max_import_bytes = parse_mb(value).unwrap_or(self.max_import_bytes);
                 }
                 "max_oper_memory_mb" => {
-                    if let Ok(mb) = value.trim().parse::<usize>()
-                        && mb > 0
-                    {
-                        self.max_oper_bytes = mb << 20;
-                    }
+                    self.max_oper_bytes = parse_mb(value).unwrap_or(self.max_oper_bytes);
                 }
                 "max_total_memory_mb" => {
-                    if let Ok(mb) = value.trim().parse::<usize>()
-                        && mb > 0
-                    {
-                        self.max_total_bytes = mb << 20;
-                    }
+                    self.max_total_bytes = parse_mb(value).unwrap_or(self.max_total_bytes);
                 }
                 "language" => {
-                    let value = value.trim();
                     self.language = (!value.is_empty()).then(|| value.to_string());
                 }
                 _ => {}
@@ -93,25 +73,56 @@ impl Settings {
     }
 }
 
-pub fn path() -> Option<PathBuf> {
-    let base = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute())
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
-    Some(base.join("gifkino").join("settings.conf"))
+/// A positive count of megabytes, as bytes. Zero is no budget at all, so it
+/// is as unparseable as a word.
+fn parse_mb(value: &str) -> Option<usize> {
+    let mb = value.parse::<usize>().ok().filter(|mb| *mb > 0)?;
+    Some(mb << 20)
 }
 
-/// Leave a commented default behind on first run, so the file is discoverable
-/// without the app having to advertise it. Best effort: a read-only config
-/// directory is not worth failing an import over.
-fn write_template(path: &std::path::Path) {
+/// The `key = value` lines of a config file, both sides trimmed. Blank lines,
+/// `#` comments and lines with no `=` are skipped.
+pub fn entries(text: &str) -> impl Iterator<Item = (&str, &str)> {
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .filter_map(|line| line.split_once('='))
+        .map(|(key, value)| (key.trim(), value.trim()))
+}
+
+/// Write a config file, creating its directory. Best effort: a read-only
+/// config directory is not worth an error the user cannot act on.
+pub fn write_best_effort(path: &Path, text: &str) {
     let Some(dir) = path.parent() else { return };
     if std::fs::create_dir_all(dir).is_err() {
         return;
     }
-    let _ = std::fs::write(
+    let _ = std::fs::write(path, text);
+}
+
+/// An XDG base directory: `var` when it names an absolute path, which is the
+/// only kind the spec allows, otherwise `$HOME/home_fallback`.
+pub fn xdg_dir(var: &str, home_fallback: &str) -> Option<PathBuf> {
+    std::env::var_os(var)
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(home_fallback)))
+}
+
+pub fn path() -> Option<PathBuf> {
+    Some(
+        xdg_dir("XDG_CONFIG_HOME", ".config")?
+            .join("gifkino")
+            .join("settings.conf"),
+    )
+}
+
+/// Leave a commented default behind on first run, so the file is discoverable
+/// without the app having to advertise it.
+fn write_template(path: &Path) {
+    write_best_effort(
         path,
-        format!(
+        &format!(
             "# gifkino settings\n\
              \n\
              # Most memory an import may use for decoded frames, in MB.\n\

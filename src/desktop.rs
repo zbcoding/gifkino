@@ -47,10 +47,7 @@ fn appdir() -> Option<PathBuf> {
 }
 
 fn data_home() -> Option<PathBuf> {
-    std::env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute())
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
+    crate::settings::xdg_dir("XDG_DATA_HOME", ".local/share")
 }
 
 fn entry_path(data_home: &Path) -> PathBuf {

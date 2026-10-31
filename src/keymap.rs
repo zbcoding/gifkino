@@ -539,15 +539,7 @@ impl Keymap {
     /// chords unbinds; a line naming an unknown action is ignored, so a file
     /// from a newer version does not lose the bindings it does understand.
     pub fn apply(&mut self, text: &str) {
-        for line in text.lines() {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-            let Some((key, value)) = line.split_once('=') else {
-                continue;
-            };
-            let key = key.trim();
+        for (key, value) in crate::settings::entries(text) {
             if let Some(modal) = MODALS.iter().find(|m| m.id() == key) {
                 self.modals.insert(*modal, Mods::parse(value));
                 continue;
@@ -638,14 +630,8 @@ impl Keymap {
         }
     }
 
-    /// Best effort: a read-only config directory is not worth an error dialog
-    /// the user cannot act on.
     fn save_to(&self, path: &Path) {
-        let Some(dir) = path.parent() else { return };
-        if std::fs::create_dir_all(dir).is_err() {
-            return;
-        }
-        let _ = std::fs::write(path, self.to_text());
+        crate::settings::write_best_effort(path, &self.to_text());
     }
 }
 
