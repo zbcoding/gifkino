@@ -60,6 +60,7 @@ impl Component for App {
             strip_zoom: Rc::new(Cell::new(1.0)),
             strip_pitch: Rc::new(Cell::new(cell_pitch(THUMB_BOX, 1.0))),
             strip_zoom_shown: Cell::new(1.0),
+            canvas_shown: Cell::new(None),
             rev: 0,
             import_at: None,
             import_budget: None,

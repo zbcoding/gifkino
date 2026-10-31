@@ -280,9 +280,16 @@ impl App {
         }
     }
 
+    /// The picture on the canvas, recomposited only when `canvas_key` says
+    /// it would come out different: progress ticks, hovers and selection
+    /// clicks all land here too, and compositing a large frame is not free.
     fn sync_canvas(&self, widgets: &Widgets) {
-        if let Some(texture) = self.composite_playhead() {
-            widgets.canvas.set_paintable(Some(&texture));
+        let key = self.canvas_key();
+        if self.canvas_shown.get() != Some(key) {
+            self.canvas_shown.set(Some(key));
+            if let Some(texture) = self.composite_playhead() {
+                widgets.canvas.set_paintable(Some(&texture));
+            }
         }
         let alpha = self.editor.doc.has_alpha();
         if alpha != widgets.canvas_frame.has_css_class("checkerboard") {
@@ -292,6 +299,14 @@ impl App {
                 widgets.canvas_frame.remove_css_class("checkerboard");
             }
         }
+    }
+
+    /// Everything `composite_playhead` reads: the document, through `rev`,
+    /// and the frame on screen. Plus whether a drag is in flight:
+    /// `canvas_release` can put a dragged overlay back where it started
+    /// without recording an edit, so without moving `rev`.
+    pub(super) fn canvas_key(&self) -> (u64, usize, bool) {
+        (self.rev, self.playhead, self.drag.is_some())
     }
 
     fn sync_strip(

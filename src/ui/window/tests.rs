@@ -41,6 +41,7 @@ fn app_with(doc: Document, scope: ScopeChoice, selection: Vec<usize>, playhead: 
         strip_zoom: Rc::new(Cell::new(1.0)),
         strip_pitch: Rc::new(Cell::new(cell_pitch(THUMB_BOX, 1.0))),
         strip_zoom_shown: Cell::new(1.0),
+        canvas_shown: Cell::new(None),
         rev: 0,
         import_at: None,
         import_budget: None,
@@ -339,6 +340,44 @@ fn snap_reach_stays_constant_on_screen_at_any_zoom() {
     app.canvas_drag(51.0, 20.0, NO_MODS);
     assert_eq!(app.guides.x, Some(snap::Guide::Center));
     assert_eq!(transform_of(&app, id).x, 40.0);
+}
+
+/// `update_view` recomposites the canvas only when `canvas_key` moves, so
+/// everything that changes the picture on screen must move it: a recorded
+/// edit, each live drag step, and a release that puts the box back without
+/// recording anything (the scope here misses the overlay, so the drag has
+/// nowhere to land).
+#[test]
+fn the_canvas_key_moves_whenever_the_picture_would() {
+    let mut app = app_with(doc(3), ScopeChoice::Range, vec![2], 0);
+    let id = app.editor.doc.add_overlay(
+        "box",
+        OverlayKind::Shape(ShapeOverlay {
+            shape: Shape::Rect,
+            fill: Some([1, 2, 3, 255]),
+            stroke: None,
+        }),
+        Transform::at(1.0, 1.0, 4.0, 4.0),
+        0..1,
+    );
+    let mut shown = vec![app.canvas_key()];
+    let mut moved = |app: &App, why: &str| {
+        let key = app.canvas_key();
+        assert!(!shown.contains(&key), "{why}: {key:?} already shown");
+        shown.push(key);
+    };
+
+    app.canvas_press(2.0, 2.0, 1.0, NO_MODS);
+    app.canvas_drag(4.0, 2.0, NO_MODS);
+    moved(&app, "live drag");
+    assert!(app.canvas_release().is_none(), "nothing in scope to commit");
+    assert_eq!(transform_of(&app, id), Transform::at(1.0, 1.0, 4.0, 4.0));
+    moved(&app, "box put back");
+
+    app.editor
+        .edit("Overlay deleted", 1, |d| d.remove_overlay(id));
+    app.after_edit();
+    moved(&app, "edit on the frame on screen");
 }
 
 /// A dragged corner of an upright box pulls onto a guide. Locked to its

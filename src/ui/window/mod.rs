@@ -784,6 +784,9 @@ pub struct App {
     /// Zoom the strip's pictures were last sized to, so `update_view` only walks
     /// the thumbnails when it actually changed.
     strip_zoom_shown: Cell<f64>,
+    /// `canvas_key` the canvas picture was last composited for, so
+    /// `update_view` only recomposites when the picture would change.
+    canvas_shown: Cell<Option<(u64, usize, bool)>>,
     rev: u64,
     /// Set right before a `Load`/`LoadInto` starts and consumed when
     /// `Cmd::Imported` lands: where the decoded frames go. `None` replaces the
