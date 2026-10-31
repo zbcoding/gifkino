@@ -51,6 +51,14 @@
   runs, as they already did in the Frames menu.
 - The Undo and Redo tooltips are translated and show the bound keys as soon
   as the window opens, not only after the first action.
+- Unbinding a shortcut in the shortcuts window now applies and saves it, as
+  every other change there already did.
+- The video import summary quotes the frame rate the thinned frames really
+  play at: ten frames with one in three dropped showed 6.67 fps and played
+  at 7.
+- "Set delay…" in a frame's right-click menu opens with the frame's current
+  delay, not the one it had when the strip was last rebuilt.
+- Changing a shortcut no longer rebuilds every thumbnail in the strip.
 
 ## 0.1.5 — 2026-09-25
 
