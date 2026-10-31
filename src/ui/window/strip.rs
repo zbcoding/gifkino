@@ -513,7 +513,8 @@ pub(super) fn rebuild_strip(
 
 /// One strip cell for frame `i`: its thumbnail, number and — for a frame
 /// edited outside — the pencil badge, plus the drag-reorder divider laid
-/// over the thumbnail, returned for `drop_dividers`.
+/// over the thumbnail, returned for `drop_dividers`. The tooltip comes from
+/// `set_thumb_tooltip`, since a delay changes without a rebuild.
 fn thumb_cell(i: usize, frame: &Frame) -> (gtk::Box, gtk::Widget) {
     // Empty until `update_view`, which runs `set_thumb_zoom` over the
     // whole strip right after any rebuild.
@@ -545,15 +546,19 @@ fn thumb_cell(i: usize, frame: &Frame) -> (gtk::Box, gtk::Widget) {
         badge.set_tooltip_text(Some(t("Edited outside; overlays skip this frame")));
         cell.append(&badge);
     }
+    (cell, divider.upcast())
+}
+
+/// The hover text for frame `i`'s cell: its number and delay.
+pub(super) fn set_thumb_tooltip(cell: &gtk::Widget, i: usize, delay_cs: u16) {
     cell.set_tooltip_text(Some(&fill(
         // Translators: "cs" is centiseconds, the unit GIF stores frame delays in.
         t("Frame {number} · {delay} cs"),
         &[
             ("number", &(i + 1).to_string()),
-            ("delay", &frame.delay_cs.to_string()),
+            ("delay", &delay_cs.to_string()),
         ],
     )));
-    (cell, divider.upcast())
 }
 
 /// A press on a frame that is inside the active selection must not

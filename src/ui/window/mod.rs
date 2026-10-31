@@ -810,6 +810,9 @@ pub struct App {
     /// on `rev` because `rev` also moves for overlay edits, and rebuilding a
     /// few hundred thumbnails on every keystroke in the text entry is a freeze.
     strip_keys: RefCell<Vec<(u64, bool)>>,
+    /// Frame delays the strip's tooltips last showed. A delay edit keeps the
+    /// frame's key, so it rewrites the tooltips without a rebuild.
+    strip_delays: RefCell<Vec<u16>>,
     /// Set by a rebind, and to begin with: the frame context menu shows the
     /// keymap's chords, so `update_view` refills it and clears this.
     frame_menu_stale: Cell<bool>,
@@ -988,6 +991,7 @@ impl App {
             crop_rect: None,
             bands_expanded: false,
             strip_keys: RefCell::new(Vec::new()),
+            strip_delays: RefCell::new(Vec::new()),
             frame_menu_stale: Cell::new(true),
             strip_zoom: Rc::new(Cell::new(1.0)),
             strip_pitch: Rc::new(Cell::new(cell_pitch(THUMB_BOX, 1.0))),

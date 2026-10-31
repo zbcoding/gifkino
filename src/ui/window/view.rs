@@ -331,6 +331,13 @@ impl App {
                 &widgets.frame_menu,
             );
         }
+        let delays: Vec<u16> = self.editor.doc.frames.iter().map(|f| f.delay_cs).collect();
+        if rebuilt || *self.strip_delays.borrow() != delays {
+            for (i, (cell, delay)) in thumb_children(&widgets.strip).zip(&delays).enumerate() {
+                set_thumb_tooltip(&cell, i, *delay);
+            }
+            *self.strip_delays.borrow_mut() = delays;
+        }
         let zoom = self.strip_zoom.get();
         // Whatever the frames' aspect made of the thumbnails is what a cell
         // measures out to, so the bands read their pitch off a real one.
