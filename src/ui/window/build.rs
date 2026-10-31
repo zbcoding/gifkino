@@ -8,6 +8,173 @@ pub(super) fn build(
     sender: &ComponentSender<App>,
 ) -> Widgets {
     let keymap = model.keymap.clone();
+    let header = header_bar(&keymap.borrow(), sender);
+    let status = welcome_page(model, sender);
+    let import = import_progress(sender);
+
+    let rail = tool_rail(model, sender);
+    let canvas = canvas_view(sender);
+    let canvas_row = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    canvas_row.append(&rail.rail);
+    canvas_row.append(&gtk::Separator::new(gtk::Orientation::Vertical));
+    canvas_row.append(&canvas.frame);
+
+    // Footer: transport, scope, bands, strip.
+    let footer = gtk::Box::new(gtk::Orientation::Vertical, 6);
+    footer.set_margin_all(8);
+    let transport = transport_row(sender);
+    footer.append(&transport.row);
+    let strip = strip_area(model, sender);
+    footer.append(&strip.scroll);
+    footer.append(&strip.bar);
+
+    // No fixed split: the footer asks for what the strip and its bands
+    // actually need, and the canvas gets everything else. Adding an overlay
+    // row costs the canvas one row, not a third of the window.
+    let paned = gtk::Paned::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .start_child(&canvas_row)
+        .end_child(&footer)
+        .resize_start_child(true)
+        .resize_end_child(false)
+        .shrink_end_child(false)
+        .build();
+
+    // Properties: one contextual page, an AdwPreferencesGroup so the rows come
+    // out consistent for free.
+    let properties = gtk::Box::new(gtk::Orientation::Vertical, 12);
+    properties.set_margin_all(12);
+    properties.set_size_request(280, -1);
+    // Every sidebar setter fires its own notify handler, so `update_view` holds
+    // this up to say "this value came from the model, do not send it back".
+    let sync = Rc::new(Cell::new(false));
+    let frame = frame_panel(sender, &sync);
+    let layers = layer_list(sender, &sync);
+    let text = text_panel(sender, &sync);
+    let overlay = overlay_editor(sender, &sync);
+    let crop = crop_panel(sender);
+    let doc_info = gtk::Label::new(Some(""));
+    doc_info.add_css_class("dim-label");
+    doc_info.set_wrap(true);
+    doc_info.set_xalign(0.0);
+    properties.append(&frame.group);
+    properties.append(&layers.group);
+    properties.append(&text.group);
+    properties.append(&overlay.group);
+    properties.append(&crop.group);
+    properties.append(&doc_info);
+
+    // The panel is taller than a short window whenever a text overlay's
+    // editor is up, so it scrolls; without this the rows below the fold —
+    // the colour pickers, the crop buttons, the document summary — were
+    // simply unreachable.
+    let properties_scroll = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .vscrollbar_policy(gtk::PolicyType::Automatic)
+        .propagate_natural_width(true)
+        .child(&properties)
+        .build();
+    let split = adw::OverlaySplitView::builder()
+        .sidebar_position(gtk::PackType::End)
+        .content(&paned)
+        .sidebar(&properties_scroll)
+        .build();
+    add_breakpoints(root, &split, &header);
+
+    let stack = gtk::Stack::new();
+    stack.add_named(&status, Some("empty"));
+    stack.add_named(&split, Some("editor"));
+
+    let toolbar = adw::ToolbarView::new();
+    toolbar.add_top_bar(&header.bar);
+    toolbar.add_top_bar(&import.row);
+    toolbar.set_content(Some(&stack));
+
+    let toasts = adw::ToastOverlay::new();
+    toasts.set_child(Some(&toolbar));
+    root.set_content(Some(&toasts));
+
+    let actions = install_win_actions(root, &keymap, sender);
+
+    Widgets {
+        title: header.title,
+        stack,
+        import_bar: import.bar,
+        import_cancel: import.cancel,
+        toasts,
+        canvas: canvas.picture,
+        canvas_frame: canvas.frame,
+        strip: strip.strip,
+        bands: strip.bands,
+        play: transport.play,
+        time: transport.time,
+        undo: header.undo,
+        redo: header.redo,
+        actions,
+        export: header.export,
+        scope_buttons: transport.scope_buttons,
+        properties,
+        text_entry: text.entry,
+        text_row: text.row,
+        text_group: text.group,
+        frame_group: frame.group,
+        frame_delay: frame.delay,
+        delay_row: frame.delay_row,
+        overlay_list: layers.list,
+        overlay_list_scroll: layers.scroll,
+        overlay_list_group: layers.group,
+        overlay_list_ids: layers.ids,
+        scope_mirror: strip.scope_mirror,
+        drop_dividers: strip.drop_dividers,
+        text_rows: overlay.text_rows,
+        shape_rows: overlay.shape_rows,
+        overlay_group: overlay.group,
+        font_button: overlay.font_button,
+        text_size: overlay.text_size,
+        fill_button: overlay.fill_button,
+        fill_on: overlay.fill_on,
+        outline_button: overlay.outline_button,
+        outline_width: overlay.outline_width,
+        align_buttons: overlay.align_buttons,
+        antialias: overlay.antialias,
+        stroke_button: overlay.stroke_button,
+        stroke_width: overlay.stroke_width,
+        crop_group: crop.group,
+        crop_label: crop.label,
+        crop_button: rail.crop_button,
+        crop_apply: crop.crop_apply,
+        zoom_apply: crop.zoom_apply,
+        shrink_apply: crop.shrink_apply,
+        snap_button: rail.snap_button,
+        tool_buttons: rail.tool_buttons,
+        shape_button: rail.shape_button,
+        shape_tool: rail.shape_tool,
+        bands_scroll: strip.bands_scroll,
+        bands_expander: strip.bands_expander,
+        canvas_overlay: canvas.overlay,
+        canvas_state: canvas.state,
+        doc_info,
+        bands_model: strip.bands_model,
+        thumb_textures: ThumbTextures::new(),
+        sync,
+    }
+}
+
+/// The header bar, with the parts of it the view writes and the narrow
+/// breakpoint swaps.
+struct Header {
+    bar: adw::HeaderBar,
+    title: adw::WindowTitle,
+    undo: gtk::Button,
+    redo: gtk::Button,
+    export: gtk::Button,
+    menubar: gtk::PopoverMenuBar,
+    menu_button: gtk::MenuButton,
+    /// The ☰ menu's model for a window too narrow for `menubar`.
+    narrow_menu: gio::Menu,
+}
+
+fn header_bar(keymap: &Keymap, sender: &ComponentSender<App>) -> Header {
     let title = adw::WindowTitle::new("Untitled", "");
     let header = adw::HeaderBar::builder().title_widget(&title).build();
 
@@ -16,14 +183,8 @@ pub(super) fn build(
     // The header shows on the welcome page, before any message has run
     // `sync_tooltips`, so these start from the keymap the same way it would
     // write them with nothing to undo yet.
-    let undo = icon_button(
-        "edit-undo-symbolic",
-        &keymap.borrow().tip(t("Undo"), Action::Undo),
-    );
-    let redo = icon_button(
-        "edit-redo-symbolic",
-        &keymap.borrow().tip(t("Redo"), Action::Redo),
-    );
+    let undo = icon_button("edit-undo-symbolic", &keymap.tip(t("Undo"), Action::Undo));
+    let redo = icon_button("edit-redo-symbolic", &keymap.tip(t("Redo"), Action::Redo));
     connect(&undo, sender, || Msg::Undo);
     connect(&redo, sender, || Msg::Redo);
     history_box.append(&undo);
@@ -32,7 +193,7 @@ pub(super) fn build(
 
     let export = gtk::Button::with_label(t("Export"));
     export.add_css_class("suggested-action");
-    export.set_tooltip_text(Some(&keymap.borrow().tip(t("Export GIF"), Action::Export)));
+    export.set_tooltip_text(Some(&keymap.tip(t("Export GIF"), Action::Export)));
     connect(&export, sender, || Msg::Export);
     header.pack_end(&export);
 
@@ -71,7 +232,20 @@ pub(super) fn build(
     no_focus_steal(&menu_button);
     header.pack_end(&menu_button);
 
-    // Empty state doubles as the welcome screen.
+    Header {
+        bar: header,
+        title,
+        undo,
+        redo,
+        export,
+        menubar,
+        menu_button,
+        narrow_menu,
+    }
+}
+
+/// The empty state, which doubles as the welcome screen.
+fn welcome_page(model: &App, sender: &ComponentSender<App>) -> adw::StatusPage {
     let status = adw::StatusPage::builder()
         .icon_name("image-x-generic-symbolic")
         .title(t("Open Image"))
@@ -90,36 +264,59 @@ pub(super) fn build(
         open_button.set_tooltip_text(Some(t(reason)));
     }
     welcome_buttons.append(&open_button);
-
-    // The decode and the frame work run off the main thread, so without a bar
-    // here a long job is indistinguishable from a hang. It lives in the
-    // toolbar so it is visible with a document open, not only on the welcome
-    // page.
-    let import_bar = gtk::ProgressBar::builder()
-        .show_text(true)
-        .visible(false)
-        .build();
-    import_bar.set_size_request(320, -1);
-    let import_cancel = gtk::Button::from_icon_name("window-close-symbolic");
-    import_cancel.add_css_class("circular");
-    import_cancel.add_css_class("flat");
-    import_cancel.set_valign(gtk::Align::Center);
-    import_cancel.set_visible(false);
-    // Translators: Tooltip on the X beside the import progress bar; it cancels the running decode.
-    import_cancel.set_tooltip_text(Some(t("Cancel import")));
-    connect(&import_cancel, sender, || Msg::CancelImport);
-    // The X sits to the right of the bar, which carries the message; one row
-    // so the toolbar takes or drops them together.
-    let import_row = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-    import_row.set_halign(gtk::Align::Center);
-    import_row.append(&import_bar);
-    import_row.append(&import_cancel);
     let welcome = gtk::Box::new(gtk::Orientation::Vertical, 18);
     welcome.append(&welcome_buttons);
     status.set_child(Some(&welcome));
+    status
+}
 
-    // Left rail. These place a default-sized overlay under the current scope;
-    // the canvas handles do the rest.
+/// The progress bar and its cancel X, as one toolbar row.
+struct ImportProgress {
+    row: gtk::Box,
+    bar: gtk::ProgressBar,
+    cancel: gtk::Button,
+}
+
+/// The decode and the frame work run off the main thread, so without a bar
+/// here a long job is indistinguishable from a hang. It lives in the
+/// toolbar so it is visible with a document open, not only on the welcome
+/// page.
+fn import_progress(sender: &ComponentSender<App>) -> ImportProgress {
+    let bar = gtk::ProgressBar::builder()
+        .show_text(true)
+        .visible(false)
+        .build();
+    bar.set_size_request(320, -1);
+    let cancel = gtk::Button::from_icon_name("window-close-symbolic");
+    cancel.add_css_class("circular");
+    cancel.add_css_class("flat");
+    cancel.set_valign(gtk::Align::Center);
+    cancel.set_visible(false);
+    // Translators: Tooltip on the X beside the import progress bar; it cancels the running decode.
+    cancel.set_tooltip_text(Some(t("Cancel import")));
+    connect(&cancel, sender, || Msg::CancelImport);
+    // The X sits to the right of the bar, which carries the message; one row
+    // so the toolbar takes or drops them together.
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    row.set_halign(gtk::Align::Center);
+    row.append(&bar);
+    row.append(&cancel);
+    ImportProgress { row, bar, cancel }
+}
+
+/// The left rail's tool buttons.
+struct Rail {
+    rail: gtk::Box,
+    tool_buttons: Vec<(Tool, gtk::Button)>,
+    shape_button: adw::SplitButton,
+    shape_tool: Rc<Cell<Tool>>,
+    crop_button: gtk::ToggleButton,
+    snap_button: gtk::ToggleButton,
+}
+
+/// Left rail. These place a default-sized overlay under the current scope;
+/// the canvas handles do the rest.
+fn tool_rail(model: &App, sender: &ComponentSender<App>) -> Rail {
     let rail = gtk::Box::new(gtk::Orientation::Vertical, 4);
     rail.set_margin_all(6);
     let mut tool_buttons = Vec::new();
@@ -191,8 +388,26 @@ pub(super) fn build(
         snap_button.connect_clicked(move |_| sender.input(Msg::ToggleSnap));
     }
     rail.append(&snap_button);
+    Rail {
+        rail,
+        tool_buttons,
+        shape_button,
+        shape_tool,
+        crop_button,
+        snap_button,
+    }
+}
 
-    let canvas = gtk::Picture::builder()
+/// The picture of the frame on screen and the gesture layer over it.
+struct CanvasView {
+    picture: gtk::Picture,
+    frame: gtk::Frame,
+    overlay: gtk::DrawingArea,
+    state: Rc<RefCell<CanvasState>>,
+}
+
+fn canvas_view(sender: &ComponentSender<App>) -> CanvasView {
+    let picture = gtk::Picture::builder()
         .content_fit(gtk::ContentFit::ScaleDown)
         .can_shrink(true)
         .build();
@@ -200,36 +415,43 @@ pub(super) fn build(
     // Handles and the crop box live in a transparent layer over the picture,
     // which keeps the picture's texture path and gives the gestures one widget
     // whose size is the thing being mapped from.
-    let canvas_state: Rc<RefCell<CanvasState>> = Rc::new(RefCell::new(CanvasState::default()));
-    let canvas_overlay = gtk::DrawingArea::new();
+    let state: Rc<RefCell<CanvasState>> = Rc::new(RefCell::new(CanvasState::default()));
+    let overlay = gtk::DrawingArea::new();
     {
-        let canvas_state = canvas_state.clone();
-        canvas_overlay.set_draw_func(move |area, cr, w, h| {
-            draw_canvas_overlay(area, cr, w as f64, h as f64, &canvas_state.borrow());
+        let state = state.clone();
+        overlay.set_draw_func(move |area, cr, w, h| {
+            draw_canvas_overlay(area, cr, w as f64, h as f64, &state.borrow());
         });
     }
-    install_canvas_gestures(&canvas_overlay, &canvas_state, sender);
+    install_canvas_gestures(&overlay, &state, sender);
 
     let stack_overlay = gtk::Overlay::new();
-    stack_overlay.set_child(Some(&canvas));
-    stack_overlay.add_overlay(&canvas_overlay);
+    stack_overlay.set_child(Some(&picture));
+    stack_overlay.add_overlay(&overlay);
 
-    let canvas_frame = gtk::Frame::builder().child(&stack_overlay).build();
-    canvas_frame.add_css_class("canvas-frame");
-    canvas_frame.set_margin_all(12);
-    canvas_frame.set_hexpand(true);
-    canvas_frame.set_vexpand(true);
+    let frame = gtk::Frame::builder().child(&stack_overlay).build();
+    frame.add_css_class("canvas-frame");
+    frame.set_margin_all(12);
+    frame.set_hexpand(true);
+    frame.set_vexpand(true);
+    CanvasView {
+        picture,
+        frame,
+        overlay,
+        state,
+    }
+}
 
-    let canvas_row = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    canvas_row.append(&rail);
-    canvas_row.append(&gtk::Separator::new(gtk::Orientation::Vertical));
-    canvas_row.append(&canvas_frame);
+/// Play/pause, the clock, and the frame-scope toggles, in one row.
+struct Transport {
+    row: gtk::Box,
+    play: gtk::Button,
+    time: gtk::Label,
+    scope_buttons: [gtk::ToggleButton; 3],
+}
 
-    // Footer: transport, scope, bands, strip.
-    let footer = gtk::Box::new(gtk::Orientation::Vertical, 6);
-    footer.set_margin_all(8);
-
-    let transport = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+fn transport_row(sender: &ComponentSender<App>) -> Transport {
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     // No tooltip here: the footer first shows with a loaded document, and
     // the load's `sync_tooltips` writes it from the keymap.
     let play = gtk::Button::from_icon_name("media-playback-start-symbolic");
@@ -237,8 +459,8 @@ pub(super) fn build(
     let time = gtk::Label::new(Some("00:00.0 / 00:00.0 · 0 fps"));
     time.add_css_class("tnum");
     time.add_css_class("dim-label");
-    transport.append(&play);
-    transport.append(&time);
+    row.append(&play);
+    row.append(&time);
 
     let scope_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     scope_box.add_css_class("linked");
@@ -265,11 +487,99 @@ pub(super) fn build(
         no_focus_steal(button);
         scope_box.append(button);
     }
-    transport.append(&scope_box);
-    footer.append(&transport);
+    row.append(&scope_box);
+    Transport {
+        row,
+        play,
+        time,
+        scope_buttons: [this_frame, all_frames, range],
+    }
+}
 
-    let strip = gtk::Box::new(gtk::Orientation::Horizontal, THUMB_SPACING);
+/// The frame strip with its overlay bands under it, scrolled sideways.
+struct StripArea {
+    scroll: gtk::ScrolledWindow,
+    /// The strip's horizontal scrollbar, a sibling of `scroll`.
+    bar: gtk::Scrollbar,
+    strip: gtk::Box,
+    scope_mirror: Rc<RefCell<Vec<usize>>>,
+    drop_dividers: Rc<RefCell<Vec<gtk::Widget>>>,
+    bands: gtk::DrawingArea,
+    bands_model: Rc<RefCell<Vec<Band>>>,
+    bands_scroll: gtk::ScrolledWindow,
+    bands_expander: gtk::Button,
+}
+
+fn strip_area(model: &App, sender: &ComponentSender<App>) -> StripArea {
+    let (strip, drop_dividers) = frame_strip(sender);
     let scope_mirror: Rc<RefCell<Vec<usize>>> = Rc::new(RefCell::new(Vec::new()));
+    let (bands, bands_model) = overlay_bands(model, sender, &scope_mirror);
+
+    // The band list can outgrow the strip, so it scrolls in its own right and
+    // collapses to a few rows until asked to expand.
+    let bands_scroll = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::External)
+        .vscrollbar_policy(gtk::PolicyType::Automatic)
+        .propagate_natural_height(true)
+        .child(&bands)
+        .build();
+    bands_scroll.set_max_content_height((BANDS_COLLAPSED_ROWS as f64 * BAND_H) as i32);
+    bands_scroll.set_visible(false);
+    let bands_expander = gtk::Button::builder().visible(false).build();
+    bands_expander.add_css_class("flat");
+    bands_expander.add_css_class("caption");
+    bands_expander.set_halign(gtk::Align::Start);
+    connect(&bands_expander, sender, || Msg::ToggleBandsExpanded);
+
+    // Frames first, then the overlays that annotate them: the bands are a
+    // legend under the strip, not a header over it.
+    let strip_column = gtk::Box::new(gtk::Orientation::Vertical, 4);
+    strip_column.append(&strip);
+    strip_column.append(&bands_scroll);
+    strip_column.append(&bands_expander);
+    let scroll = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::External)
+        .vscrollbar_policy(gtk::PolicyType::Never)
+        .child(&strip_column)
+        .build();
+    // The footer asks for what the strip actually needs, so this has to carry
+    // the strip's own height out rather than reporting a scrollable minimum.
+    scroll.set_propagate_natural_height(true);
+    dont_chase_focus(&scroll);
+    // The horizontal scrollbar is a sibling rather than the scrolled window's
+    // own. A non-overlay `Automatic` scrollbar takes its height out of the
+    // viewport without adding it to what the scrolled window measures, so
+    // wherever the footer sat at its minimum height — which is where a
+    // `GtkPaned` end child lands — the strip lost exactly the row of frame
+    // numbers under the thumbnails, with no scrollbar to reach it by. Out
+    // here it is measured along with everything else, and it only takes
+    // space while the strip really is wider than the window.
+    let bar = gtk::Scrollbar::new(gtk::Orientation::Horizontal, Some(&scroll.hadjustment()));
+    bar.set_visible(false);
+    {
+        let bar = bar.clone();
+        scroll.hadjustment().connect_changed(move |adj| {
+            bar.set_visible(adj.upper() > adj.page_size() + 1.0);
+        });
+    }
+    scroll.add_controller(strip_zoom_wheel(sender));
+    StripArea {
+        scroll,
+        bar,
+        strip,
+        scope_mirror,
+        drop_dividers,
+        bands,
+        bands_model,
+        bands_scroll,
+        bands_expander,
+    }
+}
+
+/// The strip `Box` the thumbnails are rebuilt into, and the drag-reorder
+/// dividers `rebuild_strip` fills for it.
+fn frame_strip(sender: &ComponentSender<App>) -> (gtk::Box, Rc<RefCell<Vec<gtk::Widget>>>) {
+    let strip = gtk::Box::new(gtk::Orientation::Horizontal, THUMB_SPACING);
     let drop_dividers: Rc<RefCell<Vec<gtk::Widget>>> = Rc::new(RefCell::new(Vec::new()));
     // One drop target for the whole strip, not one per cell: it tracks the
     // gap nearest the pointer as it moves and paints the divider there, so a
@@ -303,7 +613,16 @@ pub(super) fn build(
         });
     }
     strip.add_controller(drop_target);
+    (strip, drop_dividers)
+}
 
+/// The overlay bands under the strip and the model they draw from: a click
+/// picks the overlay, a right-click opens its menu.
+fn overlay_bands(
+    model: &App,
+    sender: &ComponentSender<App>,
+    scope_mirror: &Rc<RefCell<Vec<usize>>>,
+) -> (gtk::DrawingArea, Rc<RefCell<Vec<Band>>>) {
     let bands_model: Rc<RefCell<Vec<Band>>> = Rc::new(std::cell::RefCell::new(Vec::new()));
     let bands = gtk::DrawingArea::new();
     bands.set_content_height(0);
@@ -351,8 +670,6 @@ pub(super) fn build(
         let bands_model = bands_model.clone();
         let sender = sender.clone();
         let strip_pitch = model.strip_pitch.clone();
-        let band_popover = band_popover.clone();
-        let (band_menu, band_selection_menu) = (band_menu.clone(), band_selection_menu.clone());
         let scope_mirror = scope_mirror.clone();
         band_secondary.connect_pressed(move |_, _, x, y| {
             // Empty space under the pointer: no menu at all, rather than one
@@ -375,131 +692,90 @@ pub(super) fn build(
         });
     }
     bands.add_controller(band_secondary);
+    (bands, bands_model)
+}
 
-    // The band list can outgrow the strip, so it scrolls in its own right and
-    // collapses to a few rows until asked to expand.
-    let bands_scroll = gtk::ScrolledWindow::builder()
-        .hscrollbar_policy(gtk::PolicyType::External)
-        .vscrollbar_policy(gtk::PolicyType::Automatic)
-        .propagate_natural_height(true)
-        .child(&bands)
-        .build();
-    bands_scroll.set_max_content_height((BANDS_COLLAPSED_ROWS as f64 * BAND_H) as i32);
-    bands_scroll.set_visible(false);
-    let bands_expander = gtk::Button::builder().visible(false).build();
-    bands_expander.add_css_class("flat");
-    bands_expander.add_css_class("caption");
-    bands_expander.set_halign(gtk::Align::Start);
-    connect(&bands_expander, sender, || Msg::ToggleBandsExpanded);
-
-    // Frames first, then the overlays that annotate them: the bands are a
-    // legend under the strip, not a header over it.
-    let strip_column = gtk::Box::new(gtk::Orientation::Vertical, 4);
-    strip_column.append(&strip);
-    strip_column.append(&bands_scroll);
-    strip_column.append(&bands_expander);
-    let strip_scroll = gtk::ScrolledWindow::builder()
-        .hscrollbar_policy(gtk::PolicyType::External)
-        .vscrollbar_policy(gtk::PolicyType::Never)
-        .child(&strip_column)
-        .build();
-    // The footer asks for what the strip actually needs, so this has to carry
-    // the strip's own height out rather than reporting a scrollable minimum.
-    strip_scroll.set_propagate_natural_height(true);
-    dont_chase_focus(&strip_scroll);
-    // The horizontal scrollbar is a sibling rather than the scrolled window's
-    // own. A non-overlay `Automatic` scrollbar takes its height out of the
-    // viewport without adding it to what the scrolled window measures, so
-    // wherever the footer sat at its minimum height — which is where a
-    // `GtkPaned` end child lands — the strip lost exactly the row of frame
-    // numbers under the thumbnails, with no scrollbar to reach it by. Out
-    // here it is measured along with everything else, and it only takes
-    // space while the strip really is wider than the window.
-    let strip_bar = gtk::Scrollbar::new(
-        gtk::Orientation::Horizontal,
-        Some(&strip_scroll.hadjustment()),
-    );
-    strip_bar.set_visible(false);
-    {
-        let bar = strip_bar.clone();
-        strip_scroll.hadjustment().connect_changed(move |adj| {
-            bar.set_visible(adj.upper() > adj.page_size() + 1.0);
-        });
-    }
-
-    // Ctrl+wheel over the strip zooms the thumbnails; a plain wheel still
-    // scrolls it. Capture phase so it beats the scrolled window's own handler.
-    let strip_wheel = gtk::EventControllerScroll::new(
+/// Ctrl+wheel over the strip zooms the thumbnails; a plain wheel still
+/// scrolls it. Capture phase so it beats the scrolled window's own handler.
+fn strip_zoom_wheel(sender: &ComponentSender<App>) -> gtk::EventControllerScroll {
+    let wheel = gtk::EventControllerScroll::new(
         gtk::EventControllerScrollFlags::VERTICAL | gtk::EventControllerScrollFlags::DISCRETE,
     );
-    strip_wheel.set_propagation_phase(gtk::PropagationPhase::Capture);
-    {
-        let sender = sender.clone();
-        strip_wheel.connect_scroll(move |controller, _, dy| {
-            if !controller
-                .current_event_state()
-                .contains(gdk::ModifierType::CONTROL_MASK)
-                || dy == 0.0
-            {
-                return glib::Propagation::Proceed;
-            }
-            let factor = if dy < 0.0 {
-                STRIP_ZOOM_STEP
-            } else {
-                1.0 / STRIP_ZOOM_STEP
-            };
-            sender.input(Msg::StripZoom(factor));
-            glib::Propagation::Stop
-        });
-    }
-    strip_scroll.add_controller(strip_wheel);
-    footer.append(&strip_scroll);
-    footer.append(&strip_bar);
+    wheel.set_propagation_phase(gtk::PropagationPhase::Capture);
+    let sender = sender.clone();
+    wheel.connect_scroll(move |controller, _, dy| {
+        if !controller
+            .current_event_state()
+            .contains(gdk::ModifierType::CONTROL_MASK)
+            || dy == 0.0
+        {
+            return glib::Propagation::Proceed;
+        }
+        let factor = if dy < 0.0 {
+            STRIP_ZOOM_STEP
+        } else {
+            1.0 / STRIP_ZOOM_STEP
+        };
+        sender.input(Msg::StripZoom(factor));
+        glib::Propagation::Stop
+    });
+    wheel
+}
 
-    // No fixed split: the footer asks for what the strip and its bands
-    // actually need, and the canvas gets everything else. Adding an overlay
-    // row costs the canvas one row, not a third of the window.
-    let paned = gtk::Paned::builder()
-        .orientation(gtk::Orientation::Vertical)
-        .start_child(&canvas_row)
-        .end_child(&footer)
-        .resize_start_child(true)
-        .resize_end_child(false)
-        .shrink_end_child(false)
-        .build();
+/// The sidebar's "Properties" group: the text of a picked text overlay.
+struct TextPanel {
+    group: adw::PreferencesGroup,
+    row: adw::ActionRow,
+    entry: gtk::Entry,
+}
 
-    // Properties: one contextual page, an AdwPreferencesGroup so the rows come
-    // out consistent for free.
-    let properties = gtk::Box::new(gtk::Orientation::Vertical, 12);
-    properties.set_margin_all(12);
-    properties.set_size_request(280, -1);
-    let text_group = adw::PreferencesGroup::builder()
+fn text_panel(sender: &ComponentSender<App>, sync: &Rc<Cell<bool>>) -> TextPanel {
+    let group = adw::PreferencesGroup::builder()
         .title(t("Properties"))
         .build();
-    // Every sidebar setter fires its own notify handler, so `update_view` holds
-    // this up to say "this value came from the model, do not send it back".
-    let sync = Rc::new(Cell::new(false));
-    let text_entry = gtk::Entry::builder()
+    let entry = gtk::Entry::builder()
         .placeholder_text(t("Overlay text"))
         .build();
     {
         let (sender, sync) = (sender.clone(), sync.clone());
-        text_entry.connect_changed(move |entry| {
+        entry.connect_changed(move |entry| {
             if sync.get() {
                 return;
             }
             sender.input(Msg::EditText(entry.text().to_string()));
         });
     }
-    let text_row = adw::ActionRow::builder().title(t("Text")).build();
-    text_row.add_suffix(&text_entry);
-    text_row.set_visible(false);
-    text_group.add(&text_row);
+    let row = adw::ActionRow::builder().title(t("Text")).build();
+    row.add_suffix(&entry);
+    row.set_visible(false);
+    group.add(&row);
+    TextPanel { group, row, entry }
+}
 
-    // Overlay styling. Font choice covers bold and italic, because a font
-    // description already carries weight and style: two toggles that fight the
-    // font dialog over the same field would be the bug, not the feature.
-    let overlay_group = adw::PreferencesGroup::builder()
+/// The picked overlay's style editor.
+struct OverlayEditor {
+    group: adw::PreferencesGroup,
+    font_button: gtk::FontDialogButton,
+    text_size: gtk::SpinButton,
+    align_buttons: Vec<(TextAlign, gtk::ToggleButton)>,
+    antialias: gtk::Switch,
+    fill_button: ColorPick,
+    fill_on: gtk::Switch,
+    outline_button: ColorPick,
+    outline_width: gtk::SpinButton,
+    stroke_button: ColorPick,
+    stroke_width: gtk::SpinButton,
+    /// The rows only a text overlay shows.
+    text_rows: Vec<gtk::Widget>,
+    /// The rows only a shape shows.
+    shape_rows: Vec<gtk::Widget>,
+}
+
+/// Overlay styling. Font choice covers bold and italic, because a font
+/// description already carries weight and style: two toggles that fight the
+/// font dialog over the same field would be the bug, not the feature.
+fn overlay_editor(sender: &ComponentSender<App>, sync: &Rc<Cell<bool>>) -> OverlayEditor {
+    let group = adw::PreferencesGroup::builder()
         .title(t("Overlay"))
         .visible(false)
         .build();
@@ -513,7 +789,7 @@ pub(super) fn build(
     overlay_delete.add_css_class("destructive-action");
     overlay_delete.set_tooltip_text(Some(t("Delete overlay")));
     connect(&overlay_delete, sender, || Msg::DeleteSelection);
-    overlay_group.set_header_suffix(Some(&overlay_delete));
+    group.set_header_suffix(Some(&overlay_delete));
     let font_button = gtk::FontDialogButton::new(Some(gtk::FontDialog::new()));
     font_button.set_valign(gtk::Align::Center);
     {
@@ -545,8 +821,124 @@ pub(super) fn build(
     }
     let size_row = suffixed(t("Size"), &text_size);
 
-    // Four icons rather than a dropdown: alignment is the one text property
-    // that reads faster as a picture than as a word.
+    let (align_box, align_buttons) = align_toggles(sender, sync);
+    let align_row = suffixed(t("Align"), &align_box);
+
+    let antialias = gtk::Switch::new();
+    antialias.set_valign(gtk::Align::Center);
+    {
+        let (sender, sync) = (sender.clone(), sync.clone());
+        antialias.connect_active_notify(move |sw| {
+            if sync.get() {
+                return;
+            }
+            sender.input(Msg::SetOverlayProp(OverlayProp::Antialias(sw.is_active())));
+        });
+    }
+    // Translators: Smoothing of glyph edges. Off gives hard pixel edges, for pixel-art captures.
+    let antialias_row = suffixed(t("Smooth edges"), &antialias);
+
+    let (fill_row, fill_button, fill_on) = fill_row(sender, sync);
+
+    // Translators: The contrasting edge drawn behind text so it stays readable over any image.
+    let (outline_row, outline_button, outline_width) = colour_width_row(t("Outline"));
+    // Translators: The outline of a shape, as distinct from the outline behind text.
+    let (stroke_row, stroke_button, stroke_width) = colour_width_row(t("Stroke"));
+
+    for row in [
+        &font_row,
+        &size_row,
+        &align_row,
+        &fill_row,
+        &outline_row,
+        &antialias_row,
+        &stroke_row,
+    ] {
+        group.add(row);
+    }
+    // A width of zero is how the outline and the stroke are turned off; a
+    // separate switch for each would be a second way to say the same thing.
+    {
+        let sender = sender.clone();
+        connect_pair(&outline_button, &outline_width, sync, move |v| {
+            sender.input(Msg::SetOverlayProp(OverlayProp::Outline(v)));
+        });
+    }
+    {
+        let sender = sender.clone();
+        connect_pair(&stroke_button, &stroke_width, sync, move |v| {
+            sender.input(Msg::SetOverlayProp(OverlayProp::Stroke(v)));
+        });
+    }
+
+    OverlayEditor {
+        group,
+        font_button,
+        text_size,
+        align_buttons,
+        antialias,
+        fill_button,
+        fill_on,
+        outline_button,
+        outline_width,
+        stroke_button,
+        stroke_width,
+        text_rows: vec![
+            font_row.into(),
+            size_row.into(),
+            align_row.into(),
+            outline_row.into(),
+            antialias_row.into(),
+        ],
+        shape_rows: vec![stroke_row.into()],
+    }
+}
+
+/// The fill row: a switch for shapes, where a fill is optional, and the
+/// colour it paints in.
+fn fill_row(
+    sender: &ComponentSender<App>,
+    sync: &Rc<Cell<bool>>,
+) -> (adw::ActionRow, ColorPick, gtk::Switch) {
+    let fill_button = ColorPick::new();
+    let fill_on = gtk::Switch::new();
+    fill_on.set_valign(gtk::Align::Center);
+    let fill_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    fill_box.set_valign(gtk::Align::Center);
+    fill_box.append(&fill_on);
+    fill_box.append(fill_button.widget());
+    {
+        // No `sync` guard: unlike a GTK colour button, the picker reports the
+        // user's choices and stays quiet when the model writes to it.
+        let (sender, switch) = (sender.clone(), fill_on.clone());
+        fill_button.connect_changed(move |colour| {
+            // The switch is hidden for text, where a fill is not optional.
+            let on = !switch.is_visible() || switch.is_active();
+            sender.input(Msg::SetOverlayProp(OverlayProp::Fill(on.then_some(colour))));
+        });
+    }
+    {
+        let (sender, button, sync) = (sender.clone(), fill_button.clone(), sync.clone());
+        fill_on.connect_active_notify(move |switch| {
+            if sync.get() {
+                return;
+            }
+            let colour = button.rgba();
+            sender.input(Msg::SetOverlayProp(OverlayProp::Fill(
+                switch.is_active().then_some(colour),
+            )));
+        });
+    }
+    // Translators: The interior colour of a shape, or the colour of the glyphs for text.
+    (suffixed(t("Fill"), &fill_box), fill_button, fill_on)
+}
+
+/// Four icons rather than a dropdown: alignment is the one text property
+/// that reads faster as a picture than as a word.
+fn align_toggles(
+    sender: &ComponentSender<App>,
+    sync: &Rc<Cell<bool>>,
+) -> (gtk::Box, Vec<(TextAlign, gtk::ToggleButton)>) {
     let align_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     align_box.set_valign(gtk::Align::Center);
     align_box.add_css_class("linked");
@@ -588,106 +980,39 @@ pub(super) fn build(
         align_box.append(&button);
         align_buttons.push((align, button));
     }
-    let align_row = suffixed(t("Align"), &align_box);
+    (align_box, align_buttons)
+}
 
-    let antialias = gtk::Switch::new();
-    antialias.set_valign(gtk::Align::Center);
-    {
-        let (sender, sync) = (sender.clone(), sync.clone());
-        antialias.connect_active_notify(move |sw| {
-            if sync.get() {
-                return;
-            }
-            sender.input(Msg::SetOverlayProp(OverlayProp::Antialias(sw.is_active())));
-        });
-    }
-    // Translators: Smoothing of glyph edges. Off gives hard pixel edges, for pixel-art captures.
-    let antialias_row = suffixed(t("Smooth edges"), &antialias);
+/// A row titled `title` holding a width spin and a colour picker: the pair
+/// `connect_pair` reads as one outline or stroke.
+fn colour_width_row(title: &str) -> (adw::ActionRow, ColorPick, gtk::SpinButton) {
+    let button = ColorPick::new();
+    let width = width_spin();
+    let pair = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    pair.set_valign(gtk::Align::Center);
+    pair.append(&width);
+    pair.append(button.widget());
+    (suffixed(title, &pair), button, width)
+}
 
-    let fill_button = ColorPick::new();
-    let fill_on = gtk::Switch::new();
-    fill_on.set_valign(gtk::Align::Center);
-    let fill_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-    fill_box.set_valign(gtk::Align::Center);
-    fill_box.append(&fill_on);
-    fill_box.append(fill_button.widget());
-    // Translators: The interior colour of a shape, or the colour of the glyphs for text.
-    let fill_row = suffixed(t("Fill"), &fill_box);
+/// The crop tool's box and what to do with it.
+struct CropPanel {
+    group: adw::PreferencesGroup,
+    label: gtk::Label,
+    crop_apply: gtk::Button,
+    zoom_apply: gtk::Button,
+    shrink_apply: gtk::Button,
+}
 
-    let outline_button = ColorPick::new();
-    let outline_width = width_spin();
-    let outline_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-    outline_box.set_valign(gtk::Align::Center);
-    outline_box.append(&outline_width);
-    outline_box.append(outline_button.widget());
-    // Translators: The contrasting edge drawn behind text so it stays readable over any image.
-    let outline_row = suffixed(t("Outline"), &outline_box);
-
-    let stroke_button = ColorPick::new();
-    let stroke_width = width_spin();
-    let stroke_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-    stroke_box.set_valign(gtk::Align::Center);
-    stroke_box.append(&stroke_width);
-    stroke_box.append(stroke_button.widget());
-    // Translators: The outline of a shape, as distinct from the outline behind text.
-    let stroke_row = suffixed(t("Stroke"), &stroke_box);
-
-    for row in [
-        &font_row,
-        &size_row,
-        &align_row,
-        &fill_row,
-        &outline_row,
-        &antialias_row,
-        &stroke_row,
-    ] {
-        overlay_group.add(row);
-    }
-    // A width of zero is how the outline and the stroke are turned off; a
-    // separate switch for each would be a second way to say the same thing.
-    {
-        let sender = sender.clone();
-        connect_pair(&outline_button, &outline_width, &sync, move |v| {
-            sender.input(Msg::SetOverlayProp(OverlayProp::Outline(v)));
-        });
-    }
-    {
-        let sender = sender.clone();
-        connect_pair(&stroke_button, &stroke_width, &sync, move |v| {
-            sender.input(Msg::SetOverlayProp(OverlayProp::Stroke(v)));
-        });
-    }
-    {
-        // No `sync` guard: unlike a GTK colour button, the picker reports the
-        // user's choices and stays quiet when the model writes to it.
-        let (sender, switch) = (sender.clone(), fill_on.clone());
-        fill_button.connect_changed(move |colour| {
-            // The switch is hidden for text, where a fill is not optional.
-            let on = !switch.is_visible() || switch.is_active();
-            sender.input(Msg::SetOverlayProp(OverlayProp::Fill(on.then_some(colour))));
-        });
-    }
-    {
-        let (sender, button, sync) = (sender.clone(), fill_button.clone(), sync.clone());
-        fill_on.connect_active_notify(move |switch| {
-            if sync.get() {
-                return;
-            }
-            let colour = button.rgba();
-            sender.input(Msg::SetOverlayProp(OverlayProp::Fill(
-                switch.is_active().then_some(colour),
-            )));
-        });
-    }
-
-    let crop_group = adw::PreferencesGroup::builder()
+fn crop_panel(sender: &ComponentSender<App>) -> CropPanel {
+    let group = adw::PreferencesGroup::builder()
         .title(t("Crop / zoom"))
         .visible(false)
         .build();
-    let crop_label = gtk::Label::new(None);
-    crop_label.add_css_class("dim-label");
-    crop_label.set_wrap(true);
-    crop_label.set_xalign(0.0);
+    let label = gtk::Label::new(None);
+    label.add_css_class("dim-label");
+    label.set_wrap(true);
+    label.set_xalign(0.0);
     let crop_buttons = gtk::Box::new(gtk::Orientation::Vertical, 6);
     let crop_apply = gtk::Button::with_label(t("Crop all frames"));
     crop_apply.set_tooltip_text(Some(t(
@@ -714,23 +1039,39 @@ pub(super) fn build(
     crop_buttons.append(&zoom_apply);
     crop_buttons.append(&shrink_apply);
     let crop_box = gtk::Box::new(gtk::Orientation::Vertical, 6);
-    crop_box.append(&crop_label);
+    crop_box.append(&label);
     crop_box.append(&crop_buttons);
-    crop_group.add(&crop_box);
+    group.add(&crop_box);
+    CropPanel {
+        group,
+        label,
+        crop_apply,
+        zoom_apply,
+        shrink_apply,
+    }
+}
 
-    // Frame view: the delay of the frame(s) in scope, then a picker for the
-    // overlays sitting on the frame on screen. `overlay_group` below edits
-    // whichever overlay is picked. `update_view` swaps this group's title and
-    // the delay row's subtitle to a "N frames selected" summary, and hides
-    // the overlay picker below whenever the scope names more than one frame:
-    // which overlays sit on "the" frame has no single answer then. A picked
-    // overlay keeps its editor, which edits it on every frame in scope.
-    let frame_group = adw::PreferencesGroup::builder().title(t("Frame")).build();
-    let frame_delay = gtk::SpinButton::with_range(1.0, u16::MAX as f64, 1.0);
-    frame_delay.set_valign(gtk::Align::Center);
+/// The sidebar's frame group: the delay of the frame(s) in scope.
+struct FramePanel {
+    group: adw::PreferencesGroup,
+    delay: gtk::SpinButton,
+    delay_row: adw::ActionRow,
+}
+
+/// Frame view: the delay of the frame(s) in scope, then a picker for the
+/// overlays sitting on the frame on screen (`layer_list`). The overlay editor
+/// edits whichever overlay is picked. `update_view` swaps this group's title
+/// and the delay row's subtitle to a "N frames selected" summary, and hides
+/// the overlay picker whenever the scope names more than one frame: which
+/// overlays sit on "the" frame has no single answer then. A picked overlay
+/// keeps its editor, which edits it on every frame in scope.
+fn frame_panel(sender: &ComponentSender<App>, sync: &Rc<Cell<bool>>) -> FramePanel {
+    let group = adw::PreferencesGroup::builder().title(t("Frame")).build();
+    let delay = gtk::SpinButton::with_range(1.0, u16::MAX as f64, 1.0);
+    delay.set_valign(gtk::Align::Center);
     {
         let (sender, sync) = (sender.clone(), sync.clone());
-        frame_delay.connect_value_changed(move |spin| {
+        delay.connect_value_changed(move |spin| {
             if sync.get() {
                 return;
             }
@@ -738,21 +1079,37 @@ pub(super) fn build(
         });
     }
     // Translators: Per-frame hold time, in centiseconds (1/100 s).
-    let delay_row = suffixed(t("Delay (cs)"), &frame_delay);
-    frame_group.add(&delay_row);
+    let delay_row = suffixed(t("Delay (cs)"), &delay);
+    group.add(&delay_row);
+    FramePanel {
+        group,
+        delay,
+        delay_row,
+    }
+}
 
-    let overlay_list_group = adw::PreferencesGroup::builder()
+/// The picker for the overlays on the frame on screen.
+struct LayerList {
+    group: adw::PreferencesGroup,
+    list: gtk::ListBox,
+    scroll: gtk::ScrolledWindow,
+    /// Overlay id for each `list` row, by position.
+    ids: Rc<RefCell<Vec<OverlayId>>>,
+}
+
+fn layer_list(sender: &ComponentSender<App>, sync: &Rc<Cell<bool>>) -> LayerList {
+    let group = adw::PreferencesGroup::builder()
         .title(t("Overlays on this frame"))
         .visible(false)
         .build();
-    let overlay_list = gtk::ListBox::builder()
+    let list = gtk::ListBox::builder()
         .selection_mode(gtk::SelectionMode::Single)
         .build();
-    overlay_list.add_css_class("boxed-list");
-    let overlay_list_ids: Rc<RefCell<Vec<OverlayId>>> = Rc::new(RefCell::new(Vec::new()));
+    list.add_css_class("boxed-list");
+    let ids: Rc<RefCell<Vec<OverlayId>>> = Rc::new(RefCell::new(Vec::new()));
     {
-        let (sender, sync, ids) = (sender.clone(), sync.clone(), overlay_list_ids.clone());
-        overlay_list.connect_row_selected(move |_, row| {
+        let (sender, sync, ids) = (sender.clone(), sync.clone(), ids.clone());
+        list.connect_row_selected(move |_, row| {
             if sync.get() {
                 return;
             }
@@ -764,47 +1121,30 @@ pub(super) fn build(
     // overlay editor below it off the panel, the same bargain the strip's
     // band area makes. The cap is a row height measured off the real rows
     // (`update_view`), not a guess at what an ActionRow comes out as.
-    let overlay_list_scroll = gtk::ScrolledWindow::builder()
+    let scroll = gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::Never)
         .vscrollbar_policy(gtk::PolicyType::Automatic)
         .propagate_natural_height(true)
-        .child(&overlay_list)
+        .child(&list)
         .build();
-    overlay_list_group.add(&overlay_list_scroll);
+    group.add(&scroll);
+    LayerList {
+        group,
+        list,
+        scroll,
+        ids,
+    }
+}
 
-    let doc_info = gtk::Label::new(Some(""));
-    doc_info.add_css_class("dim-label");
-    doc_info.set_wrap(true);
-    doc_info.set_xalign(0.0);
-    properties.append(&frame_group);
-    properties.append(&overlay_list_group);
-    properties.append(&text_group);
-    properties.append(&overlay_group);
-    properties.append(&crop_group);
-    properties.append(&doc_info);
-
-    // The panel is taller than a short window whenever a text overlay's
-    // editor is up, so it scrolls; without this the rows below the fold —
-    // the colour pickers, the crop buttons, the document summary — were
-    // simply unreachable.
-    let properties_scroll = gtk::ScrolledWindow::builder()
-        .hscrollbar_policy(gtk::PolicyType::Never)
-        .vscrollbar_policy(gtk::PolicyType::Automatic)
-        .propagate_natural_width(true)
-        .child(&properties)
-        .build();
-    let split = adw::OverlaySplitView::builder()
-        .sidebar_position(gtk::PackType::End)
-        .content(&paned)
-        .sidebar(&properties_scroll)
-        .build();
-
+/// Collapses the sidebar in a narrow window, and in a narrower one swaps the
+/// header's menu bar for the ☰ menu's fallback.
+fn add_breakpoints(root: &adw::ApplicationWindow, split: &adw::OverlaySplitView, header: &Header) {
     let breakpoint = adw::Breakpoint::new(adw::BreakpointCondition::new_length(
         adw::BreakpointConditionLengthType::MaxWidth,
         900.0,
         adw::LengthUnit::Px,
     ));
-    breakpoint.add_setter(&split, "collapsed", Some(&true.to_value()));
+    breakpoint.add_setter(split, "collapsed", Some(&true.to_value()));
     root.add_breakpoint(breakpoint);
     // Only one breakpoint applies at a time — the last that matches — so the
     // narrow one repeats the sidebar collapse.
@@ -813,94 +1153,14 @@ pub(super) fn build(
         MENUBAR_MIN_WINDOW_W,
         adw::LengthUnit::Px,
     ));
-    narrow.add_setter(&split, "collapsed", Some(&true.to_value()));
-    narrow.add_setter(&menubar, "visible", Some(&false.to_value()));
-    narrow.add_setter(&menu_button, "menu-model", Some(&narrow_menu.to_value()));
+    narrow.add_setter(split, "collapsed", Some(&true.to_value()));
+    narrow.add_setter(&header.menubar, "visible", Some(&false.to_value()));
+    narrow.add_setter(
+        &header.menu_button,
+        "menu-model",
+        Some(&header.narrow_menu.to_value()),
+    );
     root.add_breakpoint(narrow);
-
-    let stack = gtk::Stack::new();
-    stack.add_named(&status, Some("empty"));
-    stack.add_named(&split, Some("editor"));
-
-    let toolbar = adw::ToolbarView::new();
-    toolbar.add_top_bar(&header);
-    toolbar.add_top_bar(&import_row);
-    toolbar.set_content(Some(&stack));
-
-    let toasts = adw::ToastOverlay::new();
-    toasts.set_child(Some(&toolbar));
-    root.set_content(Some(&toasts));
-
-    let actions = install_win_actions(root, &keymap, sender);
-
-    Widgets {
-        title,
-        stack,
-        import_bar,
-        import_cancel,
-        toasts,
-        canvas,
-        canvas_frame,
-        strip,
-        bands,
-        play,
-        time,
-        undo,
-        redo,
-        actions,
-        export,
-        scope_buttons: [this_frame, all_frames, range],
-        properties,
-        text_entry,
-        text_row,
-        text_group,
-        frame_group,
-        frame_delay,
-        delay_row,
-        overlay_list,
-        overlay_list_scroll,
-        overlay_list_group,
-        overlay_list_ids,
-        scope_mirror,
-        drop_dividers,
-        text_rows: vec![
-            font_row.into(),
-            size_row.into(),
-            align_row.into(),
-            outline_row.into(),
-            antialias_row.into(),
-        ],
-        shape_rows: vec![stroke_row.into()],
-        overlay_group,
-        font_button,
-        text_size,
-        fill_button,
-        fill_on,
-        outline_button,
-        outline_width,
-        align_buttons,
-        antialias,
-        stroke_button,
-        stroke_width,
-        crop_group,
-        crop_label,
-        crop_button,
-        crop_apply,
-        zoom_apply,
-        shrink_apply,
-        snap_button,
-        tool_buttons,
-        shape_button,
-        shape_tool,
-        bands_scroll,
-        bands_expander,
-        canvas_overlay,
-        canvas_state,
-        doc_info,
-        bands_model,
-        thumb_textures: ThumbTextures::new(),
-        sync,
-    }
 }
 
 /// A menu action by name and the message activating it sends. A function
