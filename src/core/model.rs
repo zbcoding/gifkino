@@ -225,6 +225,8 @@ impl fmt::Debug for ImageOverlay {
 pub enum OverlayKind {
     Text(TextOverlay),
     Shape(ShapeOverlay),
+    // ponytail: no insert-image UI exists yet; render.rs already draws these.
+    #[allow(dead_code)]
     Image(ImageOverlay),
 }
 

@@ -12,8 +12,8 @@ use super::model::{
 /// parameter rather than owning a font stack.
 pub type TextRasterizer<'a> = &'a dyn Fn(&TextOverlay, u32, u32) -> RgbaImage;
 
-/// A stub rasterizer for headless tests and for frames rendered before the UI
-/// hands one over.
+/// A stub rasterizer for headless tests.
+#[cfg(test)]
 pub fn no_text(_: &TextOverlay, w: u32, h: u32) -> RgbaImage {
     RgbaImage::new(w.max(1), h.max(1))
 }
