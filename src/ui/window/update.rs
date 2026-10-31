@@ -217,18 +217,7 @@ impl Component for App {
                 });
                 let enc = Encodable { frames };
                 sender.spawn_command(move |out| {
-                    // Same throttle as frame work: a fast encode would
-                    // otherwise post a message per frame, and the main loop
-                    // has to drain each one.
-                    let mut next = std::time::Instant::now();
-                    let mut progress = |done: usize, total: usize| {
-                        let now = std::time::Instant::now();
-                        if now < next {
-                            return;
-                        }
-                        next = now + std::time::Duration::from_millis(80);
-                        let _ = out.send(Cmd::WorkProgress(done, total));
-                    };
+                    let mut progress = work_progress(&out);
                     // bind so the closure captures the PathBuf, not `*path`
                     let path = path;
                     let result = gif_pipeline::export_path(&path, &enc, &settings, &mut progress)
@@ -672,10 +661,7 @@ impl Component for App {
                     self.settings.max_total_bytes,
                 );
                 if !fits {
-                    // Translators: Shown when resized RGBA frames would exceed the configured memory limit.
-                    sender.input(Msg::Toast(
-                        t("That resize would use more memory than the configured limit.").into(),
-                    ));
+                    toast_over_memory_limit(&sender);
                     return;
                 }
                 self.start_frame_work(FrameWork::Resize(w, h), &sender);

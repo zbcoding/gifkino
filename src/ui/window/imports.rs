@@ -1014,19 +1014,14 @@ pub(super) fn load(
     sender: &ComponentSender<App>,
 ) {
     sender.spawn_command(move |out| {
-        // Throttled: a 60 fps decode would otherwise post thousands of messages
-        // the main loop has to drain before it can draw any of them.
-        let mut next = std::time::Instant::now();
+        // Throttled like frame work, and checking the stop flag on every
+        // frame rather than only on the ones that get reported.
+        let mut throttle = Throttle::new();
         let mut progress = |done, expected| {
             if cancel.load(Ordering::Relaxed) {
                 return false;
             }
-            let now = std::time::Instant::now();
-            if now < next {
-                return true;
-            }
-            next = now + std::time::Duration::from_millis(80);
-            out.send(Cmd::ImportProgress(done, expected)).is_ok()
+            !throttle.ready() || out.send(Cmd::ImportProgress(done, expected)).is_ok()
         };
         let decoded = match &plan {
             Some(plan) => video::import_planned(&path, plan, &mut progress),

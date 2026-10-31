@@ -252,8 +252,8 @@ pub(super) fn requested_dimension(spin: &gtk::SpinButton) -> u32 {
 /// clamps whatever comes back. Built by `build_resize_dialog` so the widget
 /// test can hold it without showing it.
 /// Checked RGBA bytes a resize to `w × h` would need for `frames` frames, or
-/// `None` when the multiplication overflows — the same arithmetic
-/// `resize_fits_budget` gates Apply on.
+/// `None` when the multiplication overflows. The one place that cost is
+/// computed: `resize_fits_budget` and `resize_fits_budgets` build on it.
 pub(super) fn resize_bytes(w: u32, h: u32, frames: usize) -> Option<usize> {
     (w as usize)
         .checked_mul(h as usize)?

@@ -572,9 +572,7 @@ impl App {
         let (w, h) = fit.canvas(self.editor.doc.size(), arriving);
         let landing = self.frame_count() + frames.len();
         if !resize_fits_budget(w, h, landing, self.import_budget()) {
-            sender.input(Msg::Toast(
-                t("That resize would use more memory than the configured limit.").into(),
-            ));
+            toast_over_memory_limit(sender);
             return;
         }
         self.busy = Some(Busy {
@@ -626,11 +624,7 @@ pub(super) fn normalize_canvas_rect(
 }
 
 pub(super) fn resize_fits_budget(w: u32, h: u32, frames: usize, limit: usize) -> bool {
-    (w as usize)
-        .checked_mul(h as usize)
-        .and_then(|pixels| pixels.checked_mul(4))
-        .and_then(|bytes| bytes.checked_mul(frames))
-        .is_some_and(|bytes| bytes <= limit)
+    resize_bytes(w, h, frames).is_some_and(|bytes| bytes <= limit)
 }
 
 /// Whether a resize fits both memory budgets: the new frames within the
@@ -646,16 +640,17 @@ pub(super) fn resize_fits_budgets(
     oper_max: usize,
     total_max: usize,
 ) -> bool {
-    let bytes = |w: u32, h: u32| {
-        (w as usize)
-            .checked_mul(h as usize)?
-            .checked_mul(4)?
-            .checked_mul(frames)
-    };
-    let (Some(old), Some(new)) = (bytes(cw, ch), bytes(w, h)) else {
+    let (Some(old), Some(new)) = (resize_bytes(cw, ch, frames), resize_bytes(w, h, frames)) else {
         return false;
     };
     new <= oper_max && old.checked_add(new).is_some_and(|sum| sum <= total_max)
+}
+
+/// Refuse a resize the memory budgets cannot hold.
+pub(super) fn toast_over_memory_limit(sender: &ComponentSender<App>) {
+    // Translators: Shown when resized RGBA frames would exceed the configured memory limit.
+    let text = t("That resize would use more memory than the configured limit.");
+    sender.input(Msg::Toast(text.into()));
 }
 
 pub(super) fn crop_changes_canvas(
@@ -685,6 +680,44 @@ pub(super) fn plan_import(
     });
 }
 
+/// How often a worker may post progress. A fast job would otherwise post a
+/// message per frame, and the main loop has to drain each one before it can
+/// draw any of them.
+const PROGRESS_INTERVAL: std::time::Duration = std::time::Duration::from_millis(80);
+
+/// Lets a worker's progress through at most once per `PROGRESS_INTERVAL`.
+pub(super) struct Throttle {
+    next: std::time::Instant,
+}
+
+impl Throttle {
+    pub(super) fn new() -> Self {
+        Self {
+            next: std::time::Instant::now(),
+        }
+    }
+
+    /// Whether a message may go now; if so, the next one waits an interval.
+    pub(super) fn ready(&mut self) -> bool {
+        let now = std::time::Instant::now();
+        if now < self.next {
+            return false;
+        }
+        self.next = now + PROGRESS_INTERVAL;
+        true
+    }
+}
+
+/// A frame job's progress callback: throttled `Cmd::WorkProgress` posts.
+pub(super) fn work_progress(out: &relm4::Sender<Cmd>) -> impl FnMut(usize, usize) + '_ {
+    let mut throttle = Throttle::new();
+    move |done, total| {
+        if throttle.ready() {
+            let _ = out.send(Cmd::WorkProgress(done, total));
+        }
+    }
+}
+
 /// The heavy half of a splice, threaded exactly like `run_frame_work`: the
 /// resampling happens on a worker against a snapshot of the document, and the
 /// finished `Splice` comes back as one `Cmd::Spliced` to land as one history
@@ -699,16 +732,7 @@ pub(super) fn run_splice(
     let doc = doc.clone();
     sender.spawn_command(move |out| {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let mut next = std::time::Instant::now();
-            let mut progress = |done, total| {
-                let now = std::time::Instant::now();
-                if now < next {
-                    return;
-                }
-                next = now + std::time::Duration::from_millis(80);
-                let _ = out.send(Cmd::WorkProgress(done, total));
-            };
-            Box::new(fit::plan_splice(&doc, at, frames, fit, &mut progress))
+            Box::new(fit::plan_splice(&doc, at, frames, fit, work_progress(&out)))
         }))
         .map_err(|_| n("The frame operation failed."));
         out.emit(Cmd::Spliced(result));
@@ -724,17 +748,7 @@ pub(super) fn run_frame_work(doc: &Document, work: FrameWork, sender: &Component
     let doc = doc.clone();
     sender.spawn_command(move |out| {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            // Same throttle as the import decode: a fast job would otherwise
-            // post a message per frame, and the main loop has to drain each one.
-            let mut next = std::time::Instant::now();
-            let mut progress = |done, total| {
-                let now = std::time::Instant::now();
-                if now < next {
-                    return;
-                }
-                next = now + std::time::Duration::from_millis(80);
-                let _ = out.send(Cmd::WorkProgress(done, total));
-            };
+            let mut progress = work_progress(&out);
             let frames = match &work {
                 FrameWork::Resize(w, h) => doc.resized_frames(*w, *h, &mut progress),
                 FrameWork::Zoom { frames, rect } => {
