@@ -42,6 +42,8 @@ impl App {
                         BusyKind::Fit => t("Fitting… {done} / {total} frames"),
                         // Translators: Progress while the document is being written out as a GIF; both values are frame counts.
                         BusyKind::Export => t("Exporting… {done} / {total} frames"),
+                        // Translators: Progress while a mirror or fade is applied; both values are frame counts.
+                        BusyKind::Effect => t("Applying effect… {done} / {total} frames"),
                     };
                     widgets.import_bar.set_text(Some(&fill(
                         label,
@@ -153,6 +155,11 @@ impl App {
             "optimize-smart",
             "optimize-resize",
             "optimize-crop",
+            "mirror-horizontal",
+            "mirror-vertical",
+            "fade-in",
+            "fade-out",
+            "loop-fade",
         ] {
             if let Some(action) = widgets
                 .actions
@@ -298,6 +305,7 @@ impl App {
         self.strip_pitch.set(cell_pitch(thumb_w, zoom));
         if rebuilt || self.strip_zoom_shown.get() != zoom {
             self.strip_zoom_shown.set(zoom);
+            let mut shown = std::collections::HashSet::new();
             for (cell, frame) in thumb_children(&widgets.strip).zip(&self.editor.doc.frames) {
                 let Some(picture) = cell
                     .first_child()
@@ -306,20 +314,30 @@ impl App {
                 else {
                     continue;
                 };
-                set_thumb_zoom(&picture, &frame.thumb, zoom);
+                let texture =
+                    thumb_texture(&mut widgets.thumb_textures, frame.key, &frame.thumb, zoom);
+                shown.insert((frame.key, texture.width()));
+                set_thumb_zoom(&picture, &texture, frame.thumb.dimensions(), zoom);
             }
+            widgets
+                .thumb_textures
+                .retain(|entry, _| shown.contains(entry));
             widgets.bands.queue_draw();
         }
         let in_scope = self.scope_frames();
         *widgets.scope_mirror.borrow_mut() = in_scope.clone();
+        let (scoped, selected) = (
+            frame_mask(&in_scope, count),
+            frame_mask(&self.selection, count),
+        );
         for (i, thumb) in thumb_children(&widgets.strip).enumerate() {
             set_class(&thumb, "playhead", i == self.playhead);
             set_class(
                 &thumb,
                 "in-scope",
-                in_scope.contains(&i) && i != self.playhead,
+                scoped.get(i) == Some(&true) && i != self.playhead,
             );
-            set_class(&thumb, "selected", self.selection.contains(&i));
+            set_class(&thumb, "selected", selected.get(i) == Some(&true));
         }
 
         let ranges: Vec<Range<usize>> = self

@@ -42,12 +42,17 @@ pub enum Action {
     StripZoomIn,
     StripZoomOut,
     StripZoomReset,
+    MirrorHorizontal,
+    MirrorVertical,
+    FadeIn,
+    FadeOut,
+    LoopFade,
 }
 
 use Action::*;
 
 /// Order is the order the shortcuts window lists them in.
-pub const ACTIONS: [Action; 24] = [
+pub const ACTIONS: [Action; 29] = [
     Open,
     Export,
     Undo,
@@ -72,6 +77,11 @@ pub const ACTIONS: [Action; 24] = [
     StripZoomIn,
     StripZoomOut,
     StripZoomReset,
+    MirrorHorizontal,
+    MirrorVertical,
+    FadeIn,
+    FadeOut,
+    LoopFade,
 ];
 
 impl Action {
@@ -102,6 +112,11 @@ impl Action {
             StripZoomIn => "strip-zoom-in",
             StripZoomOut => "strip-zoom-out",
             StripZoomReset => "strip-zoom-reset",
+            MirrorHorizontal => "mirror-horizontal",
+            MirrorVertical => "mirror-vertical",
+            FadeIn => "fade-in",
+            FadeOut => "fade-out",
+            LoopFade => "loop-fade",
         }
     }
 
@@ -137,6 +152,16 @@ impl Action {
             // Translators: Makes the frame thumbnails in the timeline strip smaller.
             StripZoomOut => n("Zoom out the frame strip"),
             StripZoomReset => n("Reset the frame strip zoom"),
+            // Translators: Flips the frames in scope left to right.
+            MirrorHorizontal => n("Mirror horizontally"),
+            // Translators: Flips the frames in scope top to bottom.
+            MirrorVertical => n("Mirror vertically"),
+            // Translators: Opens a dialog that fades the frames in scope in from a solid color.
+            FadeIn => n("Fade in…"),
+            // Translators: Opens a dialog that fades the frames in scope out to a solid color.
+            FadeOut => n("Fade out…"),
+            // Translators: Blends the last frames into the first so the animation loops without a cut.
+            LoopFade => n("Cross-fade the loop…"),
         }
     }
 
@@ -148,6 +173,8 @@ impl Action {
             FrameDelete | FrameDuplicate | FrameReverse | ZoomToSelection => n("Frames"),
             FrameCut | FrameCopy | FramePaste => n("Frames"),
             StripZoomIn | StripZoomOut | StripZoomReset => n("Frames"),
+            // Translators: Menu and shortcut group for mirror, fade and loop cross-fade.
+            MirrorHorizontal | MirrorVertical | FadeIn | FadeOut | LoopFade => n("Effects"),
         }
     }
 
@@ -464,6 +491,9 @@ impl Default for Keymap {
         set(StripZoomIn, &["Ctrl+Up", "Ctrl+plus", "Ctrl+equal"]);
         set(StripZoomOut, &["Ctrl+Down", "Ctrl+minus"]);
         set(StripZoomReset, &["Ctrl+0"]);
+        for effect in [MirrorHorizontal, MirrorVertical, FadeIn, FadeOut, LoopFade] {
+            set(effect, &[]);
+        }
 
         // Impasto's transform tool: Alt rotates, Shift keeps the aspect ratio,
         // Ctrl resizes from the center.

@@ -35,188 +35,231 @@ msgid "{change} on {count} frames"
 msgstr "{count} フレームで{change}"
 
 #. AI-generated translation; human review requested.
-#: src/keymap.rs:110 src/ui/window/update.rs:99
+#: src/keymap.rs:125 src/ui/window/update.rs:100
 #, fuzzy
 msgid "Open"
 msgstr "開く"
 
 #. AI-generated translation; human review requested.
-#: src/keymap.rs:111 src/ui/window/build.rs:26 src/ui/window/update.rs:179 src/ui/window/view.rs:113
+#: src/keymap.rs:126 src/ui/window/build.rs:26 src/ui/window/update.rs:180 src/ui/window/view.rs:115
 #, fuzzy
 msgid "Export GIF"
 msgstr "GIF を書き出す"
 
 #. AI-generated translation; human review requested.
-#: src/keymap.rs:112 src/ui/window/update.rs:898
+#: src/keymap.rs:127 src/ui/window/update.rs:913
 #, fuzzy
 msgid "Undo"
 msgstr "元に戻す"
 
 #. AI-generated translation; human review requested.
-#: src/keymap.rs:113
+#: src/keymap.rs:128
 #, fuzzy
 msgid "Redo"
 msgstr "やり直す"
 
 #. AI-generated translation; human review requested.
-#: src/keymap.rs:114 src/ui/window/view.rs:116
+#: src/keymap.rs:129 src/ui/window/view.rs:118
 #, fuzzy
 msgid "Play/pause"
 msgstr "再生／一時停止"
 
 #. AI-generated translation; human review requested.
-#: src/keymap.rs:115
+#: src/keymap.rs:130
 #, fuzzy
 msgid "Select all frames"
 msgstr "すべてのフレームを選択"
 
 #. AI-generated translation; human review requested.
-#: src/keymap.rs:116
+#: src/keymap.rs:131
 #, fuzzy
 msgid "Delete selection"
 msgstr "選択範囲を削除"
 
 #. AI-generated translation; human review requested.
-#: src/keymap.rs:117 src/ui/window/shortcuts.rs:134
+#: src/keymap.rs:132 src/ui/window/shortcuts.rs:139
 #, fuzzy
 msgid "Keyboard shortcuts"
 msgstr "キーボードショートカット"
 
 #. AI-generated translation; human review requested.
-#: src/keymap.rs:118
+#: src/keymap.rs:133
 #, fuzzy
 msgid "Text tool"
 msgstr "テキストツール"
 
 #. AI-generated translation; human review requested.
-#: src/keymap.rs:119
+#: src/keymap.rs:134
 #, fuzzy
 msgid "Rectangle tool"
 msgstr "長方形ツール"
 
 #. AI-generated translation; human review requested.
-#: src/keymap.rs:120
+#: src/keymap.rs:135
 #, fuzzy
 msgid "Ellipse tool"
 msgstr "楕円ツール"
 
 #. AI-generated translation; human review requested.
-#: src/keymap.rs:121
+#: src/keymap.rs:136
 #, fuzzy
 msgid "Arrow tool"
 msgstr "矢印ツール"
 
 #. Translators: Draws a box on the canvas for cropping or zooming.
 #. AI-generated translation; human review requested.
-#: src/keymap.rs:123
+#: src/keymap.rs:138
 #, fuzzy
 msgid "Crop tool"
 msgstr "切り抜きツール"
 
 #. Translators: Toggles pulling dragged overlays onto the canvas edges and centre lines.
 #. AI-generated translation; human review requested.
-#: src/keymap.rs:125 src/ui/window/view.rs:131
+#: src/keymap.rs:140 src/ui/window/view.rs:133
 #, fuzzy
 msgid "Snap to edges and center"
 msgstr "端と中央にスナップ"
 
 #. AI-generated translation; human review requested.
-#: src/keymap.rs:126
+#: src/keymap.rs:141
 #, fuzzy
 msgid "Delete frames"
 msgstr "フレームを削除"
 
 #. AI-generated translation; human review requested.
-#: src/keymap.rs:127
+#: src/keymap.rs:142
 #, fuzzy
 msgid "Duplicate frames"
 msgstr "フレームを複製"
 
 #. AI-generated translation; human review requested.
-#: src/keymap.rs:128
+#: src/keymap.rs:143
 #, fuzzy
 msgid "Cut frames"
 msgstr "フレームを切り取り"
 
 #. AI-generated translation; human review requested.
-#: src/keymap.rs:129
+#: src/keymap.rs:144
 #, fuzzy
 msgid "Copy frames"
 msgstr "フレームをコピー"
 
 #. Translators: Inserts the cut or copied frames after the frame on screen.
 #. AI-generated translation; human review requested.
-#: src/keymap.rs:131 src/ui/window/strip.rs:315 src/ui/window/strip.rs:357
+#: src/keymap.rs:146 src/ui/window/strip.rs:352 src/ui/window/strip.rs:394
 #, fuzzy
 msgid "Paste frames"
 msgstr "フレームを貼り付け"
 
 #. AI-generated translation; human review requested.
-#: src/keymap.rs:132
+#: src/keymap.rs:147
 #, fuzzy
 msgid "Reverse frames"
 msgstr "フレームを逆順にする"
 
 #. Translators: Fills the canvas from the crop box, on the frame on screen.
 #. AI-generated translation; human review requested.
-#: src/keymap.rs:134
+#: src/keymap.rs:149
 #, fuzzy
 msgid "Zoom this frame"
 msgstr "このフレームをズーム"
 
 #. Translators: Makes the frame thumbnails in the timeline strip larger.
-#: src/keymap.rs:136
+#: src/keymap.rs:151
 msgid "Zoom in the frame strip"
 msgstr "フレームストリップを拡大"
 
 #. Translators: Makes the frame thumbnails in the timeline strip smaller.
-#: src/keymap.rs:138
+#: src/keymap.rs:153
 msgid "Zoom out the frame strip"
 msgstr "フレームストリップを縮小"
 
-#: src/keymap.rs:139
+#: src/keymap.rs:154
 msgid "Reset the frame strip zoom"
 msgstr "フレームストリップの表示倍率をリセット"
 
+#. Translators: Flips the frames in scope left to right.
 #. AI-generated translation; human review requested.
-#: src/keymap.rs:145
+#: src/keymap.rs:156
+#, fuzzy
+msgid "Mirror horizontally"
+msgstr "左右反転"
+
+#. Translators: Flips the frames in scope top to bottom.
+#. AI-generated translation; human review requested.
+#: src/keymap.rs:158
+#, fuzzy
+msgid "Mirror vertically"
+msgstr "上下反転"
+
+#. Translators: Opens a dialog that fades the frames in scope in from a solid color.
+#. AI-generated translation; human review requested.
+#: src/keymap.rs:160
+#, fuzzy
+msgid "Fade in…"
+msgstr "フェードイン…"
+
+#. Translators: Opens a dialog that fades the frames in scope out to a solid color.
+#. AI-generated translation; human review requested.
+#: src/keymap.rs:162
+#, fuzzy
+msgid "Fade out…"
+msgstr "フェードアウト…"
+
+#. Translators: Blends the last frames into the first so the animation loops without a cut.
+#. AI-generated translation; human review requested.
+#: src/keymap.rs:164
+#, fuzzy
+msgid "Cross-fade the loop…"
+msgstr "ループをクロスフェード…"
+
+#. AI-generated translation; human review requested.
+#: src/keymap.rs:170
 #, fuzzy
 msgid "File"
 msgstr "ファイル"
 
 #. AI-generated translation; human review requested.
-#: src/keymap.rs:146
+#: src/keymap.rs:171
 #, fuzzy
 msgid "Edit"
 msgstr "編集"
 
 #. AI-generated translation; human review requested.
-#: src/keymap.rs:147
+#: src/keymap.rs:172
 #, fuzzy
 msgid "Tools"
 msgstr "ツール"
 
 #. AI-generated translation; human review requested.
-#: src/keymap.rs:148 src/keymap.rs:149 src/keymap.rs:150 src/ui/window/imports.rs:349
+#: src/keymap.rs:173 src/keymap.rs:174 src/keymap.rs:175 src/ui/window/build.rs:1058 src/ui/window/imports.rs:349
 #, fuzzy
 msgid "Frames"
 msgstr "フレーム"
 
+#. Translators: Menu and shortcut group for mirror, fade and loop cross-fade.
+#. Translators: Header menu with mirror, fade and loop cross-fade.
+#. AI-generated translation; human review requested.
+#: src/keymap.rs:177 src/ui/window/build.rs:1061
+#, fuzzy
+msgid "Effects"
+msgstr "エフェクト"
+
 #. Translators: Held while dragging an overlay on the canvas.
 #. AI-generated translation; human review requested.
-#: src/keymap.rs:190
+#: src/keymap.rs:217
 #, fuzzy
 msgid "Rotate instead of move"
 msgstr "移動ではなく回転"
 
 #. AI-generated translation; human review requested.
-#: src/keymap.rs:191
+#: src/keymap.rs:218
 #, fuzzy
 msgid "Keep the aspect ratio"
 msgstr "縦横比を保つ"
 
 #. AI-generated translation; human review requested.
-#: src/keymap.rs:192
+#: src/keymap.rs:219
 #, fuzzy
 msgid "Resize from the center"
 msgstr "中心から拡大縮小"
@@ -245,7 +288,7 @@ msgid "Frames moved"
 msgstr "フレームを移動"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/actions.rs:66 src/ui/window/update.rs:412
+#: src/ui/window/actions.rs:66 src/ui/window/update.rs:413
 #, fuzzy
 msgid "Frames deleted"
 msgstr "フレームを削除"
@@ -269,57 +312,57 @@ msgid "Frames reversed"
 msgstr "フレームを逆順にしました"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/actions.rs:117
+#: src/ui/window/actions.rs:111
 #, fuzzy
 msgid "Frames pasted"
 msgstr "フレームを貼り付け"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/actions.rs:159
+#: src/ui/window/actions.rs:153
 #, fuzzy
 msgid "Overlay reordered"
 msgstr "オーバーレイの順序を変更"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/actions.rs:174
+#: src/ui/window/actions.rs:168
 #, fuzzy
 msgid "Overlay deleted"
 msgstr "オーバーレイを削除"
 
-#: src/ui/window/actions.rs:210
+#: src/ui/window/actions.rs:204
 msgid "The overlay is on those frames already"
 msgstr "そのオーバーレイはすでにこれらのフレームにあります"
 
-#: src/ui/window/actions.rs:214
+#: src/ui/window/actions.rs:208
 msgid "Overlay copied"
 msgstr "オーバーレイをコピー"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/actions.rs:448
+#: src/ui/window/actions.rs:442
 #, fuzzy
 msgid "Overlay moved"
 msgstr "オーバーレイを移動"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/actions.rs:449
+#: src/ui/window/actions.rs:443
 #, fuzzy
 msgid "Overlay rotated"
 msgstr "オーバーレイを回転しました"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/actions.rs:450
+#: src/ui/window/actions.rs:444
 #, fuzzy
 msgid "Overlay resized"
 msgstr "オーバーレイのサイズを変更"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/actions.rs:589 src/ui/window/dialogs.rs:288 src/ui/window/update.rs:681
+#: src/ui/window/actions.rs:576 src/ui/window/dialogs.rs:288 src/ui/window/update.rs:676
 #, fuzzy
 msgid "That resize would use more memory than the configured limit."
 msgstr "このサイズ変更は設定されたメモリ上限を超えます。"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/actions.rs:722 src/ui/window/actions.rs:770
+#: src/ui/window/actions.rs:713 src/ui/window/actions.rs:771
 #, fuzzy
 msgid "The frame operation failed."
 msgstr "フレーム処理に失敗しました。"
@@ -331,308 +374,309 @@ msgid "Export"
 msgstr "書き出す"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:32 src/ui/window/build.rs:87
+#: src/ui/window/build.rs:31 src/ui/window/build.rs:73
 #, fuzzy
 msgid "Open…"
 msgstr "開く…"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:33
+#: src/ui/window/build.rs:32
 #, fuzzy
 msgid "Export GIF…"
 msgstr "GIF を書き出す…"
 
 #. Translators: Decodes another video or GIF and appends its frames, so two
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:36
+#: src/ui/window/build.rs:35
 #, fuzzy
 msgid "Add frames from file…"
 msgstr "ファイルからフレームを追加…"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:48
-#, fuzzy
-msgid "Insert"
-msgstr "挿入"
-
-#: src/ui/window/build.rs:51
-msgid "Resize frames…"
-msgstr "フレームのサイズを変更…"
-
-#: src/ui/window/build.rs:55
-msgid "Zoom and resize all frames"
-msgstr "すべてのフレームをズームしてサイズ変更"
-
-#: src/ui/window/build.rs:58
-msgid "Image"
-msgstr "画像"
-
-#. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:64
-#, fuzzy
-msgid "Remove frames…"
-msgstr "フレームを削除…"
-
-#. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:65
-#, fuzzy
-msgid "Smart remove frames…"
-msgstr "フレームを自動で削除…"
-
-#. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:66
-#, fuzzy
-msgid "Optimize"
-msgstr "最適化"
-
-#. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:69
+#: src/ui/window/build.rs:37
 #, fuzzy
 msgid "Keyboard shortcuts…"
 msgstr "キーボードショートカット…"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:70 src/ui/window/dialogs.rs:62
+#: src/ui/window/build.rs:38 src/ui/window/dialogs.rs:62
 #, fuzzy
 msgid "About"
 msgstr "このアプリについて"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:82
+#: src/ui/window/build.rs:68
 #, fuzzy
 msgid "Open Image"
 msgstr "画像を開く"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:83
+#: src/ui/window/build.rs:69
 #, fuzzy
 msgid "Open a video or GIF to start editing"
 msgstr "動画または GIF を開いて編集を始めます"
 
 #. Translators: Tooltip on the X beside the import progress bar; it cancels the running decode.
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:114
+#: src/ui/window/build.rs:100
 #, fuzzy
 msgid "Cancel import"
 msgstr "読み込みを中止"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:238
-#, fuzzy
-msgid "Delete"
-msgstr "削除"
-
-#. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:239
-#, fuzzy
-msgid "Duplicate"
-msgstr "複製"
-
-#. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:240
-#, fuzzy
-msgid "Cut"
-msgstr "切り取り"
-
-#. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:241
-#, fuzzy
-msgid "Copy"
-msgstr "コピー"
-
-#. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:242
-#, fuzzy
-msgid "Paste"
-msgstr "貼り付け"
-
-#. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:243
-#, fuzzy
-msgid "Reverse"
-msgstr "逆順にする"
-
-#. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:245
-#, fuzzy
-msgid "Set delay for all frames…"
-msgstr "すべてのフレームの表示時間を設定…"
-
-#. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:251
-#, fuzzy
-msgid "Frame operations"
-msgstr "フレームの操作"
-
-#. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:268
+#: src/ui/window/build.rs:236
 #, fuzzy
 msgid "This frame"
 msgstr "このフレーム"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:269
+#: src/ui/window/build.rs:237
 #, fuzzy
 msgid "All frames"
 msgstr "すべてのフレーム"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:270
+#: src/ui/window/build.rs:238
 #, fuzzy
 msgid "Range"
 msgstr "範囲"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:502
+#: src/ui/window/build.rs:469
 #, fuzzy
 msgid "Properties"
 msgstr "プロパティ"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:508
+#: src/ui/window/build.rs:475
 #, fuzzy
 msgid "Overlay text"
 msgstr "オーバーレイのテキスト"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:519 src/ui/window/controls.rs:19
+#: src/ui/window/build.rs:486 src/ui/window/controls.rs:19
 #, fuzzy
 msgid "Text"
 msgstr "テキスト"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:528
+#: src/ui/window/build.rs:495
 #, fuzzy
 msgid "Overlay"
 msgstr "オーバーレイ"
 
-#: src/ui/window/build.rs:539 src/ui/window/controls.rs:71 src/ui/window/strip.rs:251 src/ui/window/tests.rs:1591 src/ui/window/tests.rs:1604
+#: src/ui/window/build.rs:506 src/ui/window/controls.rs:71 src/ui/window/strip.rs:288 src/ui/window/tests.rs:1595 src/ui/window/tests.rs:1608
 msgid "Delete overlay"
 msgstr "オーバーレイを削除"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:556
+#: src/ui/window/build.rs:523
 #, fuzzy
 msgid "Font"
 msgstr "フォント"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:571 src/ui/window/imports.rs:53
+#: src/ui/window/build.rs:538 src/ui/window/imports.rs:53
 #, fuzzy
 msgid "Size"
 msgstr "サイズ"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:580
+#: src/ui/window/build.rs:547
 #, fuzzy
 msgid "Left"
 msgstr "左揃え"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:584
+#: src/ui/window/build.rs:551
 #, fuzzy
 msgid "Centered"
 msgstr "中央揃え"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:589
+#: src/ui/window/build.rs:556
 #, fuzzy
 msgid "Right"
 msgstr "右揃え"
 
 #. Translators: Text alignment that stretches every line but the last to both margins.
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:595
+#: src/ui/window/build.rs:562
 #, fuzzy
 msgid "Justified"
 msgstr "両端揃え"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:616
+#: src/ui/window/build.rs:583
 #, fuzzy
 msgid "Align"
 msgstr "行揃え"
 
 #. Translators: Smoothing of glyph edges. Off gives hard pixel edges, for pixel-art captures.
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:630
+#: src/ui/window/build.rs:597
 #, fuzzy
 msgid "Smooth edges"
 msgstr "縁を滑らかにする"
 
 #. Translators: The interior colour of a shape, or the colour of the glyphs for text.
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:640
+#: src/ui/window/build.rs:607
 #, fuzzy
 msgid "Fill"
 msgstr "塗り"
 
 #. Translators: The contrasting edge drawn behind text so it stays readable over any image.
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:649
+#: src/ui/window/build.rs:616
 #, fuzzy
 msgid "Outline"
 msgstr "縁取り"
 
 #. Translators: The outline of a shape, as distinct from the outline behind text.
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:658
+#: src/ui/window/build.rs:625
 #, fuzzy
 msgid "Stroke"
 msgstr "線"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:709
+#: src/ui/window/build.rs:676
 #, fuzzy
 msgid "Crop / zoom"
 msgstr "切り抜き／ズーム"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:717 src/ui/window/dialogs.rs:489
+#: src/ui/window/build.rs:684 src/ui/window/dialogs.rs:489
 #, fuzzy
 msgid "Crop all frames"
 msgstr "すべてのフレームを切り抜く"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:718
+#: src/ui/window/build.rs:685
 #, fuzzy
 msgid "Crops every frame in the document to this box, shrinking the canvas."
 msgstr "ドキュメント内のすべてのフレームをこの範囲に切り抜き、キャンバスを縮小します。"
 
 #. Translators: Zoom follows the frame scope — the frame on screen, or the
-#: src/ui/window/build.rs:724
+#: src/ui/window/build.rs:691
 msgid "Zoom and resize"
 msgstr "ズームとサイズ変更"
 
-#: src/ui/window/build.rs:725
+#: src/ui/window/build.rs:692
 msgid "Fills the canvas from this box, on the frame on screen or the selected frames."
 msgstr "この範囲でキャンバスを埋めます。表示中のフレームまたは選択したフレームに適用されます。"
 
 #. Translators: Crops the frame(s) in scope in place, leaving the rest of
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:730
+#: src/ui/window/build.rs:697
 #, fuzzy
 msgid "Crop and keep size"
 msgstr "切り抜いてサイズを維持"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:731
+#: src/ui/window/build.rs:698
 #, fuzzy
 msgid "Crops this box on every frame in scope, in place, without scaling it up, and blanks the rest of each frame to transparent."
 msgstr "範囲内のすべてのフレームでこの範囲をその場で切り抜き、拡大せずに各フレームの残りの部分を透明にします。"
 
-#: src/ui/window/build.rs:753 src/ui/window/controls.rs:154
+#: src/ui/window/build.rs:720 src/ui/window/controls.rs:154
 msgid "Frame"
 msgstr "フレーム"
 
 #. Translators: Per-frame hold time, in centiseconds (1/100 s).
-#: src/ui/window/build.rs:766
+#: src/ui/window/build.rs:733
 msgid "Delay (cs)"
 msgstr "表示時間 (cs)"
 
-#: src/ui/window/build.rs:770
+#: src/ui/window/build.rs:737
 msgid "Overlays on this frame"
 msgstr "このフレームのオーバーレイ"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window/build.rs:996
+#, fuzzy
+msgid "Cut"
+msgstr "切り取り"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window/build.rs:997
+#, fuzzy
+msgid "Copy"
+msgstr "コピー"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window/build.rs:998
+#, fuzzy
+msgid "Paste"
+msgstr "貼り付け"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window/build.rs:1000
+#, fuzzy
+msgid "Delete"
+msgstr "削除"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window/build.rs:1001
+#, fuzzy
+msgid "Duplicate"
+msgstr "複製"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window/build.rs:1002
+#, fuzzy
+msgid "Reverse"
+msgstr "逆順にする"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window/build.rs:1005
+#, fuzzy
+msgid "Set delay for all frames…"
+msgstr "すべてのフレームの表示時間を設定…"
+
+#: src/ui/window/build.rs:1042
+msgid "Resize frames…"
+msgstr "フレームのサイズを変更…"
+
+#. Translators: Crops every frame to a box typed in pixels, shrinking the canvas.
+#. AI-generated translation; human review requested.
+#: src/ui/window/build.rs:1044
+#, fuzzy
+msgid "Crop frames…"
+msgstr "フレームを切り抜く…"
+
+#: src/ui/window/build.rs:1048
+msgid "Zoom and resize all frames"
+msgstr "すべてのフレームをズームしてサイズ変更"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window/build.rs:1054
+#, fuzzy
+msgid "Remove frames…"
+msgstr "フレームを削除…"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window/build.rs:1055
+#, fuzzy
+msgid "Smart remove frames…"
+msgstr "フレームを自動で削除…"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window/build.rs:1059
+#, fuzzy
+msgid "Insert"
+msgstr "挿入"
+
+#: src/ui/window/build.rs:1062
+msgid "Image"
+msgstr "画像"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window/build.rs:1063
+#, fuzzy
+msgid "Optimize"
+msgstr "最適化"
 
 #. Translators: Canvas tooltip over an overlay's resize grip. Keep the line breaks.
 #. AI-generated translation; human review requested.
@@ -805,13 +849,13 @@ msgid "frames"
 msgstr "フレーム"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:188 src/ui/window/dialogs.rs:431 src/ui/window/dialogs.rs:533 src/ui/window/dialogs.rs:592 src/ui/window/dialogs.rs:637 src/ui/window/dialogs.rs:675 src/ui/window/imports.rs:223 src/ui/window/imports.rs:795
+#: src/ui/window/dialogs.rs:188 src/ui/window/dialogs.rs:431 src/ui/window/dialogs.rs:533 src/ui/window/dialogs.rs:592 src/ui/window/dialogs.rs:637 src/ui/window/dialogs.rs:723 src/ui/window/dialogs.rs:781 src/ui/window/dialogs.rs:820 src/ui/window/imports.rs:223 src/ui/window/imports.rs:795
 #, fuzzy
 msgid "Cancel"
 msgstr "キャンセル"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:189 src/ui/window/dialogs.rs:432 src/ui/window/dialogs.rs:534 src/ui/window/dialogs.rs:593 src/ui/window/dialogs.rs:638
+#: src/ui/window/dialogs.rs:189 src/ui/window/dialogs.rs:432 src/ui/window/dialogs.rs:534 src/ui/window/dialogs.rs:593 src/ui/window/dialogs.rs:638 src/ui/window/dialogs.rs:724 src/ui/window/dialogs.rs:782
 #, fuzzy
 msgid "Apply"
 msgstr "適用"
@@ -888,7 +932,7 @@ msgid "How long this frame is held, in hundredths of a second."
 msgstr "このフレームを表示し続ける長さ（100 分の 1 秒単位）。"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:573 src/ui/window/dialogs.rs:668
+#: src/ui/window/dialogs.rs:573 src/ui/window/dialogs.rs:813
 #, fuzzy
 msgid "Frame {number}"
 msgstr "フレーム {number}"
@@ -912,20 +956,118 @@ msgstr "すべてのフレームを表示し続ける長さ（100 分の 1 秒�
 msgid "All {count} frames"
 msgstr "すべてのフレーム（{count}）"
 
+#. Translators: A fade color.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:659
+#: src/ui/window/dialogs.rs:654
+#, fuzzy
+msgid "Black"
+msgstr "黒"
+
+#. Translators: A fade color.
+#. AI-generated translation; human review requested.
+#: src/ui/window/dialogs.rs:656
+#, fuzzy
+msgid "White"
+msgstr "白"
+
+#. Translators: A fade color: the frames fade to see-through.
+#. AI-generated translation; human review requested.
+#: src/ui/window/dialogs.rs:658
+#, fuzzy
+msgid "Transparent"
+msgstr "透明"
+
+#. Translators: Dialog title; the frames in scope brighten in from a solid color.
+#. AI-generated translation; human review requested.
+#: src/ui/window/dialogs.rs:673
+#, fuzzy
+msgid "Fade in"
+msgstr "フェードイン"
+
+#. Translators: Dialog title; the frames in scope sink out to a solid color.
+#. AI-generated translation; human review requested.
+#: src/ui/window/dialogs.rs:675
+#, fuzzy
+msgid "Fade out"
+msgstr "フェードアウト"
+
+#. Translators: Shown when Fade in/out is picked with only one frame in scope.
+#. AI-generated translation; human review requested.
+#: src/ui/window/dialogs.rs:681
+#, fuzzy
+msgid "Select the frames to fade across in the strip first: Shift+click for a run, or pick All frames."
+msgstr "まずストリップでフェードするフレームを選択してください。Shift+クリックで範囲を選ぶか、「すべてのフレーム」を選びます。"
+
+#. Translators: Dismisses a dialog that only explains something.
+#. AI-generated translation; human review requested.
+#: src/ui/window/dialogs.rs:687 src/ui/window/dialogs.rs:757
+#, fuzzy
+msgid "Close"
+msgstr "閉じる"
+
+#. Translators: {count} is a number of frames, at least 2.
+#. AI-generated translation; human review requested.
+#: src/ui/window/dialogs.rs:693
+#, fuzzy
+msgid "The {count} frames in scope climb from a solid color to the full picture."
+msgstr "範囲内の{count}フレームが単色から元の画像へと変わります。"
+
+#. Translators: {count} is a number of frames, at least 2.
+#. AI-generated translation; human review requested.
+#: src/ui/window/dialogs.rs:695
+#, fuzzy
+msgid "The {count} frames in scope sink from the full picture to a solid color."
+msgstr "範囲内の{count}フレームが元の画像から単色へと変わります。"
+
+#. Translators: Subtitle on the Transparent fade color.
+#. AI-generated translation; human review requested.
+#: src/ui/window/dialogs.rs:707
+#, fuzzy
+msgid "A GIF pixel is either opaque or clear, so this fade shows as dithering."
+msgstr "GIFのピクセルは不透明か透明のどちらかなので、このフェードはディザリングとして表示されます。"
+
+#. Translators: Dialog title for blending the end of the animation into its start.
+#. AI-generated translation; human review requested.
+#: src/ui/window/dialogs.rs:750
+#, fuzzy
+msgid "Cross-fade the loop"
+msgstr "ループをクロスフェード"
+
+#. Translators: Shown when the document has a single frame.
+#. AI-generated translation; human review requested.
+#: src/ui/window/dialogs.rs:755
+#, fuzzy
+msgid "A loop cross-fade needs at least two frames."
+msgstr "ループのクロスフェードには2フレーム以上が必要です。"
+
+#. Translators: Body of the loop cross-fade dialog.
+#. AI-generated translation; human review requested.
+#: src/ui/window/dialogs.rs:764
+#, fuzzy
+msgid "The last frames dissolve into the first ones, so the end plays into the start without a cut. The first frames are then removed, since the dissolve already shows them: the animation gets that many frames shorter."
+msgstr "最後のフレームが最初のフレームへ溶け込み、終わりから始まりへ切れ目なくつながります。クロスフェードがすでに見せているため、最初のフレームはその後削除され、アニメーションはその分だけ短くなります。"
+
+#. Translators: How many frames at each end the loop cross-fade blends.
+#. AI-generated translation; human review requested.
+#: src/ui/window/dialogs.rs:776
+#, fuzzy
+msgid "Frames to blend"
+msgstr "ブレンドするフレーム数"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window/dialogs.rs:804
 #, fuzzy
 msgid "Move frame"
 msgstr "フレームを移動"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:660
+#: src/ui/window/dialogs.rs:805
 #, fuzzy
 msgid "Where should this frame go?"
 msgstr "このフレームをどこに移動しますか？"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:676
+#: src/ui/window/dialogs.rs:821
 #, fuzzy
 msgid "Move"
 msgstr "移動"
@@ -1263,320 +1405,348 @@ msgid "{n} KB"
 msgstr "{n} KB"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/mod.rs:574
+#: src/ui/window/mod.rs:613
 #, fuzzy
 msgid "Resized"
 msgstr "サイズを変更"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/mod.rs:575
+#: src/ui/window/mod.rs:614
 #, fuzzy
 msgid "Zoomed"
 msgstr "ズーム"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/mod.rs:580 src/ui/window/mod.rs:581
+#: src/ui/window/mod.rs:619 src/ui/window/mod.rs:620
 #, fuzzy
 msgid "Cropped"
 msgstr "切り抜き"
 
+#. Translators: History label after flipping frames.
+#. AI-generated translation; human review requested.
+#: src/ui/window/mod.rs:622
+#, fuzzy
+msgid "Frames mirrored"
+msgstr "フレームを反転"
+
+#. Translators: History label after fading frames in from a solid color.
+#. AI-generated translation; human review requested.
+#: src/ui/window/mod.rs:625
+#, fuzzy
+msgid "Faded in"
+msgstr "フェードイン"
+
+#. Translators: History label after fading frames out to a solid color.
+#. AI-generated translation; human review requested.
+#: src/ui/window/mod.rs:627
+#, fuzzy
+msgid "Faded out"
+msgstr "フェードアウト"
+
+#. Translators: History label after blending the animation's end into its start.
+#. AI-generated translation; human review requested.
+#: src/ui/window/mod.rs:630
+#, fuzzy
+msgid "Loop cross-faded"
+msgstr "ループをクロスフェード"
+
 #. Translators: Past-tense edit name, used inside "{change} on {count} frames".
 #. AI-generated translation; human review requested.
-#: src/ui/window/mod.rs:888 src/ui/window/update.rs:513
+#: src/ui/window/mod.rs:969 src/ui/window/update.rs:514
 #, fuzzy
 msgid "Delay set"
 msgstr "表示時間を設定"
 
 #. Translators: A canvas modifier row waiting for the user to hold a key.
 #. AI-generated translation; human review requested.
-#: src/ui/window/shortcuts.rs:158
+#: src/ui/window/shortcuts.rs:163
 #, fuzzy
 msgid "Hold a modifier…"
 msgstr "修飾キーを押したままにしてください…"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/shortcuts.rs:160 src/ui/window/shortcuts.rs:174
+#: src/ui/window/shortcuts.rs:165 src/ui/window/shortcuts.rs:179
 #, fuzzy
 msgid "Unassigned"
 msgstr "未割り当て"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/shortcuts.rs:172
+#: src/ui/window/shortcuts.rs:177
 #, fuzzy
 msgid "Press a key…"
 msgstr "キーを押してください…"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/shortcuts.rs:181
+#: src/ui/window/shortcuts.rs:186
 #, fuzzy
 msgid "Already used by another action"
 msgstr "別の操作にすでに割り当てられています"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/shortcuts.rs:214 src/ui/window/shortcuts.rs:253
+#: src/ui/window/shortcuts.rs:219 src/ui/window/shortcuts.rs:258
 #, fuzzy
 msgid "Unbind"
 msgstr "割り当てを解除"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/shortcuts.rs:233
+#: src/ui/window/shortcuts.rs:238
 #, fuzzy
 msgid "Canvas"
 msgstr "キャンバス"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/shortcuts.rs:234
+#: src/ui/window/shortcuts.rs:239
 #, fuzzy
 msgid "Held while dragging an overlay's grip."
 msgstr "オーバーレイのハンドルをドラッグする間、押したままにします。"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/shortcuts.rs:316
+#: src/ui/window/shortcuts.rs:321
 #, fuzzy
 msgid "Keybindings file"
 msgstr "キー割り当てファイル"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/shortcuts.rs:317
+#: src/ui/window/shortcuts.rs:322
 #, fuzzy
 msgid "Bindings are saved as you change them."
 msgstr "割り当ては変更するたびに保存されます。"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/shortcuts.rs:320
+#: src/ui/window/shortcuts.rs:325
 #, fuzzy
 msgid "Import or export"
 msgstr "読み込み／書き出し"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/shortcuts.rs:324
+#: src/ui/window/shortcuts.rs:329
 #, fuzzy
 msgid "no config directory"
 msgstr "設定ディレクトリがありません"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/shortcuts.rs:327
+#: src/ui/window/shortcuts.rs:332
 #, fuzzy
 msgid "Import…"
 msgstr "読み込む…"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/shortcuts.rs:328
+#: src/ui/window/shortcuts.rs:333
 #, fuzzy
 msgid "Export…"
 msgstr "書き出す…"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/shortcuts.rs:329
+#: src/ui/window/shortcuts.rs:334
 #, fuzzy
 msgid "Reset"
 msgstr "リセット"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/shortcuts.rs:345
+#: src/ui/window/shortcuts.rs:350
 #, fuzzy
 msgid "Import keybindings"
 msgstr "キー割り当てを読み込む"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/shortcuts.rs:358
+#: src/ui/window/shortcuts.rs:363
 #, fuzzy
 msgid "Could not read {path}: {error}"
 msgstr "{path} を読み込めませんでした: {error}"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/shortcuts.rs:374
+#: src/ui/window/shortcuts.rs:379
 #, fuzzy
 msgid "Export keybindings"
 msgstr "キー割り当てを書き出す"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/shortcuts.rs:384
+#: src/ui/window/shortcuts.rs:389
 #, fuzzy
 msgid "Saved {path}"
 msgstr "{path} に保存しました"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/shortcuts.rs:388
+#: src/ui/window/shortcuts.rs:393
 #, fuzzy
 msgid "Could not write: {error}"
 msgstr "書き込めませんでした: {error}"
 
-#: src/ui/window/strip.rs:258 src/ui/window/tests.rs:1587
+#: src/ui/window/strip.rs:295 src/ui/window/tests.rs:1591
 msgid "Copy overlay to all frames"
 msgstr "オーバーレイを全フレームにコピー"
 
-#: src/ui/window/strip.rs:260 src/ui/window/tests.rs:1600
+#: src/ui/window/strip.rs:297 src/ui/window/tests.rs:1604
 msgid "Copy overlay to selected frames"
 msgstr "オーバーレイを選択したフレームにコピー"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/strip.rs:291
+#: src/ui/window/strip.rs:328
 #, fuzzy
 msgid "Delete this frame"
 msgstr "このフレームを削除"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/strip.rs:297
+#: src/ui/window/strip.rs:334
 #, fuzzy
 msgid "Duplicate this frame"
 msgstr "このフレームを複製"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/strip.rs:303
+#: src/ui/window/strip.rs:340
 #, fuzzy
 msgid "Cut this frame"
 msgstr "このフレームを切り取り"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/strip.rs:309
+#: src/ui/window/strip.rs:346
 #, fuzzy
 msgid "Copy this frame"
 msgstr "このフレームをコピー"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/strip.rs:320 src/ui/window/strip.rs:362
+#: src/ui/window/strip.rs:357 src/ui/window/strip.rs:399
 #, fuzzy
 msgid "Set delay…"
 msgstr "表示時間を設定…"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/strip.rs:322 src/ui/window/strip.rs:364
+#: src/ui/window/strip.rs:359 src/ui/window/strip.rs:401
 #, fuzzy
 msgid "Move earlier"
 msgstr "前に移動"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/strip.rs:323 src/ui/window/strip.rs:365
+#: src/ui/window/strip.rs:360 src/ui/window/strip.rs:402
 #, fuzzy
 msgid "Move later"
 msgstr "後に移動"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/strip.rs:324
+#: src/ui/window/strip.rs:361
 #, fuzzy
 msgid "Move to position…"
 msgstr "指定した位置に移動…"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/strip.rs:326
+#: src/ui/window/strip.rs:363
 #, fuzzy
 msgid "Insert frames from file…"
 msgstr "ファイルからフレームを挿入…"
 
-#: src/ui/window/strip.rs:333
+#: src/ui/window/strip.rs:370
 msgid "Delete selected frames"
 msgstr "選択したフレームを削除"
 
-#: src/ui/window/strip.rs:339
+#: src/ui/window/strip.rs:376
 msgid "Duplicate selected frames"
 msgstr "選択したフレームを複製"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/strip.rs:345
+#: src/ui/window/strip.rs:382
 #, fuzzy
 msgid "Cut selected frames"
 msgstr "選択したフレームを切り取り"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/strip.rs:351
+#: src/ui/window/strip.rs:388
 #, fuzzy
 msgid "Copy selected frames"
 msgstr "選択したフレームをコピー"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/strip.rs:489
+#: src/ui/window/strip.rs:526
 #, fuzzy
 msgid "Edited outside; overlays skip this frame"
 msgstr "外部で編集されました。オーバーレイはこのフレームを飛ばします"
 
 #. Translators: "cs" is centiseconds, the unit GIF stores frame delays in.
 #. AI-generated translation; human review requested.
-#: src/ui/window/strip.rs:494
+#: src/ui/window/strip.rs:531
 #, fuzzy
 msgid "Frame {number} · {delay} cs"
 msgstr "フレーム {number} · {delay} cs"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/update.rs:101
+#: src/ui/window/update.rs:102
 #, fuzzy
 msgid "Videos and GIFs"
 msgstr "動画と GIF"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/update.rs:357
+#: src/ui/window/update.rs:358
 #, fuzzy
 msgid "Text added"
 msgstr "テキストを追加"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/update.rs:358
+#: src/ui/window/update.rs:359
 #, fuzzy
 msgid "Rectangle added"
 msgstr "長方形を追加"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/update.rs:359
+#: src/ui/window/update.rs:360
 #, fuzzy
 msgid "Ellipse added"
 msgstr "楕円を追加"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/update.rs:360
+#: src/ui/window/update.rs:361
 #, fuzzy
 msgid "Arrow added"
 msgstr "矢印を追加"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/update.rs:395
+#: src/ui/window/update.rs:396
 #, fuzzy
 msgid "Text edited"
 msgstr "テキストを編集"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/update.rs:438
+#: src/ui/window/update.rs:439
 #, fuzzy
 msgid "{count} frame copied"
 msgstr "{count} 件のフレームをコピーしました"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/update.rs:438
+#: src/ui/window/update.rs:439
 #, fuzzy
 msgid "{count} frames copied"
 msgstr "{count} 件のフレームをコピーしました"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/update.rs:487
+#: src/ui/window/update.rs:488
 #, fuzzy
 msgid "Frame moved"
 msgstr "フレームを移動"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/update.rs:542
+#: src/ui/window/update.rs:543
 #, fuzzy
 msgid "Overlay restyled"
 msgstr "オーバーレイの外観を変更"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/update.rs:642 src/ui/window/update.rs:655
+#: src/ui/window/update.rs:637 src/ui/window/update.rs:650
 #, fuzzy
 msgid "Frames removed"
 msgstr "フレームを削除"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/update.rs:775
+#: src/ui/window/update.rs:790
 #, fuzzy
 msgid "Frame added"
 msgstr "フレームを追加"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/update.rs:777
+#: src/ui/window/update.rs:792
 #, fuzzy
 msgid "Frames added"
 msgstr "フレームを追加"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/update.rs:854
+#: src/ui/window/update.rs:869
 #, fuzzy
 msgid "Exported to {path} · {size} KB"
 msgstr "{path} に書き出しました · {size} KB"
@@ -1629,109 +1799,116 @@ msgstr "調整中… {done} / {total} フレーム"
 msgid "Exporting… {done} / {total} frames"
 msgstr "エクスポート中… {done} / {total} フレーム"
 
+#. Translators: Progress while a mirror or fade is applied; both values are frame counts.
 #. AI-generated translation; human review requested.
-#: src/ui/window/view.rs:57
+#: src/ui/window/view.rs:46
+#, fuzzy
+msgid "Applying effect… {done} / {total} frames"
+msgstr "エフェクトを適用中… {done} / {total} フレーム"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window/view.rs:59
 #, fuzzy
 msgid "Importing… {done} frames"
 msgstr "読み込み中… {done} フレーム"
 
 #. Translators: Window title when no file has been opened.
 #. AI-generated translation; human review requested.
-#: src/ui/window/view.rs:71
+#: src/ui/window/view.rs:73
 #, fuzzy
 msgid "Untitled"
 msgstr "無題"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/view.rs:74
+#: src/ui/window/view.rs:76
 #, fuzzy
 msgid "{count} frames · {seconds} s"
 msgstr "{count} フレーム · {seconds} 秒"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/view.rs:127
+#: src/ui/window/view.rs:129
 #, fuzzy
 msgid "Crop or zoom: drag a box on the canvas"
 msgstr "切り抜き／ズーム: キャンバス上でドラッグして範囲を指定します"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/view.rs:140
+#: src/ui/window/view.rs:142
 #, fuzzy
 msgid "Every frame in the document"
 msgstr "ドキュメント内のすべてのフレーム"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/view.rs:141
+#: src/ui/window/view.rs:143
 #, fuzzy
 msgid "Shift+click the strip for a run of frames, Ctrl+click to add to it"
 msgstr "Shift+クリックで連続するフレームを選択、Ctrl+クリックで選択に追加します"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/view.rs:223
+#: src/ui/window/view.rs:230
 #, fuzzy
 msgid "{elapsed} / {total} · {fps} fps"
 msgstr "{elapsed} / {total} · {fps} fps"
 
 #. Translators: Scope button. Frame numbers are 1-based and inclusive.
 #. AI-generated translation; human review requested.
-#: src/ui/window/view.rs:239
+#: src/ui/window/view.rs:246
 #, fuzzy
 msgid "Range {first}–{last}"
 msgstr "範囲 {first}–{last}"
 
 #. Translators: Scope button when the picked frames do not form a run.
 #. AI-generated translation; human review requested.
-#: src/ui/window/view.rs:248
+#: src/ui/window/view.rs:255
 #, fuzzy
 msgid "{count} frame"
 msgstr "{count} フレーム"
 
 #. Translators: Scope button when the picked frames do not form a run.
 #. AI-generated translation; human review requested.
-#: src/ui/window/view.rs:248
+#: src/ui/window/view.rs:255
 #, fuzzy
 msgid "{count} frames"
 msgstr "{count} フレーム"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/view.rs:372
+#: src/ui/window/view.rs:390
 #, fuzzy
 msgid "▾ {count} overlay rows"
 msgstr "▾ オーバーレイ {count} 行"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/view.rs:543
+#: src/ui/window/view.rs:561
 #, fuzzy
 msgid "{width} × {height} at {x}, {y}"
 msgstr "{width} × {height}（位置 {x}, {y}）"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/view.rs:551
+#: src/ui/window/view.rs:569
 #, fuzzy
 msgid "Drag a box on the canvas."
 msgstr "キャンバス上でドラッグして範囲を指定してください。"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/view.rs:585
+#: src/ui/window/view.rs:603
 #, fuzzy
 msgid "≈ {size} as a GIF"
 msgstr "GIF でおよそ {size}"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/view.rs:591
+#: src/ui/window/view.rs:609
 #, fuzzy
 msgid "≈ {size} as a GIF (updating…)"
 msgstr "GIF でおよそ {size}（更新中…）"
 
 #. Translators: Shown while the exported GIF size is still being measured.
 #. AI-generated translation; human review requested.
-#: src/ui/window/view.rs:596
+#: src/ui/window/view.rs:614
 #, fuzzy
 msgid "sizing…"
 msgstr "サイズを計算中…"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/view.rs:602
+#: src/ui/window/view.rs:620
 #, fuzzy
 msgid "{width} × {height} · {frames} frames · {overlays} overlays"
 msgstr "{width} × {height} · {frames} フレーム · オーバーレイ {overlays} 個"

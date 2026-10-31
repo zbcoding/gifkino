@@ -34,7 +34,7 @@ pub fn t(msgid: &'static str) -> &'static str {
 /// Mark a literal for extraction without translating it here. gettext's `N_`:
 /// for strings defined far from where they are shown, such as the action labels
 /// in `keymap.rs` and the history labels stored in a `Change`.
-pub fn n(msgid: &'static str) -> &'static str {
+pub const fn n(msgid: &'static str) -> &'static str {
     msgid
 }
 

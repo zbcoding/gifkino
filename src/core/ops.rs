@@ -5,7 +5,35 @@ use std::ops::Range;
 
 use image::RgbaImage;
 
-use super::model::{Document, Frame, Overlay, OverlayId};
+use super::model::{Document, Frame, Overlay, OverlayId, Rgba8};
+
+/// Where a removed frame's delay goes. A frame dropped from between two
+/// survivors leaves the one before it on screen in its place, so that one
+/// absorbs its time and the running time holds. A run trimmed off either end
+/// has no survivor showing in its place — moving its time onto one would
+/// turn trimming a GIF's opening second into a one-second freeze — so a
+/// delete lets it go. Decimation keeps every dropped frame's time.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum DroppedDelay {
+    Keep,
+    TrimEnds,
+}
+
+/// A mirror's axis: `Horizontal` swaps left and right, `Vertical` top and
+/// bottom.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Axis {
+    Horizontal,
+    Vertical,
+}
+
+/// Which end of a run of frames is the solid colour: a fade in starts on it,
+/// a fade out ends on it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Fade {
+    In,
+    Out,
+}
 
 /// How much two frames differ, measured on the cached thumbnails rather than
 /// the full frames: a 72px-wide thumbnail is enough to tell a still section
@@ -28,10 +56,11 @@ fn thumb_diff(a: &Frame, b: &Frame) -> u64 {
 }
 
 impl Document {
-    /// Delete the frames `keep` returns false for, moving each dropped frame's
-    /// delay onto the previous surviving frame so total duration is preserved,
-    /// and remapping overlay ranges onto the new indices.
-    fn retain_frames(&mut self, keep: impl Fn(usize) -> bool) {
+    /// Delete the frames `keep` returns false for, remapping overlay ranges
+    /// onto the new indices. `delay` says what happens to their time; under
+    /// `Keep` a run dropped off the start rolls forward onto the first
+    /// survivor, the only one there is to take it.
+    fn retain_frames(&mut self, keep: impl Fn(usize) -> bool, delay: DroppedDelay) {
         let n = self.frames.len();
         let keep: Vec<bool> = (0..n).map(&keep).collect();
         if keep.iter().all(|k| *k) {
@@ -40,12 +69,17 @@ impl Document {
 
         let mut frames = Vec::with_capacity(keep.iter().filter(|k| **k).count());
         let mut carry = 0u32;
+        let last_kept = keep.iter().rposition(|k| *k);
         for (i, frame) in std::mem::take(&mut self.frames).into_iter().enumerate() {
             if keep[i] {
                 let mut frame = frame;
                 frame.delay_cs = (frame.delay_cs as u32 + carry).min(u16::MAX as u32) as u16;
                 carry = 0;
                 frames.push(frame);
+            } else if delay == DroppedDelay::TrimEnds
+                && (frames.is_empty() || last_kept.is_none_or(|last| i > last))
+            {
+                continue;
             } else if let Some(prev) = frames.last_mut() {
                 // Predecessor absorbs the delay; without this the result plays fast.
                 prev.delay_cs =
@@ -74,14 +108,14 @@ impl Document {
     }
 
     pub fn delete_frames(&mut self, range: Range<usize>) {
-        self.retain_frames(|i| !range.contains(&i));
+        self.retain_frames(|i| !range.contains(&i), DroppedDelay::TrimEnds);
     }
 
     /// Delete an arbitrary set of frames. Ctrl+click in the strip picks frames
     /// one at a time, so what comes back need not be a run.
     pub fn delete_frames_at(&mut self, frames: &[usize]) {
         let doomed: std::collections::HashSet<usize> = frames.iter().copied().collect();
-        self.retain_frames(|i| !doomed.contains(&i));
+        self.retain_frames(|i| !doomed.contains(&i), DroppedDelay::TrimEnds);
     }
 
     /// Splice `frame` into the timeline at `at`, shifting every overlay range
@@ -99,18 +133,50 @@ impl Document {
     /// Freeze-frame: the copy lands directly after the source and inherits the
     /// overlays that cover it.
     pub fn duplicate_frame(&mut self, index: usize) {
-        let Some(frame) = self.frames.get(index).cloned() else {
-            return;
-        };
-        self.insert_frame_at(index + 1, frame);
+        if index < self.frames.len() {
+            self.duplicate_frames_at(&[index]);
+        }
+    }
+
+    /// `duplicate_frame` for every frame in `picked` at once: one pass over
+    /// the frames and one over the overlays, where duplicating them one at a
+    /// time shifts the whole list once per copy. Stale indices are skipped.
+    pub fn duplicate_frames_at(&mut self, picked: &[usize]) {
+        let n = self.frames.len();
+        let mut twinned = vec![false; n];
+        for &i in picked.iter().filter(|i| **i < n) {
+            twinned[i] = true;
+        }
+        // `copies_before[b]`: how many copies land ahead of boundary `b`. A
+        // copy of frame `j` sits at `j + 1`, so it pushes every boundary past
+        // `j` along — an overlay ending just after `j` grows over the copy.
+        let mut copies_before = Vec::with_capacity(n + 1);
+        let mut frames = Vec::with_capacity(n + picked.len());
+        for (i, frame) in std::mem::take(&mut self.frames).into_iter().enumerate() {
+            copies_before.push(frames.len() - i);
+            if twinned[i] {
+                frames.push(frame.clone());
+            }
+            frames.push(frame);
+        }
+        copies_before.push(frames.len() - n);
+        self.frames = frames;
+        let at = |b: usize| b + copies_before[b.min(n)];
+        for o in &mut self.overlays {
+            o.range = at(o.range.start)..at(o.range.end);
+        }
     }
 
     /// Splice a run of frames in at `at`, keeping their order. Paste: the
     /// clipboard's frames land together, and — like `duplicate_frame` — they
     /// inherit the overlays that cover the slot they go into.
     pub fn insert_frames_at(&mut self, at: usize, frames: Vec<Frame>) {
-        for frame in frames.into_iter().rev() {
-            self.insert_frame_at(at, frame);
+        let at = at.min(self.frames.len());
+        let added = frames.len();
+        self.frames.splice(at..at, frames);
+        let shift = |i: usize| if i >= at { i + added } else { i };
+        for o in &mut self.overlays {
+            o.range = shift(o.range.start)..shift(o.range.end);
         }
     }
 
@@ -227,11 +293,24 @@ impl Document {
 
     /// Two overlays paint identically and so are safe to fold into one: same
     /// content, same box, same everything but the id and where they sit.
+    /// Field by field rather than through a clone, since a multi-frame drag
+    /// asks this for every overlay pair on every hop; the destructure keeps
+    /// a field added to `Overlay` from slipping past it.
     fn overlays_mergeable(a: &Overlay, b: &Overlay) -> bool {
-        let mut a = a.clone();
-        a.id = b.id;
-        a.range = b.range.clone();
-        a == *b
+        let Overlay {
+            id: _,
+            range: _,
+            name,
+            kind,
+            transform,
+            opacity,
+            hidden,
+        } = a;
+        *name == b.name
+            && *kind == b.kind
+            && *transform == b.transform
+            && *opacity == b.opacity
+            && *hidden == b.hidden
     }
 
     /// Fold adjacent overlays back into one where a move split them and they
@@ -373,7 +452,7 @@ impl Document {
         if n < 2 {
             return;
         }
-        self.retain_frames(|i| (i + 1) % n != 0);
+        self.retain_frames(|i| (i + 1) % n != 0, DroppedDelay::Keep);
     }
 
     /// Replace one frame's pixels, as the external editor handoff does. The
@@ -457,7 +536,7 @@ impl Document {
                 }
             }
         }
-        self.retain_frames(|i| !doomed[i]);
+        self.retain_frames(|i| !doomed[i], DroppedDelay::Keep);
     }
 
     /// Crop every frame to `rect`, clamped to the canvas. Document-wide by
@@ -681,6 +760,122 @@ impl Document {
             })
             .collect()
     }
+
+    /// The frames a mirror would produce, as `(index, frame)` pairs the way
+    /// `zoomed_frames` does. Overlays are live and stay where they are; only
+    /// the frame pixels flip.
+    pub fn mirrored_frames(
+        &self,
+        indices: &[usize],
+        axis: Axis,
+        mut progress: impl FnMut(usize, usize),
+    ) -> Vec<(usize, Frame)> {
+        let wanted = self.existing(indices);
+        let total = wanted.len();
+        wanted
+            .into_iter()
+            .enumerate()
+            .map(|(done, i)| {
+                let frame = &self.frames[i];
+                let pixels = match axis {
+                    Axis::Horizontal => image::imageops::flip_horizontal(frame.pixels.as_ref()),
+                    Axis::Vertical => image::imageops::flip_vertical(frame.pixels.as_ref()),
+                };
+                progress(done + 1, total);
+                (i, rebuilt(frame, pixels))
+            })
+            .collect()
+    }
+
+    /// The frames a fade over `indices` would produce. The picked frames are
+    /// the ramp, in timeline order whether or not they touch: a fade in
+    /// starts on solid `colour` and climbs towards the frame after the run, a
+    /// fade out falls from the frame before the run to solid `colour` on its
+    /// last frame. Each step mixes `1/len` more or less of the colour in.
+    pub fn faded_frames(
+        &self,
+        indices: &[usize],
+        fade: Fade,
+        colour: Rgba8,
+        mut progress: impl FnMut(usize, usize),
+    ) -> Vec<(usize, Frame)> {
+        let mut wanted = self.existing(indices);
+        wanted.sort_unstable();
+        wanted.dedup();
+        let total = wanted.len();
+        wanted
+            .into_iter()
+            .enumerate()
+            .map(|(step, i)| {
+                let amount = match fade {
+                    Fade::In => 1.0 - step as f32 / total as f32,
+                    Fade::Out => (step + 1) as f32 / total as f32,
+                };
+                let frame = &self.frames[i];
+                let mut pixels = (*frame.pixels).clone();
+                for p in pixels.pixels_mut() {
+                    p.0 = mix(p.0, colour, amount);
+                }
+                progress(step + 1, total);
+                (i, rebuilt(frame, pixels))
+            })
+            .collect()
+    }
+
+    /// How many frames a loop cross-fade can blend: the head it fades into
+    /// and the tail it fades over must not overlap.
+    pub fn loop_fade_limit(&self) -> usize {
+        self.frames.len() / 2
+    }
+
+    /// The tail frames a loop cross-fade of `count` frames produces. The
+    /// last `count` frames dissolve into the first `count`, so the end plays
+    /// into the start without a cut; landing them is half the edit, and
+    /// deleting the first `count` frames — now played by the dissolve — is
+    /// the other half, `apply_loop_fade`'s second step.
+    pub fn loop_faded_frames(
+        &self,
+        count: usize,
+        mut progress: impl FnMut(usize, usize),
+    ) -> Vec<(usize, Frame)> {
+        let count = count.min(self.loop_fade_limit());
+        let tail_start = self.frames.len() - count;
+        (0..count)
+            .map(|step| {
+                let (tail, head) = (&self.frames[tail_start + step], &self.frames[step]);
+                let into_head = (step + 1) as f32 / (count + 1) as f32;
+                let (w, h) = tail.pixels.dimensions();
+                let head_pixels = crop_with_padding(head.pixels.as_ref(), 0, 0, w, h);
+                let mut pixels = (*tail.pixels).clone();
+                for (p, q) in pixels.pixels_mut().zip(head_pixels.pixels()) {
+                    p.0 = mix(p.0, q.0, into_head);
+                }
+                progress(step + 1, count);
+                (tail_start + step, rebuilt(tail, pixels))
+            })
+            .collect()
+    }
+
+    /// Land a loop cross-fade: swap in the dissolved tail, then drop the head
+    /// it now plays. The head's time goes with it — the dissolve already
+    /// spends the tail's.
+    pub fn apply_loop_fade(&mut self, tail: Vec<(usize, Frame)>) {
+        let count = tail.len();
+        for (i, frame) in tail {
+            self.frames[i] = frame;
+        }
+        self.delete_frames(0..count);
+    }
+
+    /// `indices` with anything past the end dropped, so a stale scope never
+    /// indexes out of bounds.
+    fn existing(&self, indices: &[usize]) -> Vec<usize> {
+        indices
+            .iter()
+            .copied()
+            .filter(|i| *i < self.frames.len())
+            .collect()
+    }
 }
 
 /// Crop against the document canvas even if a frame imported from an external
@@ -696,6 +891,27 @@ fn crop_with_padding(image: &RgbaImage, x: u32, y: u32, w: u32, h: u32) -> RgbaI
     let cropped = image::imageops::crop_imm(image, x, y, copy_w, copy_h).to_image();
     image::imageops::replace(&mut output, &cropped, 0, 0);
     output
+}
+
+/// A frame with new pixels and everything else carried over from `source`.
+fn rebuilt(source: &Frame, pixels: RgbaImage) -> Frame {
+    let mut produced = Frame::new(pixels, source.delay_cs);
+    produced.detached = source.detached;
+    produced
+}
+
+/// `a` with `amount` (0–1) of `b` mixed in, weighting colour by alpha so a
+/// transparent pixel contributes no colour and fading towards transparent
+/// thins the alpha instead of darkening the image.
+fn mix(a: Rgba8, b: Rgba8, amount: f32) -> Rgba8 {
+    let wa = a[3] as f32 * (1.0 - amount);
+    let wb = b[3] as f32 * amount;
+    let alpha = wa + wb;
+    if alpha <= 0.0 {
+        return [0, 0, 0, 0];
+    }
+    let channel = |c: usize| ((a[c] as f32 * wa + b[c] as f32 * wb) / alpha).round() as u8;
+    [channel(0), channel(1), channel(2), alpha.round() as u8]
 }
 
 /// Per-frame delays for `count` frames at `fps`, distributing the centisecond
@@ -874,20 +1090,157 @@ mod tests {
         assert_eq!(d.duration_cs(), before, "removal must not speed the gif up");
     }
 
+    /// The reported bug: trimming a GIF's opening frames left the first
+    /// survivor holding their whole running time, a multi-second freeze. A
+    /// run deleted off either end takes its time with it; a frame deleted
+    /// from between two survivors still hands its time to the one before.
     #[test]
-    fn delete_preserves_duration() {
-        let mut d = doc(4, 10);
-        d.delete_frames(1..3);
-        assert_eq!(d.duration_cs(), 40);
-        assert_eq!(d.frames[0].delay_cs, 30);
+    fn deleting_off_either_end_drops_the_time_but_between_survivors_keeps_it() {
+        let delays = |d: &Document| d.frames.iter().map(|f| f.delay_cs).collect::<Vec<_>>();
+        let numbered = || {
+            Document::from_frames(
+                (1..=6u16)
+                    .map(|cs| Frame::new(RgbaImage::new(2, 2), cs * 10))
+                    .collect(),
+            )
+        };
+
+        let mut head = numbered();
+        head.delete_frames(0..3);
+        assert_eq!(delays(&head), vec![40, 50, 60], "trimmed start");
+
+        let mut tail = numbered();
+        tail.delete_frames_at(&[4, 5]);
+        assert_eq!(delays(&tail), vec![10, 20, 30, 40], "trimmed end");
+
+        let mut both = numbered();
+        both.delete_frames_at(&[0, 2, 5]);
+        assert_eq!(
+            delays(&both),
+            vec![20 + 30, 40, 50],
+            "ends go, the middle merges"
+        );
+    }
+
+    fn px(d: &Document, frame: usize, x: u32, y: u32) -> [u8; 4] {
+        d.frames[frame].pixels.get_pixel(x, y).0
+    }
+
+    /// A 2×2 frame with one red corner at the top left, so each mirror axis
+    /// moves it somewhere different.
+    fn corner_doc(n: usize) -> Document {
+        let mut img = RgbaImage::from_pixel(2, 2, image::Rgba([0, 0, 0, 255]));
+        img.put_pixel(0, 0, image::Rgba([255, 0, 0, 255]));
+        Document::from_frames((0..n).map(|_| Frame::new(img.clone(), 7)).collect())
     }
 
     #[test]
-    fn deleting_the_first_frame_rolls_delay_forward() {
-        let mut d = doc(3, 10);
-        d.delete_frames(0..1);
-        assert_eq!(d.duration_cs(), 30);
-        assert_eq!(d.frames[0].delay_cs, 20);
+    fn mirroring_flips_only_the_picked_frames_along_its_axis() {
+        let mut d = corner_doc(3);
+        d.frames[2].detached = true;
+        let red = [255, 0, 0, 255];
+
+        let horizontal = d.mirrored_frames(&[0, 2, 9], Axis::Horizontal, |_, _| {});
+        assert_eq!(
+            horizontal.iter().map(|(i, _)| *i).collect::<Vec<_>>(),
+            vec![0, 2],
+            "the stale index is skipped"
+        );
+        let vertical = d.mirrored_frames(&[1], Axis::Vertical, |_, _| {});
+        for (i, frame) in horizontal.into_iter().chain(vertical) {
+            d.frames[i] = frame;
+        }
+        assert_eq!(px(&d, 0, 1, 0), red, "horizontal: top left → top right");
+        assert_eq!(px(&d, 1, 0, 1), red, "vertical: top left → bottom left");
+        assert_eq!(px(&d, 2, 1, 0), red);
+        assert!(d.frames[2].detached, "detached rides along");
+        assert!(
+            d.frames.iter().all(|f| f.delay_cs == 7),
+            "delays ride along"
+        );
+    }
+
+    fn grey_doc(n: usize) -> Document {
+        Document::from_frames(
+            (0..n)
+                .map(|_| {
+                    Frame::new(
+                        RgbaImage::from_pixel(2, 2, image::Rgba([200, 200, 200, 255])),
+                        5,
+                    )
+                })
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn a_fade_ramps_from_and_to_the_colour_across_the_picked_run() {
+        let black = [0, 0, 0, 255];
+        let d = grey_doc(6);
+        let red = |frames: Vec<(usize, Frame)>| -> Vec<(usize, u8)> {
+            frames
+                .into_iter()
+                .map(|(i, f)| (i, f.pixels.get_pixel(0, 0)[0]))
+                .collect()
+        };
+
+        // Picked out of order: the ramp still follows the timeline.
+        let fade_in = red(d.faded_frames(&[3, 1, 2, 4], Fade::In, black, |_, _| {}));
+        assert_eq!(fade_in, vec![(1, 0), (2, 50), (3, 100), (4, 150)]);
+
+        let fade_out = red(d.faded_frames(&[2, 3, 4, 5], Fade::Out, black, |_, _| {}));
+        assert_eq!(fade_out, vec![(2, 150), (3, 100), (4, 50), (5, 0)]);
+    }
+
+    #[test]
+    fn fading_to_transparent_thins_alpha_instead_of_darkening() {
+        let d = grey_doc(2);
+        let faded = d.faded_frames(&[0, 1], Fade::Out, [0, 0, 0, 0], |_, _| {});
+        assert_eq!(faded[0].1.pixels.get_pixel(0, 0).0, [200, 200, 200, 128]);
+        assert_eq!(faded[1].1.pixels.get_pixel(0, 0).0, [0, 0, 0, 0]);
+    }
+
+    /// Frame `i` is solid grey level `i * 10`, so a blend reads back as the
+    /// mix of the two levels it came from.
+    fn level_doc(n: usize) -> Document {
+        Document::from_frames(
+            (0..n)
+                .map(|i| {
+                    let v = (i * 10) as u8;
+                    Frame::new(RgbaImage::from_pixel(2, 2, image::Rgba([v, v, v, 255])), 4)
+                })
+                .collect(),
+        )
+    }
+
+    /// The loop has to run tail → head without a cut: the last frame is
+    /// mostly the head's last blended frame, and what plays next is the
+    /// first frame the dissolve did not already show.
+    #[test]
+    fn a_loop_fade_dissolves_the_tail_into_the_head_and_drops_the_head() {
+        let mut d = level_doc(10);
+        d.add_overlay("head", shape(), Transform::at(0., 0., 1., 1.), 0..2);
+        let tail = d.loop_faded_frames(2, |_, _| {});
+        assert_eq!(tail.iter().map(|(i, _)| *i).collect::<Vec<_>>(), vec![8, 9]);
+        d.apply_loop_fade(tail);
+
+        let levels: Vec<u8> = (0..d.frames.len()).map(|i| px(&d, i, 0, 0)[0]).collect();
+        // tail 80 → head 0 at a third: 53; tail 90 → head 10 at two thirds: 37
+        assert_eq!(levels, vec![20, 30, 40, 50, 60, 70, 53, 37]);
+        assert_eq!(d.duration_cs(), 8 * 4, "the head's time goes with it");
+        assert!(
+            d.overlays.is_empty(),
+            "an overlay only on the head goes too"
+        );
+    }
+
+    #[test]
+    fn a_loop_fade_never_blends_a_frame_into_itself() {
+        let d = level_doc(5);
+        assert_eq!(d.loop_fade_limit(), 2);
+        let tail = d.loop_faded_frames(99, |_, _| {});
+        assert_eq!(tail.iter().map(|(i, _)| *i).collect::<Vec<_>>(), vec![3, 4]);
+        assert!(level_doc(1).loop_faded_frames(3, |_, _| {}).is_empty());
     }
 
     #[test]
@@ -1003,6 +1356,30 @@ mod tests {
         assert_eq!(d.frames.len(), 5);
         assert_eq!(d.overlay(covering).unwrap().range, 1..4);
         assert_eq!(d.overlay(after).unwrap().range, 4..5);
+    }
+
+    /// Duplicating a selection in one pass has to land exactly where copying
+    /// the frames one at a time, back to front, did — frames, copies and every
+    /// overlay boundary — including at a band's edges and the last frame.
+    #[test]
+    fn duplicating_a_selection_at_once_matches_one_frame_at_a_time() {
+        let t = Transform::at(0., 0., 1., 1.);
+        let mut one_pass = doc_distinct(7);
+        one_pass.add_overlay("starts-on-pick", shape(), t, 1..3);
+        one_pass.add_overlay("ends-after-pick", shape(), t, 3..5);
+        one_pass.add_overlay("untouched", shape(), t, 5..6);
+        one_pass.add_overlay("to-the-end", shape(), t, 4..7);
+        let mut one_by_one = one_pass.clone();
+
+        let picked = [1, 4, 6, 99];
+        one_pass.duplicate_frames_at(&picked);
+        // The one-at-a-time definition: a copy spliced in right after it.
+        for &i in picked.iter().rev().filter(|i| **i < 7) {
+            let copy = one_by_one.frames[i].clone();
+            one_by_one.insert_frame_at(i + 1, copy);
+        }
+        assert_eq!(order(&one_pass), vec![0, 1, 1, 2, 3, 4, 4, 5, 6, 6]);
+        assert_eq!(one_pass, one_by_one);
     }
 
     #[test]

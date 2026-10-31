@@ -70,13 +70,7 @@ impl App {
         };
         let (change, _) = self.editor.edit(label, touched, |d| match op {
             FrameOp::Delete | FrameOp::Cut => d.delete_frames_at(&frames),
-            // back to front, so each insert leaves the rest of the
-            // selection's indices alone
-            FrameOp::Duplicate => {
-                for i in frames.iter().rev() {
-                    d.duplicate_frame(*i);
-                }
-            }
+            FrameOp::Duplicate => d.duplicate_frames_at(&frames),
             // Reversing a set of frames that are not a run has no meaning
             // beyond reversing what they span.
             FrameOp::Reverse => d.reverse_frames(first..last + 1),
@@ -503,14 +497,7 @@ impl App {
             return;
         }
         self.crop_tool = false;
-        let work = FrameWork::Crop { rect };
-        self.busy = Some(Busy {
-            kind: BusyKind::Crop,
-            done: 0,
-            total: Some(work.touched(&self.editor.doc)),
-            cancel: None,
-        });
-        run_frame_work(&self.editor.doc, work, sender);
+        self.start_frame_work(FrameWork::Crop { rect }, sender);
     }
 
     /// Probe and decode off the main thread. `import_at` has already been set
@@ -612,9 +599,13 @@ impl App {
             return;
         }
         self.crop_tool = false;
-        let work = FrameWork::Zoom { frames, rect };
+        self.start_frame_work(FrameWork::Zoom { frames, rect }, sender);
+    }
+
+    /// Claim the progress bar for `work` and hand it to the worker.
+    pub(super) fn start_frame_work(&mut self, work: FrameWork, sender: &ComponentSender<Self>) {
         self.busy = Some(Busy {
-            kind: BusyKind::Zoom,
+            kind: work.busy_kind(),
             done: 0,
             total: Some(work.touched(&self.editor.doc)),
             cancel: None,
@@ -758,6 +749,15 @@ pub(super) fn run_frame_work(doc: &Document, work: FrameWork, sender: &Component
                     let (x, y, w, h) = *rect;
                     doc.cropped_frames(x, y, w, h, &mut progress)
                 }
+                FrameWork::Mirror { frames, axis } => {
+                    doc.mirrored_frames(frames, *axis, &mut progress)
+                }
+                FrameWork::Fade {
+                    frames,
+                    fade,
+                    colour,
+                } => doc.faded_frames(frames, *fade, *colour, &mut progress),
+                FrameWork::LoopFade { count } => doc.loop_faded_frames(*count, &mut progress),
             };
             Box::new(WorkDone {
                 label: work.label(),
@@ -765,6 +765,7 @@ pub(super) fn run_frame_work(doc: &Document, work: FrameWork, sender: &Component
                 scale: work.scale(&doc),
                 shift: work.shift(),
                 frames,
+                land: work.landing(),
             })
         }))
         .map_err(|_| n("The frame operation failed."));

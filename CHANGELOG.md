@@ -1,5 +1,43 @@
 # Changelog
 
+## Unreleased
+
+### Menus
+
+- Every editing command now sits in one menu bar in the header: Frames,
+  Insert, Effects, Image and Optimize. ☰ keeps Open, Export, Add frames,
+  Keyboard shortcuts and About. The ⋯ button beside the scope buttons is
+  gone; its commands are under Frames. In a window narrower than the bar
+  needs, the bar folds into ☰ as submenus.
+- "Crop frames…" is in the Image menu. The dialog existed, but no menu
+  item opened it.
+
+### Effects
+
+- Mirror horizontally or vertically flips the frames in scope: the frame on
+  screen, the selection, or all frames.
+- Fade in and Fade out ramp the frames in scope from or to black, white or
+  transparent. Select the run in the strip first.
+- Cross-fade the loop dissolves the last frames into the first ones so the
+  animation loops without a cut, then removes those first frames, since the
+  dissolve already shows them.
+- All five can be given a shortcut in the shortcuts window; none has one by
+  default.
+
+### Frames
+
+- Deleting frames from the start or end of the animation no longer adds
+  their time to the frame next to them. Trimming the opening second of a
+  GIF left its first remaining frame holding that whole second. A frame
+  deleted between two others still hands its delay to the one before it.
+- Duplicating or pasting many frames at once does one pass over the frame
+  list instead of one per frame. Dragging a large selection no longer copies
+  each overlay for every comparison it makes while re-merging bands.
+- The strip keeps thumbnail images between edits, so an edit no longer
+  re-copies every thumbnail, or rescales every one when the strip is zoomed
+  out. Playback and selection changes no longer scan the selection once per
+  thumbnail.
+
 ## 0.1.5 — 2026-09-25
 
 ### Overlays

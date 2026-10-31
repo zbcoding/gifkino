@@ -83,7 +83,8 @@ impl Component for App {
             | BusyKind::Zoom
             | BusyKind::Shrink
             | BusyKind::Crop
-            | BusyKind::Fit => {
+            | BusyKind::Fit
+            | BusyKind::Effect => {
                 msg.requires_idle()
                     && !(matches!(msg, Msg::DeleteSelection) && self.selected_overlay.is_some())
             }
@@ -596,13 +597,7 @@ impl Component for App {
                     return;
                 };
                 self.crop_tool = false;
-                self.busy = Some(Busy {
-                    kind: BusyKind::Shrink,
-                    done: 0,
-                    total: Some(work.touched(&self.editor.doc)),
-                    cancel: None,
-                });
-                run_frame_work(&self.editor.doc, work, &sender);
+                self.start_frame_work(work, &sender);
             }
             Msg::CropAllDialog => {
                 let (cw, ch) = self.editor.doc.size();
@@ -682,14 +677,35 @@ impl Component for App {
                     ));
                     return;
                 }
-                let work = FrameWork::Resize(w, h);
-                self.busy = Some(Busy {
-                    kind: BusyKind::Resize,
-                    done: 0,
-                    total: Some(self.frame_count()),
-                    cancel: None,
-                });
-                run_frame_work(&self.editor.doc, work, &sender);
+                self.start_frame_work(FrameWork::Resize(w, h), &sender);
+            }
+            Msg::Mirror(axis) => {
+                let frames = self.scope_frames();
+                if !frames.is_empty() {
+                    self.start_frame_work(FrameWork::Mirror { frames, axis }, &sender);
+                }
+            }
+            Msg::FadeDialog(fade) => {
+                fade_dialog(root, fade, self.scope_frames().len(), &sender);
+            }
+            Msg::ApplyFade { fade, colour } => {
+                let frames = self.scope_frames();
+                if frames.len() >= 2 {
+                    let work = FrameWork::Fade {
+                        frames,
+                        fade,
+                        colour,
+                    };
+                    self.start_frame_work(work, &sender);
+                }
+            }
+            Msg::LoopFadeDialog => {
+                loop_fade_dialog(root, self.editor.doc.loop_fade_limit(), &sender);
+            }
+            Msg::ApplyLoopFade(count) => {
+                if count.min(self.editor.doc.loop_fade_limit()) > 0 {
+                    self.start_frame_work(FrameWork::LoopFade { count }, &sender);
+                }
             }
             Msg::SetKeymap(map) => {
                 map.save();
@@ -740,13 +756,12 @@ impl Component for App {
                 scale,
                 shift,
                 frames,
+                land,
             } = *done;
             let (fx, fy) = scale;
             let (dx, dy) = shift;
             let (change, _) = self.editor.edit(label, frames_touched, |d| {
-                for (i, frame) in frames {
-                    d.frames[i] = frame;
-                }
+                land(d, frames);
                 d.scale_overlays(fx, fy);
                 for o in &mut d.overlays {
                     o.transform.x -= dx;

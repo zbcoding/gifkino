@@ -16,6 +16,7 @@
       <li>Opens GIFs, still images and videos, with a large clip offered at a smaller recommended size before it is decoded.</li>
       <li>Overlays scoped to frame ranges: text, shapes (rectangle, ellipse, arrow) and images, placed on the frames you pick. Drag to move them on the canvas, hold Alt to rotate, Shift to keep the aspect ratio, Ctrl to resize from the center.</li>
       <li>Frame list editing: reorder, duplicate, delete, retime, cut, copy and paste, drop one frame in every N, and smart-drop the frames that move the least.</li>
+      <li>Frame effects: mirror horizontally or vertically, fade in or out to black, white or transparent, and cross-fade the end into the start for a seamless loop.</li>
       <li>Crop, resize, rotate and flip, applied across the whole animation.</li>
       <li>A timeline that zooms, with overlay bands showing what covers what.</li>
       <li>Undo and redo over every edit, including scoped overlay changes.</li>

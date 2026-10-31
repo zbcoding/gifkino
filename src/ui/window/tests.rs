@@ -817,7 +817,7 @@ fn strip_cells_sit_at_the_pitch_the_bands_are_drawn_at() {
     let thumb = image::RgbaImage::new(41, THUMB_BOX as u32);
     let strip = gtk::Box::new(gtk::Orientation::Horizontal, THUMB_SPACING);
     for i in 0..6 {
-        let picture = gtk::Picture::for_paintable(&texture_from(&thumb));
+        let picture = gtk::Picture::new();
         let cell = gtk::Box::new(gtk::Orientation::Vertical, 2);
         cell.append(&picture);
         // Four digits: wider than the thumbnail once the strip zooms out.
@@ -828,10 +828,12 @@ fn strip_cells_sit_at_the_pitch_the_bands_are_drawn_at() {
     }
     let window = gtk::Window::new();
     window.set_child(Some(&strip));
+    let mut textures = ThumbTextures::new();
     for zoom in [STRIP_ZOOM_MIN, 0.5, 1.0, 2.0, STRIP_ZOOM_MAX] {
         for cell in thumb_children(&strip) {
             let picture = cell.first_child().and_downcast::<gtk::Picture>().unwrap();
-            set_thumb_zoom(&picture, &thumb, zoom);
+            let texture = thumb_texture(&mut textures, 0, &thumb, zoom);
+            set_thumb_zoom(&picture, &texture, thumb.dimensions(), zoom);
         }
         let (_, width, _, _) = strip.measure(gtk::Orientation::Horizontal, -1);
         strip.allocate(width, 400, -1, None);
@@ -1546,6 +1548,7 @@ fn gtk_widget_regressions() {
     the_layer_list_is_bounded_by_its_own_row_height();
     the_layer_list_bounds_survive_the_list_emptying();
     the_strip_viewport_does_not_chase_the_focus();
+    strip_cells_sit_at_the_pitch_the_bands_are_drawn_at();
     the_fit_chooser_maps_one_radio_to_each_mode();
     the_resize_dialog_offers_cancel_and_apply();
     linked_resize_fields_track_each_other_live();

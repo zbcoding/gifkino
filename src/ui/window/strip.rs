@@ -58,30 +58,67 @@ pub(super) fn strip_width(count: usize, pitch: f64) -> i32 {
     (count as f64 * pitch) as i32
 }
 
-/// Size one strip thumbnail for `zoom`. Zooming in is a size request over
-/// the thumbnail's own texture, which a `GtkPicture` scales up to whatever
-/// it is given. Zooming out has to shrink the texture: a picture never
-/// measures smaller than its paintable, so below 1x a request alone left
-/// every cell at its 1x width while the bands under them shrank away from
-/// the frames they annotate. The scaled copies are cheap — a thumbnail is
-/// `THUMB_BOX` pixels on its long side — and only built when the zoom moves.
-pub(super) fn set_thumb_zoom(picture: &gtk::Picture, thumb: &image::RgbaImage, zoom: f64) {
-    let (w, h) = (zoomed(thumb.width(), zoom), zoomed(thumb.height(), zoom));
-    let paintable_w = picture.paintable().map(|p| p.intrinsic_width());
-    if zoom < 1.0 {
-        if paintable_w != Some(w) {
-            let small = image::imageops::resize(
-                thumb,
-                w as u32,
-                h as u32,
-                image::imageops::FilterType::Triangle,
-            );
-            picture.set_paintable(Some(&texture_from(&small)));
-        }
-    } else if paintable_w != Some(thumb.width() as i32) {
-        picture.set_paintable(Some(&texture_from(thumb)));
+/// Strip thumbnail textures by frame key and drawn width. A rebuild makes
+/// fresh cells for every frame, but most of the frames are the ones it
+/// showed before; their textures — and below 1x their rescaled copies — are
+/// reused instead of rebuilt for the whole document on every edit.
+pub(super) type ThumbTextures = std::collections::HashMap<(u64, i32), gdk::Texture>;
+
+/// The texture a strip cell shows for the frame keyed `key` at `zoom`.
+/// Zooming in is a size request over the thumbnail's own texture, which a
+/// `GtkPicture` scales up to whatever it is given. Zooming out has to shrink
+/// the texture: a picture never measures smaller than its paintable, so
+/// below 1x a request alone left every cell at its 1x width while the bands
+/// under them shrank away from the frames they annotate.
+pub(super) fn thumb_texture(
+    cache: &mut ThumbTextures,
+    key: u64,
+    thumb: &image::RgbaImage,
+    zoom: f64,
+) -> gdk::Texture {
+    let full_w = thumb.width() as i32;
+    let w = if zoom < 1.0 {
+        zoomed(thumb.width(), zoom)
+    } else {
+        full_w
+    };
+    cache
+        .entry((key, w))
+        .or_insert_with(|| {
+            if w == full_w {
+                return texture_from(thumb);
+            }
+            let h = zoomed(thumb.height(), zoom) as u32;
+            let small =
+                image::imageops::resize(thumb, w as u32, h, image::imageops::FilterType::Triangle);
+            texture_from(&small)
+        })
+        .clone()
+}
+
+/// Show `texture` in a strip thumbnail sized for `zoom`; `size` is the 1x
+/// thumbnail's.
+pub(super) fn set_thumb_zoom(
+    picture: &gtk::Picture,
+    texture: &gdk::Texture,
+    (w, h): (u32, u32),
+    zoom: f64,
+) {
+    if picture.paintable().as_ref() != Some(texture.upcast_ref::<gdk::Paintable>()) {
+        picture.set_paintable(Some(texture));
     }
-    picture.set_size_request(w, h);
+    picture.set_size_request(zoomed(w, zoom), zoomed(h, zoom));
+}
+
+/// Membership of each frame index below `count` in `frames`, so a per-cell
+/// pass over the strip asks in constant time instead of scanning a list
+/// that can be every frame long.
+pub(super) fn frame_mask(frames: &[usize], count: usize) -> Vec<bool> {
+    let mut mask = vec![false; count];
+    for &i in frames.iter().filter(|i| **i < count) {
+        mask[i] = true;
+    }
+    mask
 }
 
 /// New timeline-strip zoom after a `Msg::StripZoom(factor)`: `factor` multiplies
@@ -458,9 +495,9 @@ pub(super) fn rebuild_strip(
     strip.insert_action_group("frame", Some(&group));
 
     for (i, frame) in doc.frames.iter().enumerate() {
-        // Sized by `set_thumb_zoom`, which `update_view` runs over the whole
-        // strip right after any rebuild.
-        let picture = gtk::Picture::for_paintable(&texture_from(&frame.thumb));
+        // Empty until `update_view`, which runs `set_thumb_zoom` over the
+        // whole strip right after any rebuild.
+        let picture = gtk::Picture::new();
         // The drag-reorder divider is an Overlay child rather than CSS on
         // the cell: an inset box-shadow painted below the child widgets and
         // never showed over the thumbnail. Overlays paint on top.

@@ -27,48 +27,34 @@ pub(super) fn build(
     connect(&export, sender, || Msg::Export);
     header.pack_end(&export);
 
-    let menu = gio::Menu::new();
     let file = gio::Menu::new();
     file.append(Some(t("Open…")), Some("win.open"));
     file.append(Some(t("Export GIF…")), Some("win.export"));
     // Translators: Decodes another video or GIF and appends its frames, so two
     // clips can be mixed into one timeline.
     file.append(Some(t("Add frames from file…")), Some("win.import-more"));
-    menu.append_section(None, &file);
-
-    let insert = gio::Menu::new();
-    for (tool, action) in [
-        (Tool::Text, "win.insert-text"),
-        (Tool::Rect, "win.insert-rect"),
-        (Tool::Ellipse, "win.insert-ellipse"),
-        (Tool::Arrow, "win.insert-arrow"),
-    ] {
-        insert.append(Some(t(tool_label(tool))), Some(action));
-    }
-    menu.append_submenu(Some(t("Insert")), &insert);
-
-    let image = gio::Menu::new();
-    image.append(Some(t("Resize frames…")), Some("win.optimize-resize"));
-    // Translators: Like the Zoom and resize button, but ignoring the frame
-    // scope — needs a box drawn with the crop tool first.
-    image.append(
-        Some(t("Zoom and resize all frames")),
-        Some("win.optimize-zoom-all"),
-    );
-    menu.append_submenu(Some(t("Image")), &image);
-
-    // Everything that makes the GIF smaller, in one place. "Halve frame rate"
-    // used to sit in the frame menu pretending to be a rate control; it was
-    // deleting every second frame, which is what these say they do.
-    let optimize = gio::Menu::new();
-    optimize.append(Some(t("Remove frames…")), Some("win.optimize-remove"));
-    optimize.append(Some(t("Smart remove frames…")), Some("win.optimize-smart"));
-    menu.append_submenu(Some(t("Optimize")), &optimize);
-
     let settings_menu = gio::Menu::new();
     settings_menu.append(Some(t("Keyboard shortcuts…")), Some("win.shortcuts"));
     settings_menu.append(Some(t("About")), Some("win.about"));
+
+    // Every editing command sits in one row of menus in the header. A narrow
+    // window has no room for that row, so the breakpoint below hides it and
+    // the ☰ menu carries the same menus as submenus instead.
+    let menubar_model = gio::Menu::new();
+    let menu = gio::Menu::new();
+    let narrow_menu = gio::Menu::new();
+    menu.append_section(None, &file);
+    narrow_menu.append_section(None, &file);
+    let narrow_edit = gio::Menu::new();
+    for (label, submenu) in edit_menus() {
+        menubar_model.append_submenu(Some(label), &submenu);
+        narrow_edit.append_submenu(Some(label), &submenu);
+    }
+    narrow_menu.append_section(None, &narrow_edit);
     menu.append_section(None, &settings_menu);
+    narrow_menu.append_section(None, &settings_menu);
+    let menubar = gtk::PopoverMenuBar::from_model(Some(&menubar_model));
+    header.pack_start(&menubar);
     let menu_button = gtk::MenuButton::builder()
         .icon_name("open-menu-symbolic")
         .menu_model(&menu)
@@ -234,24 +220,6 @@ pub(super) fn build(
     let footer = gtk::Box::new(gtk::Orientation::Vertical, 6);
     footer.set_margin_all(8);
 
-    let frame_menu = gio::Menu::new();
-    frame_menu.append(Some(t("Delete")), Some("win.frame-delete"));
-    frame_menu.append(Some(t("Duplicate")), Some("win.frame-duplicate"));
-    frame_menu.append(Some(t("Cut")), Some("win.frame-cut"));
-    frame_menu.append(Some(t("Copy")), Some("win.frame-copy"));
-    frame_menu.append(Some(t("Paste")), Some("win.frame-paste"));
-    frame_menu.append(Some(t("Reverse")), Some("win.frame-reverse"));
-    frame_menu.append(
-        Some(t("Set delay for all frames…")),
-        Some("win.frame-delay-all"),
-    );
-    let frame_menu_button = gtk::MenuButton::builder()
-        .icon_name("view-more-symbolic")
-        .menu_model(&frame_menu)
-        .tooltip_text(t("Frame operations"))
-        .build();
-    no_focus_steal(&frame_menu_button);
-
     let transport = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     let play = icon_button("media-playback-start-symbolic", "Play/pause (Space)");
     connect(&play, sender, || Msg::TogglePlay);
@@ -287,7 +255,6 @@ pub(super) fn build(
         scope_box.append(button);
     }
     transport.append(&scope_box);
-    transport.append(&frame_menu_button);
     footer.append(&transport);
 
     let strip = gtk::Box::new(gtk::Orientation::Horizontal, THUMB_SPACING);
@@ -831,6 +798,17 @@ pub(super) fn build(
     ));
     breakpoint.add_setter(&split, "collapsed", Some(&true.to_value()));
     root.add_breakpoint(breakpoint);
+    // Only one breakpoint applies at a time — the last that matches — so the
+    // narrow one repeats the sidebar collapse.
+    let narrow = adw::Breakpoint::new(adw::BreakpointCondition::new_length(
+        adw::BreakpointConditionLengthType::MaxWidth,
+        MENUBAR_MIN_WINDOW_W,
+        adw::LengthUnit::Px,
+    ));
+    narrow.add_setter(&split, "collapsed", Some(&true.to_value()));
+    narrow.add_setter(&menubar, "visible", Some(&false.to_value()));
+    narrow.add_setter(&menu_button, "menu-model", Some(&narrow_menu.to_value()));
+    root.add_breakpoint(narrow);
 
     let stack = gtk::Stack::new();
     stack.add_named(&status, Some("empty"));
@@ -871,6 +849,11 @@ pub(super) fn build(
         ("insert-rect", || Msg::AddOverlay(Tool::Rect)),
         ("insert-ellipse", || Msg::AddOverlay(Tool::Ellipse)),
         ("insert-arrow", || Msg::AddOverlay(Tool::Arrow)),
+        ("mirror-horizontal", || Msg::Mirror(Axis::Horizontal)),
+        ("mirror-vertical", || Msg::Mirror(Axis::Vertical)),
+        ("fade-in", || Msg::FadeDialog(Fade::In)),
+        ("fade-out", || Msg::FadeDialog(Fade::Out)),
+        ("loop-fade", || Msg::LoopFadeDialog),
         ("shortcuts", || Msg::Toast(String::new())),
     ] {
         let action = gio::SimpleAction::new(name, None);
@@ -999,8 +982,86 @@ pub(super) fn build(
         canvas_state,
         doc_info,
         bands_model,
+        thumb_textures: ThumbTextures::new(),
         sync,
     }
+}
+
+/// The header's editing menus, in the order they appear, each with the
+/// `win.*` actions `build` registers. Built once and shared by the menu bar
+/// and by the ☰ menu's narrow-window fallback.
+pub(super) fn edit_menus() -> [(&'static str, gio::Menu); 5] {
+    let frames = gio::Menu::new();
+    let clipboard = gio::Menu::new();
+    clipboard.append(Some(t("Cut")), Some("win.frame-cut"));
+    clipboard.append(Some(t("Copy")), Some("win.frame-copy"));
+    clipboard.append(Some(t("Paste")), Some("win.frame-paste"));
+    let list = gio::Menu::new();
+    list.append(Some(t("Delete")), Some("win.frame-delete"));
+    list.append(Some(t("Duplicate")), Some("win.frame-duplicate"));
+    list.append(Some(t("Reverse")), Some("win.frame-reverse"));
+    let timing = gio::Menu::new();
+    timing.append(
+        Some(t("Set delay for all frames…")),
+        Some("win.frame-delay-all"),
+    );
+    frames.append_section(None, &clipboard);
+    frames.append_section(None, &list);
+    frames.append_section(None, &timing);
+
+    let insert = gio::Menu::new();
+    for (tool, action) in [
+        (Tool::Text, "win.insert-text"),
+        (Tool::Rect, "win.insert-rect"),
+        (Tool::Ellipse, "win.insert-ellipse"),
+        (Tool::Arrow, "win.insert-arrow"),
+    ] {
+        insert.append(Some(t(tool_label(tool))), Some(action));
+    }
+
+    let effects = gio::Menu::new();
+    let mirror = gio::Menu::new();
+    for (action, name) in [
+        (Action::MirrorHorizontal, "win.mirror-horizontal"),
+        (Action::MirrorVertical, "win.mirror-vertical"),
+    ] {
+        mirror.append(Some(t(action.label())), Some(name));
+    }
+    let fades = gio::Menu::new();
+    for (action, name) in [
+        (Action::FadeIn, "win.fade-in"),
+        (Action::FadeOut, "win.fade-out"),
+        (Action::LoopFade, "win.loop-fade"),
+    ] {
+        fades.append(Some(t(action.label())), Some(name));
+    }
+    effects.append_section(None, &mirror);
+    effects.append_section(None, &fades);
+
+    let image = gio::Menu::new();
+    image.append(Some(t("Resize frames…")), Some("win.optimize-resize"));
+    // Translators: Crops every frame to a box typed in pixels, shrinking the canvas.
+    image.append(Some(t("Crop frames…")), Some("win.optimize-crop"));
+    // Translators: Like the Zoom and resize button, but ignoring the frame
+    // scope — needs a box drawn with the crop tool first.
+    image.append(
+        Some(t("Zoom and resize all frames")),
+        Some("win.optimize-zoom-all"),
+    );
+
+    // Everything that makes the GIF smaller, in one place.
+    let optimize = gio::Menu::new();
+    optimize.append(Some(t("Remove frames…")), Some("win.optimize-remove"));
+    optimize.append(Some(t("Smart remove frames…")), Some("win.optimize-smart"));
+
+    [
+        (t("Frames"), frames),
+        (t("Insert"), insert),
+        // Translators: Header menu with mirror, fade and loop cross-fade.
+        (t("Effects"), effects),
+        (t("Image"), image),
+        (t("Optimize"), optimize),
+    ]
 }
 
 /// A colour picker and a width spin encode one `Option<(colour, width)>`

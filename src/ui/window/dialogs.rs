@@ -647,6 +647,151 @@ pub(super) fn delay_all_dialog(
     });
 }
 
+/// The colours a fade can run to, in the order the dialog lists them. The
+/// first is the default.
+pub(super) const FADE_COLOURS: [(&str, Rgba8); 3] = [
+    // Translators: A fade color.
+    (n("Black"), [0, 0, 0, 255]),
+    // Translators: A fade color.
+    (n("White"), [255, 255, 255, 255]),
+    // Translators: A fade color: the frames fade to see-through.
+    (n("Transparent"), [0, 0, 0, 0]),
+];
+
+/// Effects menu: fade the frames in scope in from, or out to, a colour. A
+/// fade needs a run to ramp across, so with one frame in scope the dialog
+/// says how to pick more instead of offering a fade that would only paint
+/// one frame solid.
+pub(super) fn fade_dialog(
+    root: &adw::ApplicationWindow,
+    fade: Fade,
+    count: usize,
+    sender: &ComponentSender<App>,
+) {
+    let title = match fade {
+        // Translators: Dialog title; the frames in scope brighten in from a solid color.
+        Fade::In => t("Fade in"),
+        // Translators: Dialog title; the frames in scope sink out to a solid color.
+        Fade::Out => t("Fade out"),
+    };
+    if count < 2 {
+        let dialog = adw::AlertDialog::new(
+            Some(title),
+            // Translators: Shown when Fade in/out is picked with only one frame in scope.
+            Some(t(
+                "Select the frames to fade across in the strip first: Shift+click for a run, \
+                 or pick All frames.",
+            )),
+        );
+        // Translators: Dismisses a dialog that only explains something.
+        dialog.add_response("close", t("Close"));
+        dialog.present(Some(root));
+        return;
+    }
+    let body = match fade {
+        // Translators: {count} is a number of frames, at least 2.
+        Fade::In => t("The {count} frames in scope climb from a solid color to the full picture."),
+        // Translators: {count} is a number of frames, at least 2.
+        Fade::Out => t("The {count} frames in scope sink from the full picture to a solid color."),
+    };
+    let dialog = adw::AlertDialog::new(
+        Some(title),
+        Some(&fill(body, &[("count", &count.to_string())])),
+    );
+    let group = adw::PreferencesGroup::new();
+    let mut buttons: Vec<gtk::CheckButton> = Vec::new();
+    for (label, _) in FADE_COLOURS {
+        let row = adw::ActionRow::builder().title(t(label)).build();
+        if label == FADE_COLOURS[2].0 {
+            // Translators: Subtitle on the Transparent fade color.
+            row.set_subtitle(t(
+                "A GIF pixel is either opaque or clear, so this fade shows as dithering.",
+            ));
+        }
+        let radio = gtk::CheckButton::new();
+        radio.set_valign(gtk::Align::Center);
+        match buttons.first() {
+            Some(first) => radio.set_group(Some(first)),
+            None => radio.set_active(true),
+        }
+        row.add_prefix(&radio);
+        row.set_activatable_widget(Some(&radio));
+        group.add(&row);
+        buttons.push(radio);
+    }
+    dialog.set_extra_child(Some(&group));
+    dialog.add_response("cancel", t("Cancel"));
+    dialog.add_response("apply", t("Apply"));
+    dialog.set_response_appearance("apply", adw::ResponseAppearance::Suggested);
+    dialog.set_default_response(Some("apply"));
+    dialog.set_close_response("cancel");
+
+    let sender = sender.clone();
+    dialog.choose(Some(root), gio::Cancellable::NONE, move |response| {
+        if response != "apply" {
+            return;
+        }
+        let picked = buttons.iter().position(|b| b.is_active()).unwrap_or(0);
+        sender.input(Msg::ApplyFade {
+            fade,
+            colour: FADE_COLOURS[picked].1,
+        });
+    });
+}
+
+/// Effects menu: how many frames the loop cross-fade blends. `limit` is
+/// `Document::loop_fade_limit`, half the frame count.
+pub(super) fn loop_fade_dialog(
+    root: &adw::ApplicationWindow,
+    limit: usize,
+    sender: &ComponentSender<App>,
+) {
+    // Translators: Dialog title for blending the end of the animation into its start.
+    let title = t("Cross-fade the loop");
+    if limit == 0 {
+        let dialog = adw::AlertDialog::new(
+            Some(title),
+            // Translators: Shown when the document has a single frame.
+            Some(t("A loop cross-fade needs at least two frames.")),
+        );
+        dialog.add_response("close", t("Close"));
+        dialog.present(Some(root));
+        return;
+    }
+    let dialog = adw::AlertDialog::new(
+        Some(title),
+        // Translators: Body of the loop cross-fade dialog.
+        Some(t(
+            "The last frames dissolve into the first ones, so the end plays into the start \
+             without a cut. The first frames are then removed, since the dissolve already \
+             shows them: the animation gets that many frames shorter.",
+        )),
+    );
+    let spin = gtk::SpinButton::with_range(1.0, limit as f64, 1.0);
+    spin.set_value(limit.min(10) as f64);
+    spin.set_valign(gtk::Align::Center);
+    let group = adw::PreferencesGroup::new();
+    let row = adw::ActionRow::builder()
+        // Translators: How many frames at each end the loop cross-fade blends.
+        .title(t("Frames to blend"))
+        .build();
+    row.add_suffix(&spin);
+    group.add(&row);
+    dialog.set_extra_child(Some(&group));
+    dialog.add_response("cancel", t("Cancel"));
+    dialog.add_response("apply", t("Apply"));
+    dialog.set_response_appearance("apply", adw::ResponseAppearance::Suggested);
+    dialog.set_default_response(Some("apply"));
+    dialog.set_close_response("cancel");
+
+    let sender = sender.clone();
+    dialog.choose(Some(root), gio::Cancellable::NONE, move |response| {
+        if response == "apply" {
+            sender.input(Msg::ApplyLoopFade(spin.value() as usize));
+        }
+    });
+}
+
 /// A frame's own context menu: type an exact 1-based target position rather
 /// than nudging one step at a time.
 pub(super) fn move_frame_dialog(

@@ -18,7 +18,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: gifkino\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-31 09:46+0000\n"
+"POT-Creation-Date: 2026-10-31 10:08+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -33,134 +33,165 @@ msgstr ""
 msgid "{change} on {count} frames"
 msgstr ""
 
-#: src/keymap.rs:110 src/ui/window/update.rs:99
+#: src/keymap.rs:125 src/ui/window/update.rs:100
 msgid "Open"
 msgstr ""
 
-#: src/keymap.rs:111 src/ui/window/build.rs:26 src/ui/window/update.rs:179 src/ui/window/view.rs:113
+#: src/keymap.rs:126 src/ui/window/build.rs:26 src/ui/window/update.rs:180 src/ui/window/view.rs:115
 msgid "Export GIF"
 msgstr ""
 
-#: src/keymap.rs:112 src/ui/window/update.rs:898
+#: src/keymap.rs:127 src/ui/window/update.rs:913
 msgid "Undo"
 msgstr ""
 
-#: src/keymap.rs:113
+#: src/keymap.rs:128
 msgid "Redo"
 msgstr ""
 
-#: src/keymap.rs:114 src/ui/window/view.rs:116
+#: src/keymap.rs:129 src/ui/window/view.rs:118
 msgid "Play/pause"
 msgstr ""
 
-#: src/keymap.rs:115
+#: src/keymap.rs:130
 msgid "Select all frames"
 msgstr ""
 
-#: src/keymap.rs:116
+#: src/keymap.rs:131
 msgid "Delete selection"
 msgstr ""
 
-#: src/keymap.rs:117 src/ui/window/shortcuts.rs:134
+#: src/keymap.rs:132 src/ui/window/shortcuts.rs:139
 msgid "Keyboard shortcuts"
 msgstr ""
 
-#: src/keymap.rs:118
+#: src/keymap.rs:133
 msgid "Text tool"
 msgstr ""
 
-#: src/keymap.rs:119
+#: src/keymap.rs:134
 msgid "Rectangle tool"
 msgstr ""
 
-#: src/keymap.rs:120
+#: src/keymap.rs:135
 msgid "Ellipse tool"
 msgstr ""
 
-#: src/keymap.rs:121
+#: src/keymap.rs:136
 msgid "Arrow tool"
 msgstr ""
 
 #. Translators: Draws a box on the canvas for cropping or zooming.
-#: src/keymap.rs:123
+#: src/keymap.rs:138
 msgid "Crop tool"
 msgstr ""
 
 #. Translators: Toggles pulling dragged overlays onto the canvas edges and centre lines.
-#: src/keymap.rs:125 src/ui/window/view.rs:131
+#: src/keymap.rs:140 src/ui/window/view.rs:133
 msgid "Snap to edges and center"
 msgstr ""
 
-#: src/keymap.rs:126
+#: src/keymap.rs:141
 msgid "Delete frames"
 msgstr ""
 
-#: src/keymap.rs:127
+#: src/keymap.rs:142
 msgid "Duplicate frames"
 msgstr ""
 
-#: src/keymap.rs:128
+#: src/keymap.rs:143
 msgid "Cut frames"
 msgstr ""
 
-#: src/keymap.rs:129
+#: src/keymap.rs:144
 msgid "Copy frames"
 msgstr ""
 
 #. Translators: Inserts the cut or copied frames after the frame on screen.
-#: src/keymap.rs:131 src/ui/window/strip.rs:315 src/ui/window/strip.rs:357
+#: src/keymap.rs:146 src/ui/window/strip.rs:352 src/ui/window/strip.rs:394
 msgid "Paste frames"
 msgstr ""
 
-#: src/keymap.rs:132
+#: src/keymap.rs:147
 msgid "Reverse frames"
 msgstr ""
 
 #. Translators: Fills the canvas from the crop box, on the frame on screen.
-#: src/keymap.rs:134
+#: src/keymap.rs:149
 msgid "Zoom this frame"
 msgstr ""
 
 #. Translators: Makes the frame thumbnails in the timeline strip larger.
-#: src/keymap.rs:136
+#: src/keymap.rs:151
 msgid "Zoom in the frame strip"
 msgstr ""
 
 #. Translators: Makes the frame thumbnails in the timeline strip smaller.
-#: src/keymap.rs:138
+#: src/keymap.rs:153
 msgid "Zoom out the frame strip"
 msgstr ""
 
-#: src/keymap.rs:139
+#: src/keymap.rs:154
 msgid "Reset the frame strip zoom"
 msgstr ""
 
-#: src/keymap.rs:145
+#. Translators: Flips the frames in scope left to right.
+#: src/keymap.rs:156
+msgid "Mirror horizontally"
+msgstr ""
+
+#. Translators: Flips the frames in scope top to bottom.
+#: src/keymap.rs:158
+msgid "Mirror vertically"
+msgstr ""
+
+#. Translators: Opens a dialog that fades the frames in scope in from a solid color.
+#: src/keymap.rs:160
+msgid "Fade in…"
+msgstr ""
+
+#. Translators: Opens a dialog that fades the frames in scope out to a solid color.
+#: src/keymap.rs:162
+msgid "Fade out…"
+msgstr ""
+
+#. Translators: Blends the last frames into the first so the animation loops without a cut.
+#: src/keymap.rs:164
+msgid "Cross-fade the loop…"
+msgstr ""
+
+#: src/keymap.rs:170
 msgid "File"
 msgstr ""
 
-#: src/keymap.rs:146
+#: src/keymap.rs:171
 msgid "Edit"
 msgstr ""
 
-#: src/keymap.rs:147
+#: src/keymap.rs:172
 msgid "Tools"
 msgstr ""
 
-#: src/keymap.rs:148 src/keymap.rs:149 src/keymap.rs:150 src/ui/window/imports.rs:349
+#: src/keymap.rs:173 src/keymap.rs:174 src/keymap.rs:175 src/ui/window/build.rs:1058 src/ui/window/imports.rs:349
 msgid "Frames"
 msgstr ""
 
+#. Translators: Menu and shortcut group for mirror, fade and loop cross-fade.
+#. Translators: Header menu with mirror, fade and loop cross-fade.
+#: src/keymap.rs:177 src/ui/window/build.rs:1061
+msgid "Effects"
+msgstr ""
+
 #. Translators: Held while dragging an overlay on the canvas.
-#: src/keymap.rs:190
+#: src/keymap.rs:217
 msgid "Rotate instead of move"
 msgstr ""
 
-#: src/keymap.rs:191
+#: src/keymap.rs:218
 msgid "Keep the aspect ratio"
 msgstr ""
 
-#: src/keymap.rs:192
+#: src/keymap.rs:219
 msgid "Resize from the center"
 msgstr ""
 
@@ -181,7 +212,7 @@ msgstr ""
 msgid "Frames moved"
 msgstr ""
 
-#: src/ui/window/actions.rs:66 src/ui/window/update.rs:412
+#: src/ui/window/actions.rs:66 src/ui/window/update.rs:413
 msgid "Frames deleted"
 msgstr ""
 
@@ -197,43 +228,43 @@ msgstr ""
 msgid "Frames reversed"
 msgstr ""
 
-#: src/ui/window/actions.rs:117
+#: src/ui/window/actions.rs:111
 msgid "Frames pasted"
 msgstr ""
 
-#: src/ui/window/actions.rs:159
+#: src/ui/window/actions.rs:153
 msgid "Overlay reordered"
 msgstr ""
 
-#: src/ui/window/actions.rs:174
+#: src/ui/window/actions.rs:168
 msgid "Overlay deleted"
 msgstr ""
 
-#: src/ui/window/actions.rs:210
+#: src/ui/window/actions.rs:204
 msgid "The overlay is on those frames already"
 msgstr ""
 
-#: src/ui/window/actions.rs:214
+#: src/ui/window/actions.rs:208
 msgid "Overlay copied"
 msgstr ""
 
-#: src/ui/window/actions.rs:448
+#: src/ui/window/actions.rs:442
 msgid "Overlay moved"
 msgstr ""
 
-#: src/ui/window/actions.rs:449
+#: src/ui/window/actions.rs:443
 msgid "Overlay rotated"
 msgstr ""
 
-#: src/ui/window/actions.rs:450
+#: src/ui/window/actions.rs:444
 msgid "Overlay resized"
 msgstr ""
 
-#: src/ui/window/actions.rs:589 src/ui/window/dialogs.rs:288 src/ui/window/update.rs:681
+#: src/ui/window/actions.rs:576 src/ui/window/dialogs.rs:288 src/ui/window/update.rs:676
 msgid "That resize would use more memory than the configured limit."
 msgstr ""
 
-#: src/ui/window/actions.rs:722 src/ui/window/actions.rs:770
+#: src/ui/window/actions.rs:713 src/ui/window/actions.rs:771
 msgid "The frame operation failed."
 msgstr ""
 
@@ -241,222 +272,223 @@ msgstr ""
 msgid "Export"
 msgstr ""
 
-#: src/ui/window/build.rs:32 src/ui/window/build.rs:87
+#: src/ui/window/build.rs:31 src/ui/window/build.rs:73
 msgid "Open…"
 msgstr ""
 
-#: src/ui/window/build.rs:33
+#: src/ui/window/build.rs:32
 msgid "Export GIF…"
 msgstr ""
 
 #. Translators: Decodes another video or GIF and appends its frames, so two
-#: src/ui/window/build.rs:36
+#: src/ui/window/build.rs:35
 msgid "Add frames from file…"
 msgstr ""
 
-#: src/ui/window/build.rs:48
-msgid "Insert"
-msgstr ""
-
-#: src/ui/window/build.rs:51
-msgid "Resize frames…"
-msgstr ""
-
-#: src/ui/window/build.rs:55
-msgid "Zoom and resize all frames"
-msgstr ""
-
-#: src/ui/window/build.rs:58
-msgid "Image"
-msgstr ""
-
-#: src/ui/window/build.rs:64
-msgid "Remove frames…"
-msgstr ""
-
-#: src/ui/window/build.rs:65
-msgid "Smart remove frames…"
-msgstr ""
-
-#: src/ui/window/build.rs:66
-msgid "Optimize"
-msgstr ""
-
-#: src/ui/window/build.rs:69
+#: src/ui/window/build.rs:37
 msgid "Keyboard shortcuts…"
 msgstr ""
 
-#: src/ui/window/build.rs:70 src/ui/window/dialogs.rs:62
+#: src/ui/window/build.rs:38 src/ui/window/dialogs.rs:62
 msgid "About"
 msgstr ""
 
-#: src/ui/window/build.rs:82
+#: src/ui/window/build.rs:68
 msgid "Open Image"
 msgstr ""
 
-#: src/ui/window/build.rs:83
+#: src/ui/window/build.rs:69
 msgid "Open a video or GIF to start editing"
 msgstr ""
 
 #. Translators: Tooltip on the X beside the import progress bar; it cancels the running decode.
-#: src/ui/window/build.rs:114
+#: src/ui/window/build.rs:100
 msgid "Cancel import"
 msgstr ""
 
-#: src/ui/window/build.rs:238
-msgid "Delete"
-msgstr ""
-
-#: src/ui/window/build.rs:239
-msgid "Duplicate"
-msgstr ""
-
-#: src/ui/window/build.rs:240
-msgid "Cut"
-msgstr ""
-
-#: src/ui/window/build.rs:241
-msgid "Copy"
-msgstr ""
-
-#: src/ui/window/build.rs:242
-msgid "Paste"
-msgstr ""
-
-#: src/ui/window/build.rs:243
-msgid "Reverse"
-msgstr ""
-
-#: src/ui/window/build.rs:245
-msgid "Set delay for all frames…"
-msgstr ""
-
-#: src/ui/window/build.rs:251
-msgid "Frame operations"
-msgstr ""
-
-#: src/ui/window/build.rs:268
+#: src/ui/window/build.rs:236
 msgid "This frame"
 msgstr ""
 
-#: src/ui/window/build.rs:269
+#: src/ui/window/build.rs:237
 msgid "All frames"
 msgstr ""
 
-#: src/ui/window/build.rs:270
+#: src/ui/window/build.rs:238
 msgid "Range"
 msgstr ""
 
-#: src/ui/window/build.rs:502
+#: src/ui/window/build.rs:469
 msgid "Properties"
 msgstr ""
 
-#: src/ui/window/build.rs:508
+#: src/ui/window/build.rs:475
 msgid "Overlay text"
 msgstr ""
 
-#: src/ui/window/build.rs:519 src/ui/window/controls.rs:19
+#: src/ui/window/build.rs:486 src/ui/window/controls.rs:19
 msgid "Text"
 msgstr ""
 
-#: src/ui/window/build.rs:528
+#: src/ui/window/build.rs:495
 msgid "Overlay"
 msgstr ""
 
-#: src/ui/window/build.rs:539 src/ui/window/controls.rs:71 src/ui/window/strip.rs:251 src/ui/window/tests.rs:1591 src/ui/window/tests.rs:1604
+#: src/ui/window/build.rs:506 src/ui/window/controls.rs:71 src/ui/window/strip.rs:288 src/ui/window/tests.rs:1595 src/ui/window/tests.rs:1608
 msgid "Delete overlay"
 msgstr ""
 
-#: src/ui/window/build.rs:556
+#: src/ui/window/build.rs:523
 msgid "Font"
 msgstr ""
 
-#: src/ui/window/build.rs:571 src/ui/window/imports.rs:53
+#: src/ui/window/build.rs:538 src/ui/window/imports.rs:53
 msgid "Size"
 msgstr ""
 
-#: src/ui/window/build.rs:580
+#: src/ui/window/build.rs:547
 msgid "Left"
 msgstr ""
 
-#: src/ui/window/build.rs:584
+#: src/ui/window/build.rs:551
 msgid "Centered"
 msgstr ""
 
-#: src/ui/window/build.rs:589
+#: src/ui/window/build.rs:556
 msgid "Right"
 msgstr ""
 
 #. Translators: Text alignment that stretches every line but the last to both margins.
-#: src/ui/window/build.rs:595
+#: src/ui/window/build.rs:562
 msgid "Justified"
 msgstr ""
 
-#: src/ui/window/build.rs:616
+#: src/ui/window/build.rs:583
 msgid "Align"
 msgstr ""
 
 #. Translators: Smoothing of glyph edges. Off gives hard pixel edges, for pixel-art captures.
-#: src/ui/window/build.rs:630
+#: src/ui/window/build.rs:597
 msgid "Smooth edges"
 msgstr ""
 
 #. Translators: The interior colour of a shape, or the colour of the glyphs for text.
-#: src/ui/window/build.rs:640
+#: src/ui/window/build.rs:607
 msgid "Fill"
 msgstr ""
 
 #. Translators: The contrasting edge drawn behind text so it stays readable over any image.
-#: src/ui/window/build.rs:649
+#: src/ui/window/build.rs:616
 msgid "Outline"
 msgstr ""
 
 #. Translators: The outline of a shape, as distinct from the outline behind text.
-#: src/ui/window/build.rs:658
+#: src/ui/window/build.rs:625
 msgid "Stroke"
 msgstr ""
 
-#: src/ui/window/build.rs:709
+#: src/ui/window/build.rs:676
 msgid "Crop / zoom"
 msgstr ""
 
-#: src/ui/window/build.rs:717 src/ui/window/dialogs.rs:489
+#: src/ui/window/build.rs:684 src/ui/window/dialogs.rs:489
 msgid "Crop all frames"
 msgstr ""
 
-#: src/ui/window/build.rs:718
+#: src/ui/window/build.rs:685
 msgid "Crops every frame in the document to this box, shrinking the canvas."
 msgstr ""
 
 #. Translators: Zoom follows the frame scope — the frame on screen, or the
-#: src/ui/window/build.rs:724
+#: src/ui/window/build.rs:691
 msgid "Zoom and resize"
 msgstr ""
 
-#: src/ui/window/build.rs:725
+#: src/ui/window/build.rs:692
 msgid "Fills the canvas from this box, on the frame on screen or the selected frames."
 msgstr ""
 
 #. Translators: Crops the frame(s) in scope in place, leaving the rest of
-#: src/ui/window/build.rs:730
+#: src/ui/window/build.rs:697
 msgid "Crop and keep size"
 msgstr ""
 
-#: src/ui/window/build.rs:731
+#: src/ui/window/build.rs:698
 msgid "Crops this box on every frame in scope, in place, without scaling it up, and blanks the rest of each frame to transparent."
 msgstr ""
 
-#: src/ui/window/build.rs:753 src/ui/window/controls.rs:154
+#: src/ui/window/build.rs:720 src/ui/window/controls.rs:154
 msgid "Frame"
 msgstr ""
 
 #. Translators: Per-frame hold time, in centiseconds (1/100 s).
-#: src/ui/window/build.rs:766
+#: src/ui/window/build.rs:733
 msgid "Delay (cs)"
 msgstr ""
 
-#: src/ui/window/build.rs:770
+#: src/ui/window/build.rs:737
 msgid "Overlays on this frame"
+msgstr ""
+
+#: src/ui/window/build.rs:996
+msgid "Cut"
+msgstr ""
+
+#: src/ui/window/build.rs:997
+msgid "Copy"
+msgstr ""
+
+#: src/ui/window/build.rs:998
+msgid "Paste"
+msgstr ""
+
+#: src/ui/window/build.rs:1000
+msgid "Delete"
+msgstr ""
+
+#: src/ui/window/build.rs:1001
+msgid "Duplicate"
+msgstr ""
+
+#: src/ui/window/build.rs:1002
+msgid "Reverse"
+msgstr ""
+
+#: src/ui/window/build.rs:1005
+msgid "Set delay for all frames…"
+msgstr ""
+
+#: src/ui/window/build.rs:1042
+msgid "Resize frames…"
+msgstr ""
+
+#. Translators: Crops every frame to a box typed in pixels, shrinking the canvas.
+#: src/ui/window/build.rs:1044
+msgid "Crop frames…"
+msgstr ""
+
+#: src/ui/window/build.rs:1048
+msgid "Zoom and resize all frames"
+msgstr ""
+
+#: src/ui/window/build.rs:1054
+msgid "Remove frames…"
+msgstr ""
+
+#: src/ui/window/build.rs:1055
+msgid "Smart remove frames…"
+msgstr ""
+
+#: src/ui/window/build.rs:1059
+msgid "Insert"
+msgstr ""
+
+#: src/ui/window/build.rs:1062
+msgid "Image"
+msgstr ""
+
+#: src/ui/window/build.rs:1063
+msgid "Optimize"
 msgstr ""
 
 #. Translators: Canvas tooltip over an overlay's resize grip. Keep the line breaks.
@@ -577,11 +609,11 @@ msgstr ""
 msgid "frames"
 msgstr ""
 
-#: src/ui/window/dialogs.rs:188 src/ui/window/dialogs.rs:431 src/ui/window/dialogs.rs:533 src/ui/window/dialogs.rs:592 src/ui/window/dialogs.rs:637 src/ui/window/dialogs.rs:675 src/ui/window/imports.rs:223 src/ui/window/imports.rs:795
+#: src/ui/window/dialogs.rs:188 src/ui/window/dialogs.rs:431 src/ui/window/dialogs.rs:533 src/ui/window/dialogs.rs:592 src/ui/window/dialogs.rs:637 src/ui/window/dialogs.rs:723 src/ui/window/dialogs.rs:781 src/ui/window/dialogs.rs:820 src/ui/window/imports.rs:223 src/ui/window/imports.rs:795
 msgid "Cancel"
 msgstr ""
 
-#: src/ui/window/dialogs.rs:189 src/ui/window/dialogs.rs:432 src/ui/window/dialogs.rs:534 src/ui/window/dialogs.rs:593 src/ui/window/dialogs.rs:638
+#: src/ui/window/dialogs.rs:189 src/ui/window/dialogs.rs:432 src/ui/window/dialogs.rs:534 src/ui/window/dialogs.rs:593 src/ui/window/dialogs.rs:638 src/ui/window/dialogs.rs:724 src/ui/window/dialogs.rs:782
 msgid "Apply"
 msgstr ""
 
@@ -634,7 +666,7 @@ msgstr ""
 msgid "How long this frame is held, in hundredths of a second."
 msgstr ""
 
-#: src/ui/window/dialogs.rs:573 src/ui/window/dialogs.rs:668
+#: src/ui/window/dialogs.rs:573 src/ui/window/dialogs.rs:813
 msgid "Frame {number}"
 msgstr ""
 
@@ -651,15 +683,85 @@ msgstr ""
 msgid "All {count} frames"
 msgstr ""
 
-#: src/ui/window/dialogs.rs:659
+#. Translators: A fade color.
+#: src/ui/window/dialogs.rs:654
+msgid "Black"
+msgstr ""
+
+#. Translators: A fade color.
+#: src/ui/window/dialogs.rs:656
+msgid "White"
+msgstr ""
+
+#. Translators: A fade color: the frames fade to see-through.
+#: src/ui/window/dialogs.rs:658
+msgid "Transparent"
+msgstr ""
+
+#. Translators: Dialog title; the frames in scope brighten in from a solid color.
+#: src/ui/window/dialogs.rs:673
+msgid "Fade in"
+msgstr ""
+
+#. Translators: Dialog title; the frames in scope sink out to a solid color.
+#: src/ui/window/dialogs.rs:675
+msgid "Fade out"
+msgstr ""
+
+#. Translators: Shown when Fade in/out is picked with only one frame in scope.
+#: src/ui/window/dialogs.rs:681
+msgid "Select the frames to fade across in the strip first: Shift+click for a run, or pick All frames."
+msgstr ""
+
+#. Translators: Dismisses a dialog that only explains something.
+#: src/ui/window/dialogs.rs:687 src/ui/window/dialogs.rs:757
+msgid "Close"
+msgstr ""
+
+#. Translators: {count} is a number of frames, at least 2.
+#: src/ui/window/dialogs.rs:693
+msgid "The {count} frames in scope climb from a solid color to the full picture."
+msgstr ""
+
+#. Translators: {count} is a number of frames, at least 2.
+#: src/ui/window/dialogs.rs:695
+msgid "The {count} frames in scope sink from the full picture to a solid color."
+msgstr ""
+
+#. Translators: Subtitle on the Transparent fade color.
+#: src/ui/window/dialogs.rs:707
+msgid "A GIF pixel is either opaque or clear, so this fade shows as dithering."
+msgstr ""
+
+#. Translators: Dialog title for blending the end of the animation into its start.
+#: src/ui/window/dialogs.rs:750
+msgid "Cross-fade the loop"
+msgstr ""
+
+#. Translators: Shown when the document has a single frame.
+#: src/ui/window/dialogs.rs:755
+msgid "A loop cross-fade needs at least two frames."
+msgstr ""
+
+#. Translators: Body of the loop cross-fade dialog.
+#: src/ui/window/dialogs.rs:764
+msgid "The last frames dissolve into the first ones, so the end plays into the start without a cut. The first frames are then removed, since the dissolve already shows them: the animation gets that many frames shorter."
+msgstr ""
+
+#. Translators: How many frames at each end the loop cross-fade blends.
+#: src/ui/window/dialogs.rs:776
+msgid "Frames to blend"
+msgstr ""
+
+#: src/ui/window/dialogs.rs:804
 msgid "Move frame"
 msgstr ""
 
-#: src/ui/window/dialogs.rs:660
+#: src/ui/window/dialogs.rs:805
 msgid "Where should this frame go?"
 msgstr ""
 
-#: src/ui/window/dialogs.rs:676
+#: src/ui/window/dialogs.rs:821
 msgid "Move"
 msgstr ""
 
@@ -891,222 +993,242 @@ msgstr ""
 msgid "{n} KB"
 msgstr ""
 
-#: src/ui/window/mod.rs:574
+#: src/ui/window/mod.rs:613
 msgid "Resized"
 msgstr ""
 
-#: src/ui/window/mod.rs:575
+#: src/ui/window/mod.rs:614
 msgid "Zoomed"
 msgstr ""
 
-#: src/ui/window/mod.rs:580 src/ui/window/mod.rs:581
+#: src/ui/window/mod.rs:619 src/ui/window/mod.rs:620
 msgid "Cropped"
 msgstr ""
 
+#. Translators: History label after flipping frames.
+#: src/ui/window/mod.rs:622
+msgid "Frames mirrored"
+msgstr ""
+
+#. Translators: History label after fading frames in from a solid color.
+#: src/ui/window/mod.rs:625
+msgid "Faded in"
+msgstr ""
+
+#. Translators: History label after fading frames out to a solid color.
+#: src/ui/window/mod.rs:627
+msgid "Faded out"
+msgstr ""
+
+#. Translators: History label after blending the animation's end into its start.
+#: src/ui/window/mod.rs:630
+msgid "Loop cross-faded"
+msgstr ""
+
 #. Translators: Past-tense edit name, used inside "{change} on {count} frames".
-#: src/ui/window/mod.rs:888 src/ui/window/update.rs:513
+#: src/ui/window/mod.rs:969 src/ui/window/update.rs:514
 msgid "Delay set"
 msgstr ""
 
 #. Translators: A canvas modifier row waiting for the user to hold a key.
-#: src/ui/window/shortcuts.rs:158
+#: src/ui/window/shortcuts.rs:163
 msgid "Hold a modifier…"
 msgstr ""
 
-#: src/ui/window/shortcuts.rs:160 src/ui/window/shortcuts.rs:174
+#: src/ui/window/shortcuts.rs:165 src/ui/window/shortcuts.rs:179
 msgid "Unassigned"
 msgstr ""
 
-#: src/ui/window/shortcuts.rs:172
+#: src/ui/window/shortcuts.rs:177
 msgid "Press a key…"
 msgstr ""
 
-#: src/ui/window/shortcuts.rs:181
+#: src/ui/window/shortcuts.rs:186
 msgid "Already used by another action"
 msgstr ""
 
-#: src/ui/window/shortcuts.rs:214 src/ui/window/shortcuts.rs:253
+#: src/ui/window/shortcuts.rs:219 src/ui/window/shortcuts.rs:258
 msgid "Unbind"
 msgstr ""
 
-#: src/ui/window/shortcuts.rs:233
+#: src/ui/window/shortcuts.rs:238
 msgid "Canvas"
 msgstr ""
 
-#: src/ui/window/shortcuts.rs:234
+#: src/ui/window/shortcuts.rs:239
 msgid "Held while dragging an overlay's grip."
 msgstr ""
 
-#: src/ui/window/shortcuts.rs:316
+#: src/ui/window/shortcuts.rs:321
 msgid "Keybindings file"
 msgstr ""
 
-#: src/ui/window/shortcuts.rs:317
+#: src/ui/window/shortcuts.rs:322
 msgid "Bindings are saved as you change them."
 msgstr ""
 
-#: src/ui/window/shortcuts.rs:320
+#: src/ui/window/shortcuts.rs:325
 msgid "Import or export"
 msgstr ""
 
-#: src/ui/window/shortcuts.rs:324
+#: src/ui/window/shortcuts.rs:329
 msgid "no config directory"
 msgstr ""
 
-#: src/ui/window/shortcuts.rs:327
+#: src/ui/window/shortcuts.rs:332
 msgid "Import…"
 msgstr ""
 
-#: src/ui/window/shortcuts.rs:328
+#: src/ui/window/shortcuts.rs:333
 msgid "Export…"
 msgstr ""
 
-#: src/ui/window/shortcuts.rs:329
+#: src/ui/window/shortcuts.rs:334
 msgid "Reset"
 msgstr ""
 
-#: src/ui/window/shortcuts.rs:345
+#: src/ui/window/shortcuts.rs:350
 msgid "Import keybindings"
 msgstr ""
 
-#: src/ui/window/shortcuts.rs:358
+#: src/ui/window/shortcuts.rs:363
 msgid "Could not read {path}: {error}"
 msgstr ""
 
-#: src/ui/window/shortcuts.rs:374
+#: src/ui/window/shortcuts.rs:379
 msgid "Export keybindings"
 msgstr ""
 
-#: src/ui/window/shortcuts.rs:384
+#: src/ui/window/shortcuts.rs:389
 msgid "Saved {path}"
 msgstr ""
 
-#: src/ui/window/shortcuts.rs:388
+#: src/ui/window/shortcuts.rs:393
 msgid "Could not write: {error}"
 msgstr ""
 
-#: src/ui/window/strip.rs:258 src/ui/window/tests.rs:1587
+#: src/ui/window/strip.rs:295 src/ui/window/tests.rs:1591
 msgid "Copy overlay to all frames"
 msgstr ""
 
-#: src/ui/window/strip.rs:260 src/ui/window/tests.rs:1600
+#: src/ui/window/strip.rs:297 src/ui/window/tests.rs:1604
 msgid "Copy overlay to selected frames"
 msgstr ""
 
-#: src/ui/window/strip.rs:291
+#: src/ui/window/strip.rs:328
 msgid "Delete this frame"
 msgstr ""
 
-#: src/ui/window/strip.rs:297
+#: src/ui/window/strip.rs:334
 msgid "Duplicate this frame"
 msgstr ""
 
-#: src/ui/window/strip.rs:303
+#: src/ui/window/strip.rs:340
 msgid "Cut this frame"
 msgstr ""
 
-#: src/ui/window/strip.rs:309
+#: src/ui/window/strip.rs:346
 msgid "Copy this frame"
 msgstr ""
 
-#: src/ui/window/strip.rs:320 src/ui/window/strip.rs:362
+#: src/ui/window/strip.rs:357 src/ui/window/strip.rs:399
 msgid "Set delay…"
 msgstr ""
 
-#: src/ui/window/strip.rs:322 src/ui/window/strip.rs:364
+#: src/ui/window/strip.rs:359 src/ui/window/strip.rs:401
 msgid "Move earlier"
 msgstr ""
 
-#: src/ui/window/strip.rs:323 src/ui/window/strip.rs:365
+#: src/ui/window/strip.rs:360 src/ui/window/strip.rs:402
 msgid "Move later"
 msgstr ""
 
-#: src/ui/window/strip.rs:324
+#: src/ui/window/strip.rs:361
 msgid "Move to position…"
 msgstr ""
 
-#: src/ui/window/strip.rs:326
+#: src/ui/window/strip.rs:363
 msgid "Insert frames from file…"
 msgstr ""
 
-#: src/ui/window/strip.rs:333
+#: src/ui/window/strip.rs:370
 msgid "Delete selected frames"
 msgstr ""
 
-#: src/ui/window/strip.rs:339
+#: src/ui/window/strip.rs:376
 msgid "Duplicate selected frames"
 msgstr ""
 
-#: src/ui/window/strip.rs:345
+#: src/ui/window/strip.rs:382
 msgid "Cut selected frames"
 msgstr ""
 
-#: src/ui/window/strip.rs:351
+#: src/ui/window/strip.rs:388
 msgid "Copy selected frames"
 msgstr ""
 
-#: src/ui/window/strip.rs:489
+#: src/ui/window/strip.rs:526
 msgid "Edited outside; overlays skip this frame"
 msgstr ""
 
 #. Translators: "cs" is centiseconds, the unit GIF stores frame delays in.
-#: src/ui/window/strip.rs:494
+#: src/ui/window/strip.rs:531
 msgid "Frame {number} · {delay} cs"
 msgstr ""
 
-#: src/ui/window/update.rs:101
+#: src/ui/window/update.rs:102
 msgid "Videos and GIFs"
 msgstr ""
 
-#: src/ui/window/update.rs:357
+#: src/ui/window/update.rs:358
 msgid "Text added"
 msgstr ""
 
-#: src/ui/window/update.rs:358
+#: src/ui/window/update.rs:359
 msgid "Rectangle added"
 msgstr ""
 
-#: src/ui/window/update.rs:359
+#: src/ui/window/update.rs:360
 msgid "Ellipse added"
 msgstr ""
 
-#: src/ui/window/update.rs:360
+#: src/ui/window/update.rs:361
 msgid "Arrow added"
 msgstr ""
 
-#: src/ui/window/update.rs:395
+#: src/ui/window/update.rs:396
 msgid "Text edited"
 msgstr ""
 
-#: src/ui/window/update.rs:438
+#: src/ui/window/update.rs:439
 msgid "{count} frame copied"
 msgstr ""
 
-#: src/ui/window/update.rs:438
+#: src/ui/window/update.rs:439
 msgid "{count} frames copied"
 msgstr ""
 
-#: src/ui/window/update.rs:487
+#: src/ui/window/update.rs:488
 msgid "Frame moved"
 msgstr ""
 
-#: src/ui/window/update.rs:542
+#: src/ui/window/update.rs:543
 msgid "Overlay restyled"
 msgstr ""
 
-#: src/ui/window/update.rs:642 src/ui/window/update.rs:655
+#: src/ui/window/update.rs:637 src/ui/window/update.rs:650
 msgid "Frames removed"
 msgstr ""
 
-#: src/ui/window/update.rs:775
+#: src/ui/window/update.rs:790
 msgid "Frame added"
 msgstr ""
 
-#: src/ui/window/update.rs:777
+#: src/ui/window/update.rs:792
 msgid "Frames added"
 msgstr ""
 
-#: src/ui/window/update.rs:854
+#: src/ui/window/update.rs:869
 msgid "Exported to {path} · {size} KB"
 msgstr ""
 
@@ -1144,75 +1266,80 @@ msgstr ""
 msgid "Exporting… {done} / {total} frames"
 msgstr ""
 
-#: src/ui/window/view.rs:57
+#. Translators: Progress while a mirror or fade is applied; both values are frame counts.
+#: src/ui/window/view.rs:46
+msgid "Applying effect… {done} / {total} frames"
+msgstr ""
+
+#: src/ui/window/view.rs:59
 msgid "Importing… {done} frames"
 msgstr ""
 
 #. Translators: Window title when no file has been opened.
-#: src/ui/window/view.rs:71
+#: src/ui/window/view.rs:73
 msgid "Untitled"
 msgstr ""
 
-#: src/ui/window/view.rs:74
+#: src/ui/window/view.rs:76
 msgid "{count} frames · {seconds} s"
 msgstr ""
 
-#: src/ui/window/view.rs:127
+#: src/ui/window/view.rs:129
 msgid "Crop or zoom: drag a box on the canvas"
 msgstr ""
 
-#: src/ui/window/view.rs:140
+#: src/ui/window/view.rs:142
 msgid "Every frame in the document"
 msgstr ""
 
-#: src/ui/window/view.rs:141
+#: src/ui/window/view.rs:143
 msgid "Shift+click the strip for a run of frames, Ctrl+click to add to it"
 msgstr ""
 
-#: src/ui/window/view.rs:223
+#: src/ui/window/view.rs:230
 msgid "{elapsed} / {total} · {fps} fps"
 msgstr ""
 
 #. Translators: Scope button. Frame numbers are 1-based and inclusive.
-#: src/ui/window/view.rs:239
+#: src/ui/window/view.rs:246
 msgid "Range {first}–{last}"
 msgstr ""
 
 #. Translators: Scope button when the picked frames do not form a run.
-#: src/ui/window/view.rs:248
+#: src/ui/window/view.rs:255
 msgid "{count} frame"
 msgstr ""
 
 #. Translators: Scope button when the picked frames do not form a run.
-#: src/ui/window/view.rs:248
+#: src/ui/window/view.rs:255
 msgid "{count} frames"
 msgstr ""
 
-#: src/ui/window/view.rs:372
+#: src/ui/window/view.rs:390
 msgid "▾ {count} overlay rows"
 msgstr ""
 
-#: src/ui/window/view.rs:543
+#: src/ui/window/view.rs:561
 msgid "{width} × {height} at {x}, {y}"
 msgstr ""
 
-#: src/ui/window/view.rs:551
+#: src/ui/window/view.rs:569
 msgid "Drag a box on the canvas."
 msgstr ""
 
-#: src/ui/window/view.rs:585
+#: src/ui/window/view.rs:603
 msgid "≈ {size} as a GIF"
 msgstr ""
 
-#: src/ui/window/view.rs:591
+#: src/ui/window/view.rs:609
 msgid "≈ {size} as a GIF (updating…)"
 msgstr ""
 
 #. Translators: Shown while the exported GIF size is still being measured.
-#: src/ui/window/view.rs:596
+#: src/ui/window/view.rs:614
 msgid "sizing…"
 msgstr ""
 
-#: src/ui/window/view.rs:602
+#: src/ui/window/view.rs:620
 msgid "{width} × {height} · {frames} frames · {overlays} overlays"
 msgstr ""

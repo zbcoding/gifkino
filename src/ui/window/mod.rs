@@ -20,11 +20,12 @@ use libadwaita as adw;
 use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt};
 
 use crate::core::fit::{self, Splice};
+use crate::core::model::Rgba8;
 use crate::core::render::{self, TextRasterizer};
 use crate::core::snap::{self, Guides};
 use crate::core::{
-    Change, Document, Editor, FitMode, Frame, OverlayId, OverlayKind, Scope, Shape, ShapeOverlay,
-    TextAlign, TextOverlay, Transform,
+    Axis, Change, Document, Editor, Fade, FitMode, Frame, OverlayId, OverlayKind, Scope, Shape,
+    ShapeOverlay, TextAlign, TextOverlay, Transform,
 };
 use crate::i18n::{fill, lookup, n, t, tn};
 use crate::keymap::{Action, Chord, Keymap, MODALS, Modal, Mods};
@@ -85,6 +86,9 @@ const NO_IMPORT_LIMIT: usize = 1 << 60;
 /// handed to the compositor as a size request.
 const MIN_WINDOW_W: i32 = 480;
 const MIN_WINDOW_H: i32 = 400;
+/// Below this width the header's menu bar folds into the ☰ menu: undo, the
+/// five menus, the title, Export and ☰ side by side need it.
+const MENUBAR_MIN_WINDOW_W: f64 = 720.0;
 const BAND_H: f64 = 18.0;
 /// "Splice at the end of the timeline", clamped to the frame count when the
 /// import lands. The file menu's Add frames has no frame under the pointer to
@@ -290,6 +294,19 @@ pub enum Msg {
     /// `CropAllDialog` — action closures do not know it.
     ResizeDialog,
     Resize(u32, u32),
+    /// Flip the frames in scope along `Axis`.
+    Mirror(Axis),
+    /// Ask which colour to fade the frames in scope from or to.
+    FadeDialog(Fade),
+    /// The fade dialog answered: ramp the frames in scope to `colour`.
+    ApplyFade {
+        fade: Fade,
+        colour: Rgba8,
+    },
+    /// Ask how many frames the loop cross-fade should blend.
+    LoopFadeDialog,
+    /// Dissolve the last `.0` frames into the first `.0`, then drop those.
+    ApplyLoopFade(usize),
     /// Pick a file to splice in at this index. The frame context menu and the
     /// file menu are the same operation at two different indices.
     ImportInto(usize),
@@ -349,6 +366,9 @@ impl Msg {
                 | Msg::DropEveryNth(_)
                 | Msg::SmartDrop(_)
                 | Msg::Resize(_, _)
+                | Msg::Mirror(_)
+                | Msg::ApplyFade { .. }
+                | Msg::ApplyLoopFade(_)
                 | Msg::SpliceFrames { .. }
                 | Msg::MoveFrame(_, _)
         )
@@ -367,6 +387,8 @@ impl Msg {
                     | Msg::ResizeDialog
                     | Msg::DelayAllDialog
                     | Msg::ImportInto(_)
+                    | Msg::FadeDialog(_)
+                    | Msg::LoopFadeDialog
             )
     }
 
@@ -400,6 +422,9 @@ impl Msg {
                 | Msg::DropEveryNth(_)
                 | Msg::SmartDrop(_)
                 | Msg::Resize(_, _)
+                | Msg::Mirror(_)
+                | Msg::ApplyFade { .. }
+                | Msg::ApplyLoopFade(_)
                 | Msg::SpliceFrames { .. }
                 | Msg::MoveFrame(_, _)
         )
@@ -546,6 +571,9 @@ enum BusyKind {
     /// document edits stay allowed while it runs — only a second job
     /// competing for the one bar waits.
     Export,
+    /// A mirror, a fade or a loop cross-fade: pixel passes over the frames
+    /// in scope, the canvas untouched.
+    Effect,
 }
 
 /// A frame-heavy operation the worker thread runs against the document as it
@@ -564,6 +592,18 @@ enum FrameWork {
     Crop {
         rect: (u32, u32, u32, u32),
     },
+    Mirror {
+        frames: Vec<usize>,
+        axis: Axis,
+    },
+    Fade {
+        frames: Vec<usize>,
+        fade: Fade,
+        colour: Rgba8,
+    },
+    LoopFade {
+        count: usize,
+    },
 }
 
 impl FrameWork {
@@ -578,6 +618,30 @@ impl FrameWork {
             // is more than one frame.
             FrameWork::Shrink { .. } => n("Cropped"),
             FrameWork::Crop { .. } => n("Cropped"),
+            // Translators: History label after flipping frames.
+            FrameWork::Mirror { .. } => n("Frames mirrored"),
+            FrameWork::Fade { fade, .. } => match fade {
+                // Translators: History label after fading frames in from a solid color.
+                Fade::In => n("Faded in"),
+                // Translators: History label after fading frames out to a solid color.
+                Fade::Out => n("Faded out"),
+            },
+            // Translators: History label after blending the animation's end into its start.
+            FrameWork::LoopFade { .. } => n("Loop cross-faded"),
+        }
+    }
+
+    /// The progress bar's kind: the canvas operations each have their own
+    /// wording, the effects share one.
+    fn busy_kind(&self) -> BusyKind {
+        match self {
+            FrameWork::Resize(..) => BusyKind::Resize,
+            FrameWork::Zoom { .. } => BusyKind::Zoom,
+            FrameWork::Shrink { .. } => BusyKind::Shrink,
+            FrameWork::Crop { .. } => BusyKind::Crop,
+            FrameWork::Mirror { .. } | FrameWork::Fade { .. } | FrameWork::LoopFade { .. } => {
+                BusyKind::Effect
+            }
         }
     }
 
@@ -585,7 +649,11 @@ impl FrameWork {
     fn touched(&self, doc: &Document) -> usize {
         match self {
             FrameWork::Resize(..) | FrameWork::Crop { .. } => doc.frames.len(),
-            FrameWork::Zoom { frames, .. } | FrameWork::Shrink { frames, .. } => frames.len(),
+            FrameWork::Zoom { frames, .. }
+            | FrameWork::Shrink { frames, .. }
+            | FrameWork::Mirror { frames, .. }
+            | FrameWork::Fade { frames, .. } => frames.len(),
+            FrameWork::LoopFade { count } => (*count).min(doc.loop_fade_limit()),
         }
     }
 
@@ -597,9 +665,7 @@ impl FrameWork {
                 let (cw, ch) = doc.size();
                 (*w as f32 / cw.max(1) as f32, *h as f32 / ch.max(1) as f32)
             }
-            FrameWork::Zoom { .. } | FrameWork::Shrink { .. } | FrameWork::Crop { .. } => {
-                (1.0, 1.0)
-            }
+            _ => (1.0, 1.0),
         }
     }
 
@@ -610,6 +676,19 @@ impl FrameWork {
         match self {
             FrameWork::Crop { rect: (x, y, _, _) } => (*x as f32, *y as f32),
             _ => (0.0, 0.0),
+        }
+    }
+
+    /// How the produced frames go into the document. Most work swaps frames
+    /// in by index; a loop cross-fade also drops the head it dissolved into.
+    fn landing(&self) -> fn(&mut Document, Vec<(usize, Frame)>) {
+        match self {
+            FrameWork::LoopFade { .. } => Document::apply_loop_fade,
+            _ => |doc, frames| {
+                for (i, frame) in frames {
+                    doc.frames[i] = frame;
+                }
+            },
         }
     }
 }
@@ -623,6 +702,7 @@ pub struct WorkDone {
     scale: (f32, f32),
     shift: (f32, f32),
     frames: Vec<(usize, Frame)>,
+    land: fn(&mut Document, Vec<(usize, Frame)>),
 }
 
 /// How an import ended. A cancelled one is not a failure: the user asked for
@@ -831,6 +911,8 @@ pub struct Widgets {
     doc_info: gtk::Label,
     /// Overlay geometry the band drawing reads, kept in sync with the model.
     bands_model: Rc<RefCell<Vec<Band>>>,
+    /// Strip thumbnail textures, reused across strip rebuilds.
+    thumb_textures: ThumbTextures,
     /// Set while `update_view` writes the sidebar from the model. See
     /// `connect_pair`.
     sync: Rc<Cell<bool>>,

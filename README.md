@@ -12,6 +12,9 @@ Edit animated GIFs. Import mp4 videos as resized gif animations, insert frames, 
   (Alt), keep aspect (Shift), or resize from the center (Ctrl) on the canvas.
 - **Frame list editing:** reorder, duplicate, delete, retime, cut/copy/paste,
   drop one frame in every N, and smart-drop the frames that move the least.
+- **Frame effects:** mirror horizontally or vertically, fade in or out to
+  black, white or transparent, and cross-fade the end into the start for a
+  seamless loop.
 - **Translated UI:** English, German and Japanese.
 - **Optimized GIF export.**
 

@@ -11,3 +11,4 @@ pub use model::{
     Document, Frame, OverlayId, OverlayKind, Scope, Shape, ShapeOverlay, TextAlign, TextOverlay,
     Transform,
 };
+pub use ops::{Axis, Fade};

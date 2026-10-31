@@ -183,7 +183,7 @@ delay, rather than running a fixed tick with an accumulator.
 
 ```
 ┌────────────────────────────────────────────────────────────────────┐
-│ Undo Redo               foo.gif                       Export   ☰   │
+│ Undo Redo  Frames Insert Effects Image Optimize  foo.gif  Export ☰ │
 │                     24 frames · 3.0 s                              │
 ├───┬──────────────────────────────────────────────┬─────────────────┤
 │ V │                                              │ Properties      │
@@ -352,10 +352,24 @@ fails to match. The dialog warns when the minimum delay falls below 2cs.
 
 ### Frame operations
 
-Strip context menu plus a … button in the strip corner: Delete, Duplicate
-(freeze-frame), Reverse, "Reduce frame rate…" (dropping every Nth frame with
-the delay compensation described under Optimizations), Move delay, and "Edit
-frame in…". Nothing else in v1.
+Every editing command lives in one menu bar in the header: Frames (cut, copy,
+paste, delete, duplicate, reverse, delay), Insert, Effects (mirror, fade
+in/out, loop cross-fade), Image (resize, crop, zoom) and Optimize (remove,
+smart remove). ☰ keeps only file and app items; below the width the bar
+needs, a breakpoint hides the bar and ☰ carries the same menus as submenus.
+The strip context menu repeats the frame commands for the frame under the
+pointer.
+
+Everything acts on the scope. Mirror and fades are pixel passes run on the
+frame worker like a zoom; a fade ramps across the picked frames in timeline
+order to black, white or transparent. The loop cross-fade dissolves the last
+N frames into the first N and then drops those N, since the dissolve already
+plays them.
+
+A delete takes its frames' time with it when the run is trimmed off either
+end; a frame deleted between two survivors hands its delay to the one before,
+which stays on screen in its place. Decimation ("Remove frames", "Smart
+remove") always keeps the running time.
 
 Labels stay on the user's side of the screen. "Drop every Nth" is the
 implementation talking. The export verb holds steady end to end: the button

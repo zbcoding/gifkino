@@ -30,6 +30,11 @@ pub(super) fn message_for(action: Action) -> Msg {
         Action::StripZoomIn => Msg::StripZoom(STRIP_ZOOM_STEP),
         Action::StripZoomOut => Msg::StripZoom(1.0 / STRIP_ZOOM_STEP),
         Action::StripZoomReset => Msg::StripZoom(0.0),
+        Action::MirrorHorizontal => Msg::Mirror(Axis::Horizontal),
+        Action::MirrorVertical => Msg::Mirror(Axis::Vertical),
+        Action::FadeIn => Msg::FadeDialog(Fade::In),
+        Action::FadeOut => Msg::FadeDialog(Fade::Out),
+        Action::LoopFade => Msg::LoopFadeDialog,
     }
 }
 
