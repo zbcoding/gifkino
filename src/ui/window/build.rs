@@ -13,8 +13,17 @@ pub(super) fn build(
 
     let history_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     history_box.add_css_class("linked");
-    let undo = icon_button("edit-undo-symbolic", "Undo (Ctrl+Z)");
-    let redo = icon_button("edit-redo-symbolic", "Redo (Ctrl+Shift+Z)");
+    // The header shows on the welcome page, before any message has run
+    // `sync_tooltips`, so these start from the keymap the same way it would
+    // write them with nothing to undo yet.
+    let undo = icon_button(
+        "edit-undo-symbolic",
+        &keymap.borrow().tip(t("Undo"), Action::Undo),
+    );
+    let redo = icon_button(
+        "edit-redo-symbolic",
+        &keymap.borrow().tip(t("Redo"), Action::Redo),
+    );
     connect(&undo, sender, || Msg::Undo);
     connect(&redo, sender, || Msg::Redo);
     history_box.append(&undo);
@@ -221,7 +230,9 @@ pub(super) fn build(
     footer.set_margin_all(8);
 
     let transport = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    let play = icon_button("media-playback-start-symbolic", "Play/pause (Space)");
+    // No tooltip here: the footer first shows with a loaded document, and
+    // the load's `sync_tooltips` writes it from the keymap.
+    let play = gtk::Button::from_icon_name("media-playback-start-symbolic");
     connect(&play, sender, || Msg::TogglePlay);
     let time = gtk::Label::new(Some("00:00.0 / 00:00.0 · 0 fps"));
     time.add_css_class("tnum");
