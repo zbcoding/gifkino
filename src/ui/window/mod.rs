@@ -329,6 +329,8 @@ pub enum Msg {
     MoveFrame(usize, usize),
     /// A frame's own context menu: ask where to move it.
     MoveFrameDialog(usize),
+    /// A frame's own context menu: ask for its delay, applied to the scope.
+    FrameDelayDialog(usize),
     SetKeymap(Box<Keymap>),
     /// An edit landed: the toast offers Undo.
     Toast(String),
@@ -808,6 +810,9 @@ pub struct App {
     /// on `rev` because `rev` also moves for overlay edits, and rebuilding a
     /// few hundred thumbnails on every keystroke in the text entry is a freeze.
     strip_keys: RefCell<Vec<(u64, bool)>>,
+    /// Set by a rebind, and to begin with: the frame context menu shows the
+    /// keymap's chords, so `update_view` refills it and clears this.
+    frame_menu_stale: Cell<bool>,
     /// Timeline-strip thumbnail zoom.
     strip_zoom: Rc<Cell<f64>>,
     /// Distance from one strip cell to the next at the current zoom and
@@ -919,6 +924,8 @@ pub struct Widgets {
     /// target can show and hide them as the pointer moves. Rebuilt with the
     /// strip; see `rebuild_strip`.
     drop_dividers: Rc<RefCell<Vec<gtk::Widget>>>,
+    /// The thumbnails' shared right-click popover.
+    frame_menu: FrameMenu,
     text_rows: Vec<gtk::Widget>,
     shape_rows: Vec<gtk::Widget>,
     overlay_group: adw::PreferencesGroup,
@@ -981,6 +988,7 @@ impl App {
             crop_rect: None,
             bands_expanded: false,
             strip_keys: RefCell::new(Vec::new()),
+            frame_menu_stale: Cell::new(true),
             strip_zoom: Rc::new(Cell::new(1.0)),
             strip_pitch: Rc::new(Cell::new(cell_pitch(THUMB_BOX, 1.0))),
             strip_zoom_shown: Cell::new(1.0),

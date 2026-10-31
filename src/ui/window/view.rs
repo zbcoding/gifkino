@@ -315,6 +315,9 @@ impl App {
         sender: &ComponentSender<Self>,
         in_scope: &[usize],
     ) {
+        if self.frame_menu_stale.replace(false) {
+            widgets.frame_menu.show_keys(&self.keymap.borrow());
+        }
         let frame_keys = strip_keys(&self.editor.doc);
         let rebuilt = *self.strip_keys.borrow() != frame_keys;
         if rebuilt {
@@ -325,7 +328,7 @@ impl App {
                 sender,
                 &widgets.scope_mirror,
                 &widgets.drop_dividers,
-                &self.keymap.borrow(),
+                &widgets.frame_menu,
             );
         }
         let zoom = self.strip_zoom.get();

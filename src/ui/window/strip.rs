@@ -253,8 +253,8 @@ pub(super) fn strip_keys(doc: &Document) -> Vec<(u64, bool)> {
 /// shortcut controller in the item's own widget tree, and this app's shortcuts
 /// live in neither: `install_shortcuts` reads the keymap in one capture-phase
 /// key controller. So the chord is handed over as the item's "accel" attribute,
-/// which GTK prefers over its own lookup, and the strip — popover and all — is
-/// rebuilt on `Msg::SetKeymap` so a rebind moves what the menu shows.
+/// which GTK prefers over its own lookup, and the frame menu is refilled on
+/// `Msg::SetKeymap` so a rebind moves what the menu shows.
 pub(super) fn frame_item(label: &str, action: &str, keys: &Keymap, bound: Action) -> gio::MenuItem {
     let item = gio::MenuItem::new(Some(label), Some(action));
     if let Some(accel) = keys.chords(bound).first().and_then(Chord::accel) {
@@ -317,9 +317,11 @@ const FRAME_EDITS: [(&str, Action); 5] = [
 /// right-click handler picks which model to show; the actions are
 /// scope-based either way, because a plain right-click outside the selection
 /// seeks first, which resets the scope to that one frame. Only the wording
-/// differs, plus "Move to position…", which names one frame.
-pub(super) fn frame_menus(keys: &Keymap) -> (gio::Menu, gio::Menu) {
-    let face = |edits: [&str; 4], single: bool| {
+/// differs, plus "Move to position…", which names one frame. Both menus are
+/// refilled in place, so whatever already points at them shows the new
+/// chords without being handed a new model.
+pub(super) fn fill_frame_menus(frame_menu: &gio::Menu, selection_menu: &gio::Menu, keys: &Keymap) {
+    let fill = |menu: &gio::Menu, edits: [&str; 4], move_to: bool| {
         let edit_section = gio::Menu::new();
         for (label, (action, bound)) in edits
             .into_iter()
@@ -332,86 +334,119 @@ pub(super) fn frame_menus(keys: &Keymap) -> (gio::Menu, gio::Menu) {
         let move_section = gio::Menu::new();
         move_section.append(Some(t("Move earlier")), Some("frame.move-earlier"));
         move_section.append(Some(t("Move later")), Some("frame.move-later"));
-        if single {
+        if move_to {
             move_section.append(Some(t("Move to position…")), Some("frame.move-to"));
         }
         let import_section = gio::Menu::new();
         import_section.append(Some(t("Insert frames from file…")), Some("frame.add-image"));
-        let menu = gio::Menu::new();
+        menu.remove_all();
         menu.append_section(None, &edit_section);
         menu.append_section(None, &move_section);
         menu.append_section(None, &import_section);
-        menu
     };
-    (
-        face(
-            [
-                t("Delete this frame"),
-                t("Duplicate this frame"),
-                t("Cut this frame"),
-                t("Copy this frame"),
-            ],
-            true,
-        ),
-        face(
-            [
-                t("Delete selected frames"),
-                t("Duplicate selected frames"),
-                t("Cut selected frames"),
-                t("Copy selected frames"),
-            ],
-            false,
-        ),
-    )
+    fill(
+        frame_menu,
+        [
+            t("Delete this frame"),
+            t("Duplicate this frame"),
+            t("Cut this frame"),
+            t("Copy this frame"),
+        ],
+        true,
+    );
+    fill(
+        selection_menu,
+        [
+            t("Delete selected frames"),
+            t("Duplicate selected frames"),
+            t("Cut selected frames"),
+            t("Copy selected frames"),
+        ],
+        false,
+    );
 }
 
-/// ponytail: the strip rebuilds a widget per frame when the frame list changes.
-/// The thumbnails themselves are already built (see `Frame::new`), so this is a
-/// hitch rather than a freeze; swap in a virtualized list when someone imports
-/// something long enough to notice.
-pub(super) fn rebuild_strip(
-    strip: &gtk::Box,
-    doc: &Document,
-    sender: &ComponentSender<App>,
-    scope_mirror: &Rc<RefCell<Vec<usize>>>,
-    drop_dividers: &Rc<RefCell<Vec<gtk::Widget>>>,
-    keys: &Keymap,
-) {
-    while let Some(child) = strip.first_child() {
-        strip.remove(&child);
-    }
-    drop_dividers.borrow_mut().clear();
+/// The strip's right-click popover, shared by every thumbnail: one per frame
+/// is a widget tree per thumbnail. Built once with the window, not with the
+/// strip — its `frame.*` actions read the right-clicked frame from `target`
+/// and ask the model for the rest when they fire, so a frame-list change
+/// leaves nothing here stale. Only a rebind does, and `show_keys` answers it.
+#[derive(Clone)]
+pub(super) struct FrameMenu {
+    popover: gtk::PopoverMenu,
+    /// The face for a frame that stands alone.
+    frame_menu: gio::Menu,
+    /// The face for a frame inside the active selection.
+    selection_menu: gio::Menu,
+    /// Which frame the last right-click landed on.
+    target: Rc<Cell<usize>>,
+}
 
-    let (menu, selection_menu) = frame_menus(keys);
-    let popover = gtk::PopoverMenu::from_model(Some(&menu));
-    popover.set_parent(strip);
-    popover.set_has_arrow(false);
-    // A popover outlives its parent unless it is told not to, and this strip is
-    // torn down on every frame-list change.
-    {
-        let popover = popover.clone();
-        strip.connect_destroy(move |_| popover.unparent());
+impl FrameMenu {
+    /// The popover, parented to `strip` alongside the `frame` actions its
+    /// items name. Both faces are empty until the first `show_keys`.
+    pub(super) fn new(strip: &gtk::Box, sender: &ComponentSender<App>) -> Self {
+        let (frame_menu, selection_menu) = (gio::Menu::new(), gio::Menu::new());
+        let popover = gtk::PopoverMenu::from_model(Some(&frame_menu));
+        popover.set_parent(strip);
+        popover.set_has_arrow(false);
+        // A popover outlives its parent unless it is told not to.
+        {
+            let popover = popover.clone();
+            strip.connect_destroy(move |_| popover.unparent());
+        }
+        let target = Rc::new(Cell::new(0usize));
+        strip.insert_action_group("frame", Some(&frame_actions(strip, &target, sender)));
+        FrameMenu {
+            popover,
+            frame_menu,
+            selection_menu,
+            target,
+        }
     }
-    // Which frame the last right-click landed on.
-    let target = Rc::new(std::cell::Cell::new(0usize));
+
+    /// Refill both faces with the chords `keys` binds.
+    pub(super) fn show_keys(&self, keys: &Keymap) {
+        fill_frame_menus(&self.frame_menu, &self.selection_menu, keys);
+    }
+
+    /// Open on `frame` at `(x, y)` in `cell`'s coordinates, with the face
+    /// for a frame inside the selection or one standing alone.
+    fn popup(&self, frame: usize, on_selection: bool, cell: &gtk::Widget, (x, y): (f64, f64)) {
+        self.target.set(frame);
+        self.popover.set_menu_model(Some(if on_selection {
+            &self.selection_menu
+        } else {
+            &self.frame_menu
+        }));
+        let at = gtk::graphene::Point::new(x as f32, y as f32);
+        let point = self
+            .popover
+            .parent()
+            .and_then(|strip| cell.compute_point(&strip, &at))
+            .unwrap_or(at);
+        self.popover.set_pointing_to(Some(&gdk::Rectangle::new(
+            point.x() as i32,
+            point.y() as i32,
+            1,
+            1,
+        )));
+        self.popover.popup();
+    }
+}
+
+/// The `frame` action group the popover's own items name, each acting on
+/// `target` as it stands when the item is picked.
+fn frame_actions(
+    strip: &gtk::Box,
+    target: &Rc<Cell<usize>>,
+    sender: &ComponentSender<App>,
+) -> gio::SimpleActionGroup {
     let group = gio::SimpleActionGroup::new();
     {
-        let (sender, target, strip, scope_mirror) = (
-            sender.clone(),
-            target.clone(),
-            strip.clone(),
-            scope_mirror.clone(),
-        );
-        let delays: Vec<u16> = doc.frames.iter().map(|f| f.delay_cs).collect();
+        let (sender, target) = (sender.clone(), target.clone());
         add_action(&group, "delay", move || {
-            let i = target.get();
-            let scope = scope_mirror.borrow().clone();
-            delay_scope_dialog(
-                &strip,
-                &scope,
-                delays.get(i).copied().unwrap_or(10),
-                &sender,
-            );
+            sender.input(Msg::FrameDelayDialog(target.get()));
         });
     }
     add_msg_action(&group, "move-earlier", sender, || Msg::MoveSelection {
@@ -436,160 +471,178 @@ pub(super) fn rebuild_strip(
             pick_import_file(&window, target.get() + 1, &sender);
         });
     }
-    strip.insert_action_group("frame", Some(&group));
+    group
+}
 
+/// Whether frame `i` is one of several frames in `scope`: a press there is
+/// aimed at the selection, not at `i` alone.
+fn inside_selection(scope: &[usize], i: usize) -> bool {
+    scope.len() > 1 && scope.contains(&i)
+}
+
+/// ponytail: the strip rebuilds a widget per frame when the frame list changes.
+/// The thumbnails themselves are already built (see `Frame::new`), so this is a
+/// hitch rather than a freeze; swap in a virtualized list when someone imports
+/// something long enough to notice.
+pub(super) fn rebuild_strip(
+    strip: &gtk::Box,
+    doc: &Document,
+    sender: &ComponentSender<App>,
+    scope_mirror: &Rc<RefCell<Vec<usize>>>,
+    drop_dividers: &Rc<RefCell<Vec<gtk::Widget>>>,
+    frame_menu: &FrameMenu,
+) {
+    // `thumb_children` steps past each cell before handing it out, so
+    // removing it cannot cut the walk short — and the popover stays.
+    for cell in thumb_children(strip) {
+        strip.remove(&cell);
+    }
+    let mut dividers = Vec::with_capacity(doc.frames.len());
     for (i, frame) in doc.frames.iter().enumerate() {
-        // Empty until `update_view`, which runs `set_thumb_zoom` over the
-        // whole strip right after any rebuild.
-        let picture = gtk::Picture::new();
-        // The drag-reorder divider is an Overlay child rather than CSS on
-        // the cell: an inset box-shadow painted below the child widgets and
-        // never showed over the thumbnail. Overlays paint on top.
-        let divider = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        divider.add_css_class("drop-divider");
-        divider.set_width_request(3);
-        divider.set_visible(false);
-        let overlay = gtk::Overlay::new();
-        overlay.set_child(Some(&picture));
-        overlay.add_overlay(&divider);
-        drop_dividers.borrow_mut().push(divider.upcast());
-
-        let cell = gtk::Box::new(gtk::Orientation::Vertical, 2);
-        cell.add_css_class("thumb");
-        cell.append(&overlay);
-        let label = gtk::Label::new(Some(&(i + 1).to_string()));
-        label.add_css_class("dim-label");
-        label.add_css_class("caption");
-        label.add_css_class("tnum");
-        // Ellipsized so a four-digit frame number cannot widen the cell past
-        // its thumbnail box and slide the bands out from under the strip.
-        label.set_ellipsize(gtk::pango::EllipsizeMode::End);
-        cell.append(&label);
-        if frame.detached {
-            let badge = gtk::Image::from_icon_name("document-edit-symbolic");
-            badge.set_tooltip_text(Some(t("Edited outside; overlays skip this frame")));
-            cell.append(&badge);
-        }
-        cell.set_tooltip_text(Some(&fill(
-            // Translators: "cs" is centiseconds, the unit GIF stores frame delays in.
-            t("Frame {number} · {delay} cs"),
-            &[
-                ("number", &(i + 1).to_string()),
-                ("delay", &frame.delay_cs.to_string()),
-            ],
-        )));
-
-        // A press on a frame that is inside the active selection must not
-        // collapse the selection on the spot: the click may be the start of
-        // a drag that moves the whole selection, and the drop still needs
-        // to find it. So the press only arms a pending seek; if a drag
-        // begins it is dropped, and a plain release — no drag — collapses
-        // the selection to that one frame, which is what a click means.
+        let (cell, divider) = thumb_cell(i, frame);
+        dividers.push(divider);
+        // Armed by a press inside the selection, cancelled by a drag.
         let pending_seek = Rc::new(Cell::new(None::<usize>));
-        let click = gtk::GestureClick::new();
-        {
-            let (sender, scope_mirror, pending_seek) =
-                (sender.clone(), scope_mirror.clone(), pending_seek.clone());
-            // Released-handler copies: the press closure moves its own in.
-            let (released_sender, released_pending) = (sender.clone(), pending_seek.clone());
-            click.connect_pressed(move |gesture, _, _, _| {
-                let state = gesture.current_event_state();
-                let shift = state.contains(gdk::ModifierType::SHIFT_MASK);
-                let ctrl = state.contains(gdk::ModifierType::CONTROL_MASK);
-                if shift {
-                    sender.input(Msg::ExtendSelection(i));
-                } else if ctrl {
-                    sender.input(Msg::ToggleSelection(i));
-                } else {
-                    let on_selection = {
-                        let scope = scope_mirror.borrow();
-                        scope.len() > 1 && scope.contains(&i)
-                    };
-                    if on_selection {
-                        pending_seek.set(Some(i));
-                    } else {
-                        sender.input(Msg::Seek(i));
-                    }
-                }
-            });
-            click.connect_released(move |_, _, _, _| {
-                if let Some(i) = released_pending.take() {
-                    released_sender.input(Msg::Seek(i));
-                }
-            });
-        }
-        cell.add_controller(click);
-
-        // Right-click acts on the frame under the pointer, not on the scope,
-        // which is the whole reason to have it as well as the ⋮ menu — but
-        // only when that frame stands alone. Right-clicking a frame already
-        // inside the active selection keeps the selection and switches the
-        // popover to its scope-acting menu. The popover is shared: one per
-        // frame is a widget tree per thumbnail.
-        let secondary = gtk::GestureClick::new();
-        secondary.set_button(gdk::BUTTON_SECONDARY);
-        {
-            let (menu, selection_menu) = (menu.clone(), selection_menu.clone());
-            let (sender, target, popover, strip, scope_mirror) = (
-                sender.clone(),
-                target.clone(),
-                popover.clone(),
-                strip.clone(),
-                scope_mirror.clone(),
-            );
-            let cell = cell.clone();
-            secondary.connect_pressed(move |_, _, x, y| {
-                target.set(i);
-                let on_selection = {
-                    let scope = scope_mirror.borrow();
-                    scope.len() > 1 && scope.contains(&i)
-                };
-                if on_selection {
-                    sender.input(Msg::SeekKeepSelection(i));
-                    popover.set_menu_model(Some(&selection_menu));
-                } else {
-                    sender.input(Msg::Seek(i));
-                    popover.set_menu_model(Some(&menu));
-                }
-                let point = cell
-                    .compute_point(&strip, &gtk::graphene::Point::new(x as f32, y as f32))
-                    .unwrap_or_else(|| gtk::graphene::Point::new(x as f32, y as f32));
-                popover.set_pointing_to(Some(&gdk::Rectangle::new(
-                    point.x() as i32,
-                    point.y() as i32,
-                    1,
-                    1,
-                )));
-                popover.popup();
-            });
-        }
-        cell.add_controller(secondary);
-
-        // Drag one thumbnail to reorder it; the payload is just the source
-        // index. Where it lands is decided by the strip's own drop target
-        // (added once, in `build`), which tracks the gap nearest the pointer
-        // across the whole strip rather than per cell.
-        let drag_source = gtk::DragSource::new();
-        drag_source.set_actions(gdk::DragAction::MOVE);
-        {
-            let pending_seek = pending_seek.clone();
-            drag_source.connect_drag_begin(move |_, _| {
-                // The press became a drag: the drop moves whatever the
-                // selection then names, so it must still be whole here —
-                // cancel the collapse-on-release instead.
-                pending_seek.take();
-            });
-        }
-        {
-            let from = i as u32;
-            drag_source.connect_prepare(move |_, _, _| {
-                Some(gdk::ContentProvider::for_value(&from.to_value()))
-            });
-        }
-        cell.add_controller(drag_source);
-
+        connect_thumb_click(&cell, i, sender, scope_mirror, &pending_seek);
+        connect_thumb_menu(&cell, i, sender, scope_mirror, frame_menu);
+        connect_thumb_drag(&cell, i, pending_seek);
         strip.append(&cell);
     }
+    *drop_dividers.borrow_mut() = dividers;
+}
+
+/// One strip cell for frame `i`: its thumbnail, number and — for a frame
+/// edited outside — the pencil badge, plus the drag-reorder divider laid
+/// over the thumbnail, returned for `drop_dividers`.
+fn thumb_cell(i: usize, frame: &Frame) -> (gtk::Box, gtk::Widget) {
+    // Empty until `update_view`, which runs `set_thumb_zoom` over the
+    // whole strip right after any rebuild.
+    let picture = gtk::Picture::new();
+    // The drag-reorder divider is an Overlay child rather than CSS on
+    // the cell: an inset box-shadow painted below the child widgets and
+    // never showed over the thumbnail. Overlays paint on top.
+    let divider = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    divider.add_css_class("drop-divider");
+    divider.set_width_request(3);
+    divider.set_visible(false);
+    let overlay = gtk::Overlay::new();
+    overlay.set_child(Some(&picture));
+    overlay.add_overlay(&divider);
+
+    let cell = gtk::Box::new(gtk::Orientation::Vertical, 2);
+    cell.add_css_class("thumb");
+    cell.append(&overlay);
+    let label = gtk::Label::new(Some(&(i + 1).to_string()));
+    label.add_css_class("dim-label");
+    label.add_css_class("caption");
+    label.add_css_class("tnum");
+    // Ellipsized so a four-digit frame number cannot widen the cell past
+    // its thumbnail box and slide the bands out from under the strip.
+    label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    cell.append(&label);
+    if frame.detached {
+        let badge = gtk::Image::from_icon_name("document-edit-symbolic");
+        badge.set_tooltip_text(Some(t("Edited outside; overlays skip this frame")));
+        cell.append(&badge);
+    }
+    cell.set_tooltip_text(Some(&fill(
+        // Translators: "cs" is centiseconds, the unit GIF stores frame delays in.
+        t("Frame {number} · {delay} cs"),
+        &[
+            ("number", &(i + 1).to_string()),
+            ("delay", &frame.delay_cs.to_string()),
+        ],
+    )));
+    (cell, divider.upcast())
+}
+
+/// A press on a frame that is inside the active selection must not
+/// collapse the selection on the spot: the click may be the start of
+/// a drag that moves the whole selection, and the drop still needs
+/// to find it. So the press only arms `pending_seek`; if a drag
+/// begins it is dropped, and a plain release — no drag — collapses
+/// the selection to that one frame, which is what a click means.
+fn connect_thumb_click(
+    cell: &gtk::Box,
+    i: usize,
+    sender: &ComponentSender<App>,
+    scope_mirror: &Rc<RefCell<Vec<usize>>>,
+    pending_seek: &Rc<Cell<Option<usize>>>,
+) {
+    let click = gtk::GestureClick::new();
+    {
+        let (sender, scope_mirror, pending_seek) =
+            (sender.clone(), scope_mirror.clone(), pending_seek.clone());
+        click.connect_pressed(move |gesture, _, _, _| {
+            let state = gesture.current_event_state();
+            if state.contains(gdk::ModifierType::SHIFT_MASK) {
+                sender.input(Msg::ExtendSelection(i));
+            } else if state.contains(gdk::ModifierType::CONTROL_MASK) {
+                sender.input(Msg::ToggleSelection(i));
+            } else if inside_selection(&scope_mirror.borrow(), i) {
+                pending_seek.set(Some(i));
+            } else {
+                sender.input(Msg::Seek(i));
+            }
+        });
+    }
+    {
+        let (sender, pending_seek) = (sender.clone(), pending_seek.clone());
+        click.connect_released(move |_, _, _, _| {
+            if let Some(i) = pending_seek.take() {
+                sender.input(Msg::Seek(i));
+            }
+        });
+    }
+    cell.add_controller(click);
+}
+
+/// Right-click acts on the frame under the pointer, not on the scope,
+/// which is the whole reason to have it as well as the ⋮ menu — but
+/// only when that frame stands alone. Right-clicking a frame already
+/// inside the active selection keeps the selection and switches the
+/// popover to its scope-acting menu.
+fn connect_thumb_menu(
+    cell: &gtk::Box,
+    i: usize,
+    sender: &ComponentSender<App>,
+    scope_mirror: &Rc<RefCell<Vec<usize>>>,
+    frame_menu: &FrameMenu,
+) {
+    let secondary = gtk::GestureClick::new();
+    secondary.set_button(gdk::BUTTON_SECONDARY);
+    let (sender, scope_mirror, frame_menu) =
+        (sender.clone(), scope_mirror.clone(), frame_menu.clone());
+    let cell_widget = cell.clone().upcast::<gtk::Widget>();
+    secondary.connect_pressed(move |_, _, x, y| {
+        let on_selection = inside_selection(&scope_mirror.borrow(), i);
+        sender.input(if on_selection {
+            Msg::SeekKeepSelection(i)
+        } else {
+            Msg::Seek(i)
+        });
+        frame_menu.popup(i, on_selection, &cell_widget, (x, y));
+    });
+    cell.add_controller(secondary);
+}
+
+/// Drag one thumbnail to reorder it; the payload is just the source
+/// index. Where it lands is decided by the strip's own drop target
+/// (added once, in `build`), which tracks the gap nearest the pointer
+/// across the whole strip rather than per cell.
+fn connect_thumb_drag(cell: &gtk::Box, i: usize, pending_seek: Rc<Cell<Option<usize>>>) {
+    let drag_source = gtk::DragSource::new();
+    drag_source.set_actions(gdk::DragAction::MOVE);
+    drag_source.connect_drag_begin(move |_, _| {
+        // The press became a drag: the drop moves whatever the
+        // selection then names, so it must still be whole here —
+        // cancel the collapse-on-release instead.
+        pending_seek.take();
+    });
+    let from = i as u32;
+    drag_source
+        .connect_prepare(move |_, _, _| Some(gdk::ContentProvider::for_value(&from.to_value())));
+    cell.add_controller(drag_source);
 }
 
 /// One row per overlay, each band spanning the frames its range covers. This is

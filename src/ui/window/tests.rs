@@ -1301,7 +1301,8 @@ fn busy_gate_classification_covers_every_variant() {
 
     // Pure view/transport messages: never blocked. `MoveFrameDialog` only
     // reads the frame count, which frame work never changes, so it needs
-    // no more guarding than opening any other frame's context menu does.
+    // no more guarding than opening any other frame's context menu does;
+    // `FrameDelayDialog` only opens a dialog whose answer is gated itself.
     for msg in [
         Msg::Tick,
         Msg::Seek(0),
@@ -1310,6 +1311,7 @@ fn busy_gate_classification_covers_every_variant() {
         Msg::SetScope(ScopeChoice::AllFrames),
         Msg::SelectOverlay(None),
         Msg::MoveFrameDialog(0),
+        Msg::FrameDelayDialog(0),
     ] {
         assert!(
             !msg.changes_frames() && !msg.requires_idle() && !msg.edits_document(),
@@ -1675,7 +1677,8 @@ fn the_menus_only_name_win_actions_the_window_carries() {
         .map(|(name, _)| *name)
         .chain(dialogs)
         .collect();
-    let (frame_menu, selection_menu) = frame_menus(&Keymap::default());
+    let (frame_menu, selection_menu) = (gio::Menu::new(), gio::Menu::new());
+    fill_frame_menus(&frame_menu, &selection_menu, &Keymap::default());
     let menus: Vec<gio::MenuModel> = edit_menus()
         .into_iter()
         .map(|(_, menu)| menu.upcast())
@@ -1689,6 +1692,32 @@ fn the_menus_only_name_win_actions_the_window_carries() {
             );
         }
     }
+}
+
+/// The frame menus are built once with the window and refilled on a rebind,
+/// so the refill has to replace what they held — not stack a second copy
+/// under it — and show the new chord on both faces.
+#[test]
+fn a_rebind_refills_the_frame_menus_in_place() {
+    let delete_accel = |menu: &gio::Menu| {
+        menu.item_link(0, "section")
+            .and_then(|edits| edits.item_attribute_value(0, "accel", None))
+            .and_then(|v| v.str().map(str::to_string))
+    };
+    let (frame_menu, selection_menu) = (gio::Menu::new(), gio::Menu::new());
+    fill_frame_menus(&frame_menu, &selection_menu, &Keymap::default());
+    let items = menu_items(frame_menu.upcast_ref());
+
+    let mut keys = Keymap::default();
+    keys.set(Action::FrameDelete, vec![Chord::parse("ctrl+k").unwrap()]);
+    fill_frame_menus(&frame_menu, &selection_menu, &keys);
+    assert_eq!(
+        menu_items(frame_menu.upcast_ref()),
+        items,
+        "the same items, once"
+    );
+    assert_eq!(delete_accel(&frame_menu).as_deref(), Some("<Control>k"));
+    assert_eq!(delete_accel(&selection_menu).as_deref(), Some("<Control>k"));
 }
 
 /// Regression: the window had no minimum, so a drag could take it under

@@ -98,6 +98,7 @@ impl Component for App {
             Msg::MoveSelectionTo { from, gap } => self.move_selection_to(from, gap, &sender),
             Msg::MoveFrame(from, to) => self.move_frame(from, to, &sender),
             Msg::MoveFrameDialog(i) => self.open_move_frame_dialog(root, i, &sender),
+            Msg::FrameDelayDialog(i) => self.open_frame_delay_dialog(root, i, &sender),
             Msg::SetScopeDelay(cs) => self.set_scope_delay(cs, &sender),
             Msg::DelayAllDialog => self.open_delay_all_dialog(root, &sender),
             Msg::SetAllFramesDelay(cs) => self.set_all_frames_delay(cs, &sender),
@@ -389,6 +390,20 @@ impl App {
         move_frame_dialog(root, i, self.frame_count(), sender);
     }
 
+    /// The delay dialog for the scope, filled in with frame `i`'s delay as
+    /// it stands now — not as it stood when the strip was last built.
+    fn open_frame_delay_dialog(
+        &self,
+        root: &adw::ApplicationWindow,
+        i: usize,
+        sender: &ComponentSender<Self>,
+    ) {
+        let Some(frame) = self.editor.doc.frames.get(i) else {
+            return;
+        };
+        delay_scope_dialog(root, &self.scope_frames(), frame.delay_cs, sender);
+    }
+
     /// The delay dialog for every frame, filled in with the first one's.
     fn open_delay_all_dialog(&self, root: &adw::ApplicationWindow, sender: &ComponentSender<Self>) {
         if self.frame_count() == 0 {
@@ -548,10 +563,7 @@ impl App {
     fn set_keymap(&mut self, map: Keymap) {
         map.save();
         *self.keymap.borrow_mut() = map;
-        // The frame context menu shows its shortcuts, and the popover
-        // carrying it is built with the strip — so drop the cached
-        // frame list to make `update_view` rebuild both. A rebind is
-        // rare enough that the thumbnails' hitch does not matter.
-        self.strip_keys.borrow_mut().clear();
+        // The frame context menu shows its shortcuts.
+        self.frame_menu_stale.set(true);
     }
 }

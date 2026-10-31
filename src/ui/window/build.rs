@@ -70,6 +70,7 @@ pub(super) fn build(
         overlay_list_ids: sidebar.layers.ids,
         scope_mirror: strip.scope_mirror,
         drop_dividers: strip.drop_dividers,
+        frame_menu: strip.frame_menu,
         text_rows: sidebar.overlay.text_rows,
         shape_rows: sidebar.overlay.shape_rows,
         overlay_group: sidebar.overlay.group,
@@ -190,6 +191,7 @@ fn properties_sidebar(sender: &ComponentSender<App>) -> Sidebar {
     Sidebar {
         scroll,
         properties,
+
         sync,
         frame,
         layers,
@@ -544,6 +546,7 @@ struct StripArea {
     strip: gtk::Box,
     scope_mirror: Rc<RefCell<Vec<usize>>>,
     drop_dividers: Rc<RefCell<Vec<gtk::Widget>>>,
+    frame_menu: FrameMenu,
     bands: gtk::DrawingArea,
     bands_model: Rc<RefCell<Vec<Band>>>,
     bands_scroll: gtk::ScrolledWindow,
@@ -552,6 +555,7 @@ struct StripArea {
 
 fn strip_area(model: &App, sender: &ComponentSender<App>) -> StripArea {
     let (strip, drop_dividers) = frame_strip(sender);
+    let frame_menu = FrameMenu::new(&strip, sender);
     let scope_mirror: Rc<RefCell<Vec<usize>>> = Rc::new(RefCell::new(Vec::new()));
     let (bands, bands_model) = overlay_bands(model, sender, &scope_mirror);
 
@@ -609,6 +613,7 @@ fn strip_area(model: &App, sender: &ComponentSender<App>) -> StripArea {
         strip,
         scope_mirror,
         drop_dividers,
+        frame_menu,
         bands,
         bands_model,
         bands_scroll,
