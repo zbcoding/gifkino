@@ -561,6 +561,100 @@ impl App {
         self.busy = Some(Busy::new(work.busy_kind(), Some(total), None));
         run_frame_work(&self.editor.doc, work, sender);
     }
+
+    /// Move the bar a long job holds, if one is up.
+    pub(super) fn set_progress(&mut self, done: usize, total: Option<usize>) {
+        if let Some(busy) = &mut self.busy {
+            busy.done = done;
+            busy.total = total;
+        }
+    }
+
+    /// A worker is done, so its bar comes down; a failure is toasted and
+    /// leaves nothing to land.
+    pub(super) fn finish_work<T>(
+        &mut self,
+        result: Result<T, &'static str>,
+        sender: &ComponentSender<Self>,
+    ) -> Option<T> {
+        self.busy = None;
+        result
+            .map_err(|error| sender.input(Msg::Toast(t(error).to_string())))
+            .ok()
+    }
+
+    /// Land a finished frame job as one history step.
+    pub(super) fn land_work(&mut self, done: WorkDone, sender: &ComponentSender<Self>) {
+        let WorkDone {
+            label,
+            frames_touched,
+            scale,
+            offset,
+            frames,
+            land,
+        } = done;
+        let (change, _) = self.editor.edit(label, frames_touched, |d| {
+            land(d, frames, scale, offset);
+        });
+        let ((fx, fy), (dx, dy)) = (scale, offset);
+        scale_in_flight_canvas(&mut self.drag, &mut self.crop_rect, fx, fy, dx, dy);
+        self.after_edit();
+        self.toast_if_document_wide(sender, &change, self.frame_count());
+    }
+
+    /// Land a finished splice as one history step, with the playhead on its
+    /// first incoming frame.
+    pub(super) fn land_splice(&mut self, splice: Splice, sender: &ComponentSender<Self>) {
+        let at = splice.at;
+        let (fx, fy) = splice.overlays.scale;
+        let (dx, dy) = splice.overlays.offset;
+        let added = splice.incoming.len();
+        let label = if added == 1 {
+            n("Frame added")
+        } else {
+            n("Frames added")
+        };
+        let (change, _) = self.editor.edit(label, added, |d| splice.apply(d));
+        scale_in_flight_canvas(
+            &mut self.drag,
+            &mut self.crop_rect,
+            fx,
+            fy,
+            dx as f32,
+            dy as f32,
+        );
+        self.playhead = self.clamp_frame(at);
+        self.after_edit();
+        // Always toasted, unlike a scoped edit: the frames land off the
+        // playhead's frame, and a grown canvas redrew every one of them.
+        sender.input(Msg::Toast(change.message()));
+    }
+
+    /// A decode finished: replace the document, or hand the frames to the
+    /// fit chooser when they splice in at `import_at`.
+    pub(super) fn land_import(
+        &mut self,
+        outcome: ImportOutcome,
+        root: &adw::ApplicationWindow,
+        sender: &ComponentSender<Self>,
+    ) {
+        match (self.import_at.take(), outcome) {
+            (Some(at), ImportOutcome::Loaded(path, frames)) => {
+                self.ask_fit(root, &path, at.min(self.frame_count()), frames, sender);
+            }
+            (None, ImportOutcome::Loaded(path, frames)) => {
+                self.editor = Editor::new(Document::from_frames(frames));
+                self.path = Some(path);
+                self.playhead = 0;
+                self.selection.clear();
+                self.selected_overlay = None;
+                self.scope = ScopeChoice::ThisFrame;
+                self.after_edit();
+            }
+            (_, ImportOutcome::Cancelled) => {}
+            (_, ImportOutcome::Failed(e)) => sender.input(Msg::Toast(e)),
+        }
+    }
 }
 
 pub(super) fn normalize_canvas_rect(

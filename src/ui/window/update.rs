@@ -652,133 +652,50 @@ impl Component for App {
     }
 
     fn update_cmd(&mut self, msg: Cmd, sender: ComponentSender<Self>, root: &Self::Root) {
-        if let Cmd::ImportProgress(done, expected) = msg {
-            if let Some(busy) = &mut self.busy {
-                busy.done = done;
-                busy.total = expected;
-            }
-            return;
-        }
-        if let Cmd::WorkProgress(done, total) = msg {
+        match msg {
+            Cmd::ImportProgress(done, expected) => self.set_progress(done, expected),
             // The worker keeps counting under whatever bar is up; only the
             // numbers move, the bar never clears here.
-            if let Some(busy) = &mut self.busy {
-                busy.done = done;
-                busy.total = Some(total);
-            }
-            return;
-        }
-        if let Cmd::Worked(result) = msg {
-            self.busy = None;
-            let done = match result {
-                Ok(done) => done,
-                Err(error) => {
-                    sender.input(Msg::Toast(t(error).to_string()));
-                    return;
+            Cmd::WorkProgress(done, total) => self.set_progress(done, Some(total)),
+            Cmd::Worked(result) => {
+                if let Some(done) = self.finish_work(result, &sender) {
+                    self.land_work(*done, &sender);
                 }
-            };
-            let WorkDone {
-                label,
-                frames_touched,
-                scale,
-                offset,
-                frames,
-                land,
-            } = *done;
-            let (change, _) = self.editor.edit(label, frames_touched, |d| {
-                land(d, frames, scale, offset);
-            });
-            let ((fx, fy), (dx, dy)) = (scale, offset);
-            scale_in_flight_canvas(&mut self.drag, &mut self.crop_rect, fx, fy, dx, dy);
-            self.after_edit();
-            self.toast_if_document_wide(&sender, &change, self.frame_count());
-            return;
-        }
-        if let Cmd::Spliced(result) = msg {
-            self.busy = None;
-            let splice = match result {
-                Ok(splice) => *splice,
-                Err(error) => {
-                    sender.input(Msg::Toast(t(error).to_string()));
-                    return;
+            }
+            Cmd::Spliced(result) => {
+                if let Some(splice) = self.finish_work(result, &sender) {
+                    self.land_splice(*splice, &sender);
                 }
-            };
-            let at = splice.at;
-            let (fx, fy) = splice.overlays.scale;
-            let (dx, dy) = splice.overlays.offset;
-            let added = splice.incoming.len();
-            let label = if added == 1 {
-                n("Frame added")
-            } else {
-                n("Frames added")
-            };
-            let (change, _) = self.editor.edit(label, added, |d| splice.apply(d));
-            scale_in_flight_canvas(
-                &mut self.drag,
-                &mut self.crop_rect,
-                fx,
-                fy,
-                dx as f32,
-                dy as f32,
-            );
-            self.playhead = self.clamp_frame(at);
-            self.after_edit();
-            // Always toasted, unlike a scoped edit: the frames land off the
-            // playhead's frame, and a grown canvas redrew every one of them.
-            sender.input(Msg::Toast(change.message()));
-            return;
-        }
-        if let Cmd::Estimated(rev, result) = msg {
-            if let Ok(bytes) = result {
-                self.estimate = Some((rev, bytes));
             }
-            if self.estimate_pending == Some(rev) {
-                self.estimate_pending = None;
-            }
-            return;
-        }
-        // The probe answered. Every video stops here: the dialog is where the
-        // size, the rate, the trim, the frame drop and this import's memory
-        // budget are chosen, and a clip that already fits has the same
-        // questions to answer as one that does not.
-        if let Cmd::Planned(path, plan) = msg {
-            self.busy = None;
-            match *plan {
-                Ok(plan) => {
-                    confirm_oversize(root, &path, &plan, self.settings.max_import_bytes, &sender)
+            Cmd::Estimated(rev, result) => {
+                if let Ok(bytes) = result {
+                    self.estimate = Some((rev, bytes));
                 }
-                Err(e) => sender.input(Msg::Toast(e)),
+                if self.estimate_pending == Some(rev) {
+                    self.estimate_pending = None;
+                }
             }
-            return;
-        }
-        match msg {
-            Cmd::ImportProgress(..)
-            | Cmd::WorkProgress(..)
-            | Cmd::Worked(..)
-            | Cmd::Spliced(..)
-            | Cmd::Planned(..)
-            | Cmd::Estimated(..) => {
-                unreachable!("handled above")
+            // The probe answered. Every video stops here: the dialog is where
+            // the size, the rate, the trim, the frame drop and this import's
+            // memory budget are chosen, and a clip that already fits has the
+            // same questions to answer as one that does not.
+            Cmd::Planned(path, plan) => {
+                self.busy = None;
+                match *plan {
+                    Ok(plan) => confirm_oversize(
+                        root,
+                        &path,
+                        &plan,
+                        self.settings.max_import_bytes,
+                        &sender,
+                    ),
+                    Err(e) => sender.input(Msg::Toast(e)),
+                }
             }
             Cmd::Imported(outcome) => {
                 // An import ends the bar it started.
                 self.busy = None;
-                match (self.import_at.take(), *outcome) {
-                    (Some(at), ImportOutcome::Loaded(path, frames)) => {
-                        self.ask_fit(root, &path, at.min(self.frame_count()), frames, &sender);
-                    }
-                    (None, ImportOutcome::Loaded(path, frames)) => {
-                        self.editor = Editor::new(Document::from_frames(frames));
-                        self.path = Some(path);
-                        self.playhead = 0;
-                        self.selection.clear();
-                        self.selected_overlay = None;
-                        self.scope = ScopeChoice::ThisFrame;
-                        self.after_edit();
-                    }
-                    (_, ImportOutcome::Cancelled) => {}
-                    (_, ImportOutcome::Failed(e)) => sender.input(Msg::Toast(e)),
-                }
+                self.land_import(*outcome, root, &sender);
             }
             Cmd::Exported(Ok((path, size))) => {
                 self.busy = None;
