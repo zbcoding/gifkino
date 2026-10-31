@@ -245,12 +245,6 @@ pub(super) fn requested_dimension(spin: &gtk::SpinButton) -> u32 {
     }
 }
 
-/// Resize every frame, from the Optimize menu. Seeded from the live canvas so
-/// opening it on an untouched document offers a no-op, a "Keep aspect ratio"
-/// switch links the two fields live, and a memory estimate warns before a
-/// huge canvas on a long document becomes a stuck worker. `Document::resize`
-/// clamps whatever comes back. Built by `build_resize_dialog` so the widget
-/// test can hold it without showing it.
 /// Checked RGBA bytes a resize to `w × h` would need for `frames` frames, or
 /// `None` when the multiplication overflows. The one place that cost is
 /// computed: `resize_fits_budget` and `resize_fits_budgets` build on it.
@@ -439,6 +433,13 @@ pub(super) fn build_resize_dialog(
     (dialog, width, height, lock, summary)
 }
 
+/// Resize every frame, from the Optimize menu. Seeded from the live canvas so
+/// opening it on an untouched document offers a no-op, a "Keep aspect ratio"
+/// switch links the two fields live, and a memory estimate warns before a
+/// huge canvas on a long document becomes a stuck worker. `Document::resize`
+/// clamps whatever comes back. Built by `build_resize_dialog` so the widget
+/// test can hold it without showing it.
+///
 /// Shows the resize dialog: links the fields, keeps the memory summary live,
 /// and sends `Msg::Resize` for the size Apply leaves behind.
 pub(super) fn resize_dialog(
