@@ -239,6 +239,22 @@ impl Component for App {
         self.update_view(widgets, sender);
     }
 
+    /// A job landing — an opened file, a resize, an effect — changes the
+    /// document from here rather than from `update`, and needs measuring as
+    /// much as an edit does; without this the readout said "sizing…" until
+    /// the next click.
+    fn update_cmd_with_view(
+        &mut self,
+        widgets: &mut Widgets,
+        msg: Cmd,
+        sender: ComponentSender<Self>,
+        root: &Self::Root,
+    ) {
+        self.update_cmd(msg, sender.clone(), root);
+        self.schedule_estimate(&sender);
+        self.update_view(widgets, sender);
+    }
+
     fn update_view(&self, widgets: &mut Widgets, sender: ComponentSender<Self>) {
         self.sync_view(widgets, &sender);
     }
