@@ -666,10 +666,10 @@ fn sync_shape_editor(widgets: &Widgets, sh: &ShapeOverlay) {
     widgets.fill_on.set_active(sh.fill.is_some());
     widgets
         .fill_button
-        .set_rgba(sh.fill.unwrap_or([255, 60, 60, 255]));
+        .set_rgba(sh.fill.unwrap_or(DEFAULT_SHAPE_COLOUR));
     widgets
         .stroke_button
-        .set_rgba(sh.stroke.map_or([255, 60, 60, 255], |(c, _)| c));
+        .set_rgba(sh.stroke.map_or(DEFAULT_SHAPE_COLOUR, |(c, _)| c));
     set_spin(
         &widgets.stroke_width,
         sh.stroke.map_or(0.0, |(_, w)| w as f64),

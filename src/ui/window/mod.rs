@@ -94,6 +94,9 @@ const BAND_H: f64 = 18.0;
 /// import lands. The file menu's Add frames has no frame under the pointer to
 /// aim at, unlike a frame's own context menu.
 const AT_END: usize = usize::MAX;
+/// The colour a new shape is filled with, and the colour buttons fall back
+/// to while a shape has no fill or stroke of its own.
+const DEFAULT_SHAPE_COLOUR: Rgba8 = [255, 60, 60, 255];
 
 pub const CSS: &str = "
 .canvas-frame { border: 1px solid alpha(currentColor, 0.15); }

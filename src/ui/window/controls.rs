@@ -32,6 +32,47 @@ pub(super) fn tool_action(tool: Tool) -> Action {
     }
 }
 
+impl Tool {
+    /// A fresh overlay for a `w × h` canvas and where it sits: text as a
+    /// caption along the bottom, a shape over the middle quarter.
+    pub(super) fn new_overlay(self, (w, h): (u32, u32)) -> (OverlayKind, Transform) {
+        let (w, h) = (w as f32, h as f32);
+        let shape = match self {
+            Tool::Text => {
+                let text = TextOverlay {
+                    text: "Text".into(),
+                    size_px: (h / 8.0).max(12.0),
+                    ..Default::default()
+                };
+                let transform = Transform::at(w * 0.1, h * 0.72, w * 0.8, h * 0.2);
+                return (OverlayKind::Text(text), transform);
+            }
+            Tool::Rect => Shape::Rect,
+            Tool::Ellipse => Shape::Ellipse,
+            Tool::Arrow => Shape::Arrow,
+        };
+        // Every new shape arrives filled and unstroked: an outlined
+        // rectangle is the rarer annotation, and the stroke width is one
+        // spin away.
+        let kind = OverlayKind::Shape(ShapeOverlay {
+            shape,
+            fill: Some(DEFAULT_SHAPE_COLOUR),
+            stroke: None,
+        });
+        (kind, Transform::at(w * 0.25, h * 0.25, w * 0.5, h * 0.5))
+    }
+
+    /// The history label for adding one.
+    pub(super) fn added_label(self) -> &'static str {
+        match self {
+            Tool::Text => n("Text added"),
+            Tool::Rect => n("Rectangle added"),
+            Tool::Ellipse => n("Ellipse added"),
+            Tool::Arrow => n("Arrow added"),
+        }
+    }
+}
+
 pub(super) fn suffixed(title: &str, suffix: &impl IsA<gtk::Widget>) -> adw::ActionRow {
     let row = adw::ActionRow::builder().title(title).build();
     row.add_suffix(suffix);

@@ -289,57 +289,10 @@ impl Component for App {
                 if frames.is_empty() {
                     return;
                 }
-                let (w, h) = self.editor.doc.size();
-                let (kind, name, transform) = match tool {
-                    Tool::Text => (
-                        OverlayKind::Text(TextOverlay {
-                            text: "Text".into(),
-                            size_px: (h as f32 / 8.0).max(12.0),
-                            ..Default::default()
-                        }),
-                        "Text",
-                        Transform::at(
-                            w as f32 * 0.1,
-                            h as f32 * 0.72,
-                            w as f32 * 0.8,
-                            h as f32 * 0.2,
-                        ),
-                    ),
-                    other => (
-                        OverlayKind::Shape(ShapeOverlay {
-                            shape: match other {
-                                Tool::Rect => Shape::Rect,
-                                Tool::Ellipse => Shape::Ellipse,
-                                _ => Shape::Arrow,
-                            },
-                            // Every new shape arrives filled and unstroked:
-                            // an outlined rectangle is the rarer annotation,
-                            // and the stroke width is one spin away.
-                            fill: Some([255, 60, 60, 255]),
-                            stroke: None,
-                        }),
-                        match other {
-                            Tool::Rect => "Rectangle",
-                            Tool::Ellipse => "Ellipse",
-                            _ => "Arrow",
-                        },
-                        Transform::at(
-                            w as f32 * 0.25,
-                            h as f32 * 0.25,
-                            w as f32 * 0.5,
-                            h as f32 * 0.5,
-                        ),
-                    ),
-                };
+                let (kind, transform) = tool.new_overlay(self.editor.doc.size());
                 let touched = frames.len();
-                let added = match tool {
-                    Tool::Text => n("Text added"),
-                    Tool::Rect => n("Rectangle added"),
-                    Tool::Ellipse => n("Ellipse added"),
-                    Tool::Arrow => n("Arrow added"),
-                };
-                let (change, ids) = self.editor.edit(added, touched, |d| {
-                    d.add_overlay_over(name, kind, transform, &frames)
+                let (change, ids) = self.editor.edit(tool.added_label(), touched, |d| {
+                    d.add_overlay_over(tool_label(tool), kind, transform, &frames)
                 });
                 self.leave_crop();
                 self.selected_overlay = ids
