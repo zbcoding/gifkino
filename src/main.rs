@@ -51,6 +51,9 @@ fn main() {
         desktop::integrate(&appimage);
     }
 
+    // Before the first `t`, which loads the catalog for good.
+    i18n::init(settings::Settings::load().language);
+
     let path = first.map(PathBuf::from);
     // The path is ours to open, not GApplication's.
     let app = RelmApp::new(desktop::APP_ID).with_args(Vec::new());

@@ -16,6 +16,15 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 static CATALOG: OnceLock<HashMap<String, String>> = OnceLock::new();
+/// The settings' language, handed over once at startup by `init`.
+static LANGUAGE: OnceLock<Option<String>> = OnceLock::new();
+
+/// Name the language the settings ask for. Call it before the first `t`: the
+/// catalog is loaded once, by whichever lookup comes first. Without it the
+/// environment decides, which is what tests get.
+pub fn init(language: Option<String>) {
+    let _ = LANGUAGE.set(language);
+}
 
 /// Translate. The msgid is the US English string, so an untranslated build
 /// reads correctly rather than showing keys.
@@ -68,14 +77,9 @@ pub fn fill(template: &str, values: &[(&str, &str)]) -> String {
     out
 }
 
-/// The locale the catalog was loaded for, for the About dialog and for tests.
-pub fn locale() -> String {
-    current_locale().unwrap_or_else(|| "en_US".into())
-}
-
 /// Explicit setting first, then the environment in the order gettext reads it.
 fn current_locale() -> Option<String> {
-    if let Some(lang) = crate::settings::Settings::load().language {
+    if let Some(lang) = LANGUAGE.get().cloned().flatten() {
         return Some(lang);
     }
     ["LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"]
@@ -240,9 +244,9 @@ fn unescape(inner: &str) -> String {
     out
 }
 
-/// The reverse, for the extraction script's tests and for anything that writes
-/// a `.po` back out.
-pub fn quote(value: &str) -> String {
+/// The reverse, for the round-trip tests.
+#[cfg(test)]
+fn quote(value: &str) -> String {
     let mut out = String::with_capacity(value.len() + 2);
     out.push('"');
     for c in value.chars() {
