@@ -52,7 +52,8 @@ def logical_lines(text):
         current = (pending or "") + (joined[:-1] if body.endswith("\\") else joined)
         if pending is None:
             start = i
-        if (body.endswith("\\") and '"' in line) or OPEN_MARKER.search(current):
+        continued = body.endswith("\\") and (pending is not None or '"' in line)
+        if continued or OPEN_MARKER.search(current):
             pending = current
         else:
             out.append((start, current))
@@ -343,6 +344,11 @@ def selftest():
     wrapped = logical_lines('    t(\n        "one \\\n         two",\n    ),\n')
     assert wrapped[0] == (1, '    t("one two",'), wrapped
     assert MARKER.search(wrapped[0][1]), wrapped
+
+    # A wrap of three lines or more has middle lines with no quote on them;
+    # the string is still open, so they join too.
+    long = logical_lines('t(\n    "one \\\n     two \\\n     three",\n)\n')
+    assert long[0] == (1, 't("one two three",'), long
 
     # A call that merely ends in a word ending with t or n is not a marker.
     assert not OPEN_MARKER.search("    let img = RgbaImage::new("), "new("
