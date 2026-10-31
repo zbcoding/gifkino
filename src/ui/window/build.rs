@@ -330,10 +330,7 @@ pub(super) fn build(
     {
         let group = gio::SimpleActionGroup::new();
         for (name, msg) in band_actions() {
-            let action = gio::SimpleAction::new(name, None);
-            let sender = sender.clone();
-            action.connect_activate(move |_, _| sender.input(msg()));
-            group.add_action(&action);
+            add_msg_action(&group, name, sender, msg);
         }
         bands.insert_action_group("overlay", Some(&group));
     }
@@ -823,99 +820,7 @@ pub(super) fn build(
     toasts.set_child(Some(&toolbar));
     root.set_content(Some(&toasts));
 
-    let open_action = gio::SimpleAction::new("open", None);
-    {
-        let sender = sender.clone();
-        open_action.connect_activate(move |_, _| sender.input(Msg::Open));
-    }
-    let actions = gio::SimpleActionGroup::new();
-    actions.add_action(&open_action);
-    for (name, op) in [
-        ("frame-delete", FrameOp::Delete),
-        ("frame-duplicate", FrameOp::Duplicate),
-        ("frame-reverse", FrameOp::Reverse),
-        ("frame-cut", FrameOp::Cut),
-    ] {
-        let action = gio::SimpleAction::new(name, None);
-        let sender = sender.clone();
-        action.connect_activate(move |_, _| sender.input(Msg::FrameOp(op)));
-        actions.add_action(&action);
-    }
-    for (name, make) in [
-        ("export", (|| Msg::Export) as fn() -> Msg),
-        ("frame-copy", || Msg::FrameCopy),
-        ("frame-paste", || Msg::FramePaste),
-        ("insert-text", || Msg::AddOverlay(Tool::Text)),
-        ("insert-rect", || Msg::AddOverlay(Tool::Rect)),
-        ("insert-ellipse", || Msg::AddOverlay(Tool::Ellipse)),
-        ("insert-arrow", || Msg::AddOverlay(Tool::Arrow)),
-        ("mirror-horizontal", || Msg::Mirror(Axis::Horizontal)),
-        ("mirror-vertical", || Msg::Mirror(Axis::Vertical)),
-        ("fade-in", || Msg::FadeDialog(Fade::In)),
-        ("fade-out", || Msg::FadeDialog(Fade::Out)),
-        ("loop-fade", || Msg::LoopFadeDialog),
-        ("shortcuts", || Msg::Toast(String::new())),
-    ] {
-        let action = gio::SimpleAction::new(name, None);
-        let sender = sender.clone();
-        let root = root.clone();
-        let keymap = keymap.clone();
-        action.connect_activate(move |_, _| match name {
-            "shortcuts" => shortcuts_dialog(&root, &keymap, &sender),
-            _ => sender.input(make()),
-        });
-        actions.add_action(&action);
-    }
-    // The menu item shipped before the dialog did; without this action GTK
-    // greys it out.
-    let about = gio::SimpleAction::new("about", None);
-    {
-        let root = root.clone();
-        about.connect_activate(move |_, _| about_dialog().present(Some(&root)));
-    }
-    actions.add_action(&about);
-    for (name, dialog) in [
-        ("optimize-remove", OptimizeDialog::Remove),
-        ("optimize-smart", OptimizeDialog::Smart),
-    ] {
-        let action = gio::SimpleAction::new(name, None);
-        let (sender, root) = (sender.clone(), root.clone());
-        action.connect_activate(move |_, _| optimize_dialog(&root, dialog, &sender));
-        actions.add_action(&action);
-    }
-    // The crop-all and resize dialogs need the live canvas size, so the model
-    // opens them.
-    let crop_all = gio::SimpleAction::new("optimize-crop", None);
-    {
-        let sender = sender.clone();
-        crop_all.connect_activate(move |_, _| sender.input(Msg::CropAllDialog));
-    }
-    actions.add_action(&crop_all);
-    let resize = gio::SimpleAction::new("optimize-resize", None);
-    {
-        let sender = sender.clone();
-        resize.connect_activate(move |_, _| sender.input(Msg::ResizeDialog));
-    }
-    actions.add_action(&resize);
-    let zoom_all = gio::SimpleAction::new("optimize-zoom-all", None);
-    {
-        let sender = sender.clone();
-        zoom_all.connect_activate(move |_, _| sender.input(Msg::ApplyZoomAll));
-    }
-    actions.add_action(&zoom_all);
-    let delay_all = gio::SimpleAction::new("frame-delay-all", None);
-    {
-        let sender = sender.clone();
-        delay_all.connect_activate(move |_, _| sender.input(Msg::DelayAllDialog));
-    }
-    actions.add_action(&delay_all);
-    let import_more = gio::SimpleAction::new("import-more", None);
-    {
-        let sender = sender.clone();
-        import_more.connect_activate(move |_, _| sender.input(Msg::ImportInto(AT_END)));
-    }
-    actions.add_action(&import_more);
-    root.insert_action_group("win", Some(&actions));
+    let actions = install_win_actions(root, &keymap, sender);
 
     Widgets {
         title,
@@ -985,6 +890,102 @@ pub(super) fn build(
         thumb_textures: ThumbTextures::new(),
         sync,
     }
+}
+
+/// A menu action by name and the message activating it sends. A function
+/// pointer rather than a value: an action fires every time it is picked,
+/// and `Msg` is not `Clone`.
+pub(super) type MsgAction = (&'static str, fn() -> Msg);
+
+/// Adds a parameterless action named `name` to `group` that runs `activate`.
+pub(super) fn add_action(
+    group: &gio::SimpleActionGroup,
+    name: &str,
+    activate: impl Fn() + 'static,
+) {
+    let action = gio::SimpleAction::new(name, None);
+    action.connect_activate(move |_, _| activate());
+    group.add_action(&action);
+}
+
+/// Adds an action named `name` to `group` that sends `msg()` to the window.
+pub(super) fn add_msg_action(
+    group: &gio::SimpleActionGroup,
+    name: &str,
+    sender: &ComponentSender<App>,
+    msg: fn() -> Msg,
+) {
+    let sender = sender.clone();
+    add_action(group, name, move || sender.input(msg()));
+}
+
+/// The `win` actions that only send a message, by name under `win.`. The
+/// header menus and the strip's frame menu point their items at these.
+pub(super) fn win_actions() -> [MsgAction; 22] {
+    [
+        ("open", || Msg::Open),
+        ("import-more", || Msg::ImportInto(AT_END)),
+        ("export", || Msg::Export),
+        ("frame-delete", || Msg::FrameOp(FrameOp::Delete)),
+        ("frame-duplicate", || Msg::FrameOp(FrameOp::Duplicate)),
+        ("frame-reverse", || Msg::FrameOp(FrameOp::Reverse)),
+        ("frame-cut", || Msg::FrameOp(FrameOp::Cut)),
+        ("frame-copy", || Msg::FrameCopy),
+        ("frame-paste", || Msg::FramePaste),
+        ("frame-delay-all", || Msg::DelayAllDialog),
+        ("insert-text", || Msg::AddOverlay(Tool::Text)),
+        ("insert-rect", || Msg::AddOverlay(Tool::Rect)),
+        ("insert-ellipse", || Msg::AddOverlay(Tool::Ellipse)),
+        ("insert-arrow", || Msg::AddOverlay(Tool::Arrow)),
+        ("mirror-horizontal", || Msg::Mirror(Axis::Horizontal)),
+        ("mirror-vertical", || Msg::Mirror(Axis::Vertical)),
+        ("fade-in", || Msg::FadeDialog(Fade::In)),
+        ("fade-out", || Msg::FadeDialog(Fade::Out)),
+        ("loop-fade", || Msg::LoopFadeDialog),
+        // The crop-all and resize dialogs need the live canvas size, so the
+        // model opens them.
+        ("optimize-crop", || Msg::CropAllDialog),
+        ("optimize-resize", || Msg::ResizeDialog),
+        ("optimize-zoom-all", || Msg::ApplyZoomAll),
+    ]
+}
+
+/// Registers every `win` action on `root`: the message table above, plus
+/// the ones that open a dialog straight from the window.
+fn install_win_actions(
+    root: &adw::ApplicationWindow,
+    keymap: &Rc<RefCell<Keymap>>,
+    sender: &ComponentSender<App>,
+) -> gio::SimpleActionGroup {
+    let actions = gio::SimpleActionGroup::new();
+    for (name, msg) in win_actions() {
+        add_msg_action(&actions, name, sender, msg);
+    }
+    {
+        let (root, keymap, sender) = (root.clone(), keymap.clone(), sender.clone());
+        add_action(&actions, "shortcuts", move || {
+            shortcuts_dialog(&root, &keymap, &sender);
+        });
+    }
+    // The menu item shipped before the dialog did; without this action GTK
+    // greys it out.
+    {
+        let root = root.clone();
+        add_action(&actions, "about", move || {
+            about_dialog().present(Some(&root))
+        });
+    }
+    for (name, dialog) in [
+        ("optimize-remove", OptimizeDialog::Remove),
+        ("optimize-smart", OptimizeDialog::Smart),
+    ] {
+        let (sender, root) = (sender.clone(), root.clone());
+        add_action(&actions, name, move || {
+            optimize_dialog(&root, dialog, &sender)
+        });
+    }
+    root.insert_action_group("win", Some(&actions));
+    actions
 }
 
 /// The header's editing menus, in the order they appear, each with the

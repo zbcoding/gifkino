@@ -268,7 +268,7 @@ pub(super) fn frame_item(label: &str, action: &str, keys: &Keymap, bound: Action
 /// its items at these names, so an item cannot name an action the bands never
 /// added — a menu entry that greys out or does nothing, either of which is
 /// invisible from the code that wrote it.
-pub(super) fn band_actions() -> [(&'static str, fn() -> Msg); 3] {
+pub(super) fn band_actions() -> [MsgAction; 3] {
     [
         ("copy-all", || Msg::CopyOverlayToFrames { all: true }),
         ("copy-selected", || Msg::CopyOverlayToFrames { all: false }),
@@ -300,6 +300,71 @@ pub(super) fn band_menus() -> (gio::Menu, gio::Menu) {
     )
 }
 
+/// The frame menu's clipboard and list items: the header's own `win.frame-*`
+/// actions, which the strip's popover reaches through its parent chain up to
+/// the window, each with the keymap action whose chord it shows.
+const FRAME_EDITS: [(&str, Action); 5] = [
+    ("win.frame-delete", Action::FrameDelete),
+    ("win.frame-duplicate", Action::FrameDuplicate),
+    ("win.frame-cut", Action::FrameCut),
+    ("win.frame-copy", Action::FrameCopy),
+    ("win.frame-paste", Action::FramePaste),
+];
+
+/// Two faces of the one frame popover: the frame under the pointer when it
+/// was opened either stands alone — the menu acts on that frame — or belongs
+/// to the active selection, and then it acts on the whole scope. The
+/// right-click handler picks which model to show; the actions are
+/// scope-based either way, because a plain right-click outside the selection
+/// seeks first, which resets the scope to that one frame. Only the wording
+/// differs, plus "Move to position…", which names one frame.
+pub(super) fn frame_menus(keys: &Keymap) -> (gio::Menu, gio::Menu) {
+    let face = |edits: [&str; 4], single: bool| {
+        let edit_section = gio::Menu::new();
+        for (label, (action, bound)) in edits
+            .into_iter()
+            .chain([t("Paste frames")])
+            .zip(FRAME_EDITS)
+        {
+            edit_section.append_item(&frame_item(label, action, keys, bound));
+        }
+        edit_section.append(Some(t("Set delay…")), Some("frame.delay"));
+        let move_section = gio::Menu::new();
+        move_section.append(Some(t("Move earlier")), Some("frame.move-earlier"));
+        move_section.append(Some(t("Move later")), Some("frame.move-later"));
+        if single {
+            move_section.append(Some(t("Move to position…")), Some("frame.move-to"));
+        }
+        let import_section = gio::Menu::new();
+        import_section.append(Some(t("Insert frames from file…")), Some("frame.add-image"));
+        let menu = gio::Menu::new();
+        menu.append_section(None, &edit_section);
+        menu.append_section(None, &move_section);
+        menu.append_section(None, &import_section);
+        menu
+    };
+    (
+        face(
+            [
+                t("Delete this frame"),
+                t("Duplicate this frame"),
+                t("Cut this frame"),
+                t("Copy this frame"),
+            ],
+            true,
+        ),
+        face(
+            [
+                t("Delete selected frames"),
+                t("Duplicate selected frames"),
+                t("Cut selected frames"),
+                t("Copy selected frames"),
+            ],
+            false,
+        ),
+    )
+}
+
 /// ponytail: the strip rebuilds a widget per frame when the frame list changes.
 /// The thumbnails themselves are already built (see `Frame::new`), so this is a
 /// hitch rather than a freeze; swap in a virtualized list when someone imports
@@ -317,93 +382,7 @@ pub(super) fn rebuild_strip(
     }
     drop_dividers.borrow_mut().clear();
 
-    // Two faces of the one popover: the frame under the pointer when it was
-    // opened either stands alone — the menu acts on that frame — or belongs
-    // to the active selection, and then it acts on the whole scope. The
-    // right-click handler picks which model to show; the actions are
-    // scope-based either way, because a plain right-click outside the
-    // selection seeks first, which resets the scope to that one frame.
-    let edit_section = gio::Menu::new();
-    edit_section.append_item(&frame_item(
-        t("Delete this frame"),
-        "frame.delete",
-        keys,
-        Action::FrameDelete,
-    ));
-    edit_section.append_item(&frame_item(
-        t("Duplicate this frame"),
-        "frame.duplicate",
-        keys,
-        Action::FrameDuplicate,
-    ));
-    edit_section.append_item(&frame_item(
-        t("Cut this frame"),
-        "frame.cut",
-        keys,
-        Action::FrameCut,
-    ));
-    edit_section.append_item(&frame_item(
-        t("Copy this frame"),
-        "frame.copy",
-        keys,
-        Action::FrameCopy,
-    ));
-    edit_section.append_item(&frame_item(
-        t("Paste frames"),
-        "frame.paste",
-        keys,
-        Action::FramePaste,
-    ));
-    edit_section.append(Some(t("Set delay…")), Some("frame.delay"));
-    let move_section = gio::Menu::new();
-    move_section.append(Some(t("Move earlier")), Some("frame.move-earlier"));
-    move_section.append(Some(t("Move later")), Some("frame.move-later"));
-    move_section.append(Some(t("Move to position…")), Some("frame.move-to"));
-    let import_section = gio::Menu::new();
-    import_section.append(Some(t("Insert frames from file…")), Some("frame.add-image"));
-    let menu = gio::Menu::new();
-    menu.append_section(None, &edit_section);
-    menu.append_section(None, &move_section);
-    menu.append_section(None, &import_section);
-    let selection_edit_section = gio::Menu::new();
-    selection_edit_section.append_item(&frame_item(
-        t("Delete selected frames"),
-        "frame.delete",
-        keys,
-        Action::FrameDelete,
-    ));
-    selection_edit_section.append_item(&frame_item(
-        t("Duplicate selected frames"),
-        "frame.duplicate",
-        keys,
-        Action::FrameDuplicate,
-    ));
-    selection_edit_section.append_item(&frame_item(
-        t("Cut selected frames"),
-        "frame.cut",
-        keys,
-        Action::FrameCut,
-    ));
-    selection_edit_section.append_item(&frame_item(
-        t("Copy selected frames"),
-        "frame.copy",
-        keys,
-        Action::FrameCopy,
-    ));
-    selection_edit_section.append_item(&frame_item(
-        t("Paste frames"),
-        "frame.paste",
-        keys,
-        Action::FramePaste,
-    ));
-    selection_edit_section.append(Some(t("Set delay…")), Some("frame.delay"));
-    let selection_move_section = gio::Menu::new();
-    selection_move_section.append(Some(t("Move earlier")), Some("frame.move-earlier"));
-    selection_move_section.append(Some(t("Move later")), Some("frame.move-later"));
-    let selection_menu = gio::Menu::new();
-    selection_menu.append_section(None, &selection_edit_section);
-    selection_menu.append_section(None, &selection_move_section);
-    selection_menu.append_section(None, &import_section);
+    let (menu, selection_menu) = frame_menus(keys);
     let popover = gtk::PopoverMenu::from_model(Some(&menu));
     popover.set_parent(strip);
     popover.set_has_arrow(false);
@@ -416,28 +395,6 @@ pub(super) fn rebuild_strip(
     // Which frame the last right-click landed on.
     let target = Rc::new(std::cell::Cell::new(0usize));
     let group = gio::SimpleActionGroup::new();
-    for (name, op) in [
-        ("delete", FrameOp::Delete),
-        ("duplicate", FrameOp::Duplicate),
-        ("cut", FrameOp::Cut),
-    ] {
-        let action = gio::SimpleAction::new(name, None);
-        let sender = sender.clone();
-        action.connect_activate(move |_, _| sender.input(Msg::FrameOp(op)));
-        group.add_action(&action);
-    }
-    // Function pointers rather than values: an action fires every time the
-    // item is picked, and `Msg` is not `Clone`.
-    for (name, msg) in [
-        ("copy", (|| Msg::FrameCopy) as fn() -> Msg),
-        ("paste", || Msg::FramePaste),
-    ] {
-        let action = gio::SimpleAction::new(name, None);
-        let sender = sender.clone();
-        action.connect_activate(move |_, _| sender.input(msg()));
-        group.add_action(&action);
-    }
-    let delay_action = gio::SimpleAction::new("delay", None);
     {
         let (sender, target, strip, scope_mirror) = (
             sender.clone(),
@@ -446,7 +403,7 @@ pub(super) fn rebuild_strip(
             scope_mirror.clone(),
         );
         let delays: Vec<u16> = doc.frames.iter().map(|f| f.delay_cs).collect();
-        delay_action.connect_activate(move |_, _| {
+        add_action(&group, "delay", move || {
             let i = target.get();
             let scope = scope_mirror.borrow().clone();
             delay_scope_dialog(
@@ -457,33 +414,21 @@ pub(super) fn rebuild_strip(
             );
         });
     }
-    group.add_action(&delay_action);
-    let move_earlier = gio::SimpleAction::new("move-earlier", None);
-    {
-        let sender = sender.clone();
-        move_earlier.connect_activate(move |_, _| {
-            sender.input(Msg::MoveSelection { earlier: true });
-        });
-    }
-    group.add_action(&move_earlier);
-    let move_later = gio::SimpleAction::new("move-later", None);
-    {
-        let sender = sender.clone();
-        move_later.connect_activate(move |_, _| {
-            sender.input(Msg::MoveSelection { earlier: false });
-        });
-    }
-    group.add_action(&move_later);
-    let move_to = gio::SimpleAction::new("move-to", None);
+    add_msg_action(&group, "move-earlier", sender, || Msg::MoveSelection {
+        earlier: true,
+    });
+    add_msg_action(&group, "move-later", sender, || Msg::MoveSelection {
+        earlier: false,
+    });
     {
         let (sender, target) = (sender.clone(), target.clone());
-        move_to.connect_activate(move |_, _| sender.input(Msg::MoveFrameDialog(target.get())));
+        add_action(&group, "move-to", move || {
+            sender.input(Msg::MoveFrameDialog(target.get()));
+        });
     }
-    group.add_action(&move_to);
-    let add_image = gio::SimpleAction::new("add-image", None);
     {
         let (sender, target, strip) = (sender.clone(), target.clone(), strip.clone());
-        add_image.connect_activate(move |_, _| {
+        add_action(&group, "add-image", move || {
             let Some(window) = strip.root().and_downcast::<gtk::Window>() else {
                 return;
             };
@@ -491,7 +436,6 @@ pub(super) fn rebuild_strip(
             pick_import_file(&window, target.get() + 1, &sender);
         });
     }
-    group.add_action(&add_image);
     strip.insert_action_group("frame", Some(&group));
 
     for (i, frame) in doc.frames.iter().enumerate() {

@@ -1534,14 +1534,14 @@ fn the_frame_menu_shows_what_the_keymap_binds() {
             .and_then(|value| value.str().map(str::to_string))
     };
     let mut keys = Keymap::default();
-    let cut = frame_item("Cut this frame", "frame.cut", &keys, Action::FrameCut);
+    let cut = frame_item("Cut this frame", "win.frame-cut", &keys, Action::FrameCut);
     assert_eq!(accel_of(&cut).as_deref(), Some("<Control>x"));
 
     keys.set(
         Action::FrameCut,
         vec![Chord::parse("Ctrl+Shift+X").unwrap()],
     );
-    let cut = frame_item("Cut this frame", "frame.cut", &keys, Action::FrameCut);
+    let cut = frame_item("Cut this frame", "win.frame-cut", &keys, Action::FrameCut);
     assert_eq!(
         accel_of(&cut).as_deref(),
         Some("<Control><Shift>x"),
@@ -1552,7 +1552,7 @@ fn the_frame_menu_shows_what_the_keymap_binds() {
     // than an empty one GTK would try to parse.
     let delete = frame_item(
         "Delete this frame",
-        "frame.delete",
+        "win.frame-delete",
         &keys,
         Action::FrameDelete,
     );
@@ -1593,6 +1593,25 @@ fn gtk_widget_regressions() {
     the_window_refuses_to_shrink_under_its_own_chrome();
 }
 
+/// Every (label, action) item in `model`, sections flattened, in order.
+fn menu_items(model: &gio::MenuModel) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for i in 0..model.n_items() {
+        if let Some(section) = model.item_link(i, "section") {
+            out.extend(menu_items(&section));
+            continue;
+        }
+        let attr = |name: &str| {
+            model
+                .item_attribute_value(i, name, None)
+                .and_then(|v| v.str().map(str::to_string))
+                .unwrap_or_default()
+        };
+        out.push((attr("label"), attr("action")));
+    }
+    out
+}
+
 /// The band context menu's two faces: each names one copy, aimed at the
 /// selection or at the whole document, and the same delete under it.
 /// Every item has to point at an action the bands really add — a name
@@ -1601,27 +1620,9 @@ fn gtk_widget_regressions() {
 /// a widget.
 #[test]
 fn the_band_menu_only_names_actions_the_bands_carry() {
-    fn items(model: &gio::MenuModel) -> Vec<(String, String)> {
-        let mut out = Vec::new();
-        for i in 0..model.n_items() {
-            if let Some(section) = model.item_link(i, "section") {
-                out.extend(items(&section));
-                continue;
-            }
-            let attr = |name: &str| {
-                model
-                    .item_attribute_value(i, name, None)
-                    .and_then(|v| v.str().map(str::to_string))
-                    .unwrap_or_default()
-            };
-            out.push((attr("label"), attr("action")));
-        }
-        out
-    }
-
     let (all_menu, selection_menu) = band_menus();
     assert_eq!(
-        items(all_menu.upcast_ref()),
+        menu_items(all_menu.upcast_ref()),
         vec![
             (
                 t("Copy overlay to all frames").to_string(),
@@ -1634,7 +1635,7 @@ fn the_band_menu_only_names_actions_the_bands_carry() {
         ]
     );
     assert_eq!(
-        items(selection_menu.upcast_ref()),
+        menu_items(selection_menu.upcast_ref()),
         vec![
             (
                 t("Copy overlay to selected frames").to_string(),
@@ -1649,15 +1650,44 @@ fn the_band_menu_only_names_actions_the_bands_carry() {
     );
 
     let carried: Vec<&str> = band_actions().iter().map(|(name, _)| *name).collect();
-    for (label, action) in items(all_menu.upcast_ref())
+    for (label, action) in menu_items(all_menu.upcast_ref())
         .into_iter()
-        .chain(items(selection_menu.upcast_ref()))
+        .chain(menu_items(selection_menu.upcast_ref()))
     {
         let name = action.strip_prefix("overlay.").unwrap_or(&action);
         assert!(
             carried.contains(&name),
             "{label:?} names overlay.{name}, which band_actions() never adds"
         );
+    }
+}
+
+/// The header menus and the strip's frame menu share the `win` actions, so
+/// a renamed or dropped one would grey out a menu entry nothing else
+/// notices. Every `win.*` item has to name an action `install_win_actions`
+/// registers: one from `win_actions()`, or one of the dialogs it opens
+/// straight from the window.
+#[test]
+fn the_menus_only_name_win_actions_the_window_carries() {
+    let dialogs = ["shortcuts", "about", "optimize-remove", "optimize-smart"];
+    let carried: Vec<&str> = win_actions()
+        .iter()
+        .map(|(name, _)| *name)
+        .chain(dialogs)
+        .collect();
+    let (frame_menu, selection_menu) = frame_menus(&Keymap::default());
+    let menus: Vec<gio::MenuModel> = edit_menus()
+        .into_iter()
+        .map(|(_, menu)| menu.upcast())
+        .chain([frame_menu.upcast(), selection_menu.upcast()])
+        .collect();
+    for (label, action) in menus.iter().flat_map(menu_items) {
+        if let Some(name) = action.strip_prefix("win.") {
+            assert!(
+                carried.contains(&name),
+                "{label:?} names win.{name}, which the window never adds"
+            );
+        }
     }
 }
 
