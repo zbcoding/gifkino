@@ -4,4 +4,15 @@ src/core/history.rs
 src/keymap.rs
 src/pipeline/caps.rs
 src/ui/color.rs
-src/ui/window.rs
+src/ui/window/actions.rs
+src/ui/window/build.rs
+src/ui/window/canvas.rs
+src/ui/window/controls.rs
+src/ui/window/dialogs.rs
+src/ui/window/imports.rs
+src/ui/window/mod.rs
+src/ui/window/shortcuts.rs
+src/ui/window/strip.rs
+src/ui/window/tests.rs
+src/ui/window/update.rs
+src/ui/window/view.rs
