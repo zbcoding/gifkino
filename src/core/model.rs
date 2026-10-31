@@ -128,6 +128,20 @@ impl Transform {
     pub fn to_local(self, x: f32, y: f32) -> (f32, f32) {
         spin(x, y, self.center(), -self.angle)
     }
+
+    /// The axis-aligned box the rotated rect paints into, as (left, top,
+    /// right, bottom). Tolerates the negative width or height a resize
+    /// through zero leaves behind.
+    pub fn painted_bounds(self) -> (f32, f32, f32, f32) {
+        let (x0, y0, x1, y1) = (self.x, self.y, self.x + self.w, self.y + self.h);
+        [(x0, y0), (x1, y0), (x0, y1), (x1, y1)]
+            .map(|(x, y)| self.to_image(x, y))
+            .iter()
+            .fold(
+                (f32::MAX, f32::MAX, f32::MIN, f32::MIN),
+                |(l, t, r, b), &(x, y)| (l.min(x), t.min(y), r.max(x), b.max(y)),
+            )
+    }
 }
 
 fn spin(x: f32, y: f32, (cx, cy): (f32, f32), angle: f32) -> (f32, f32) {

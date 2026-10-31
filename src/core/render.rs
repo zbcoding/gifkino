@@ -88,31 +88,11 @@ fn draw_transformed(dst: &mut RgbaImage, src: &RgbaImage, t: Transform, opacity:
     let (cx, cy) = t.center();
     let (sin, cos) = t.angle.sin_cos();
     // Bounding box of the rotated rect, clipped to the canvas.
-    let corners = [
-        (t.x, t.y),
-        (t.x + t.w, t.y),
-        (t.x, t.y + t.h),
-        (t.x + t.w, t.y + t.h),
-    ];
-    let rot = |(px, py): (f32, f32)| {
-        let (ux, uy) = (px - cx, py - cy);
-        (cx + ux * cos - uy * sin, cy + ux * sin + uy * cos)
-    };
-    let pts: Vec<(f32, f32)> = corners.into_iter().map(rot).collect();
-    let min_x = pts
-        .iter()
-        .map(|p| p.0)
-        .fold(f32::MAX, f32::min)
-        .floor()
-        .max(0.0) as u32;
-    let max_x = (pts.iter().map(|p| p.0).fold(f32::MIN, f32::max).ceil()).min(dw as f32) as u32;
-    let min_y = pts
-        .iter()
-        .map(|p| p.1)
-        .fold(f32::MAX, f32::min)
-        .floor()
-        .max(0.0) as u32;
-    let max_y = (pts.iter().map(|p| p.1).fold(f32::MIN, f32::max).ceil()).min(dh as f32) as u32;
+    let (left, top, right, bottom) = t.painted_bounds();
+    let min_x = left.floor().max(0.0) as u32;
+    let max_x = right.ceil().min(dw as f32) as u32;
+    let min_y = top.floor().max(0.0) as u32;
+    let max_y = bottom.ceil().min(dh as f32) as u32;
 
     for dy in min_y..max_y {
         for dx in min_x..max_x {

@@ -59,7 +59,7 @@ pub fn snap_extent(origin: f32, size: f32, extent: f32, tolerance: f32) -> (f32,
 /// Moves `t` so the box it paints — rotation included — lands on the nearest
 /// guides of an `image`-sized canvas. The angle and size are untouched.
 pub fn snap_box(t: Transform, image: (f32, f32), tolerance: f32) -> (Transform, Guides) {
-    let (x0, y0, x1, y1) = painted_bounds(t);
+    let (x0, y0, x1, y1) = t.painted_bounds();
     let (x, gx) = snap_extent(x0, x1 - x0, image.0, tolerance);
     let (y, gy) = snap_extent(y0, y1 - y0, image.1, tolerance);
     let snapped = Transform {
@@ -75,23 +75,6 @@ pub fn snap_point((x, y): (f32, f32), image: (f32, f32), tolerance: f32) -> ((f3
     let (x, gx) = snap_extent(x, 0.0, image.0, tolerance);
     let (y, gy) = snap_extent(y, 0.0, image.1, tolerance);
     ((x, y), Guides { x: gx, y: gy })
-}
-
-/// The axis-aligned box a rotated transform paints into, as
-/// (left, top, right, bottom). Tolerates the negative width or height a
-/// resize through zero leaves behind.
-fn painted_bounds(t: Transform) -> (f32, f32, f32, f32) {
-    let corners = [
-        (t.x, t.y),
-        (t.x + t.w, t.y),
-        (t.x, t.y + t.h),
-        (t.x + t.w, t.y + t.h),
-    ]
-    .map(|(x, y)| t.to_image(x, y));
-    corners.iter().fold(
-        (f32::MAX, f32::MAX, f32::MIN, f32::MIN),
-        |(l, top, r, b), &(x, y)| (l.min(x), top.min(y), r.max(x), b.max(y)),
-    )
 }
 
 #[cfg(test)]
