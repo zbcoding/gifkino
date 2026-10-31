@@ -3,7 +3,7 @@
 
 use cairo::{Context, Format, ImageSurface};
 use gtk4::pango;
-use image::{Rgba, RgbaImage};
+use image::RgbaImage;
 
 use crate::core::{TextAlign, TextOverlay};
 
@@ -80,21 +80,26 @@ fn to_rgba(surface: ImageSurface) -> Result<RgbaImage, cairo::Error> {
         .take_data()
         .map_err(|_| cairo::Error::SurfaceFinished)?;
     let mut out = RgbaImage::new(w, h);
-    for y in 0..h {
-        for x in 0..w {
-            let i = y as usize * stride + x as usize * 4;
-            let (b, g, r, a) = (data[i], data[i + 1], data[i + 2], data[i + 3]);
-            let un = |c: u8| {
-                if a == 0 {
-                    0
-                } else {
-                    ((c as u32 * 255) / a as u32).min(255) as u8
-                }
-            };
-            out.put_pixel(x, y, Rgba([un(r), un(g), un(b), a]));
+    for (y, row) in out.rows_mut().enumerate() {
+        for (px, src) in row.zip(data[y * stride..].chunks_exact(4)) {
+            let [b, g, r, a] = [src[0], src[1], src[2], src[3]];
+            px.0 = [
+                unpremultiply(r, a),
+                unpremultiply(g, a),
+                unpremultiply(b, a),
+                a,
+            ];
         }
     }
     Ok(out)
+}
+
+fn unpremultiply(c: u8, a: u8) -> u8 {
+    if a == 0 {
+        0
+    } else {
+        ((c as u32 * 255) / a as u32).min(255) as u8
+    }
 }
 
 #[cfg(test)]

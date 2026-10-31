@@ -7,12 +7,13 @@
 //! either.
 
 use std::io::{Read, Write};
+use std::ops::Range;
 use std::path::Path;
 use std::process::Command;
 
 use anyhow::{Context, Result, bail};
 use color_quant::NeuQuant;
-use image::{Rgba, RgbaImage};
+use image::RgbaImage;
 
 use crate::core::{Document, Frame};
 
@@ -43,19 +44,20 @@ pub fn decode(
 
     while let Some(frame) = decoder.read_next_frame().context("reading GIF frame")? {
         let saved = matches!(frame.dispose, gif::DisposalMethod::Previous).then(|| canvas.clone());
+        let (xs, ys) = clip(frame, w, h);
+        let (left, top) = (frame.left as usize, frame.top as usize);
+        let row_bytes = w as usize * 4;
+        let buffer: &mut [u8] = &mut canvas;
 
-        for y in 0..frame.height as u32 {
-            for x in 0..frame.width as u32 {
-                let (dx, dy) = (x + frame.left as u32, y + frame.top as u32);
-                if dx >= w || dy >= h {
-                    continue;
+        for y in ys.clone() {
+            let src_start = ((y - top) * frame.width as usize + (xs.start - left)) * 4;
+            let src = &frame.buffer[src_start..src_start + xs.len() * 4];
+            let dst = &mut buffer[y * row_bytes + xs.start * 4..y * row_bytes + xs.end * 4];
+            for (to, px) in dst.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
+                // Transparent pixels leave what is underneath.
+                if px[3] != 0 {
+                    to.copy_from_slice(px);
                 }
-                let i = ((y * frame.width as u32 + x) * 4) as usize;
-                let px = &frame.buffer[i..i + 4];
-                if px[3] == 0 {
-                    continue; // transparent pixels leave what is underneath
-                }
-                canvas.put_pixel(dx, dy, Rgba([px[0], px[1], px[2], px[3]]));
             }
         }
 
@@ -65,13 +67,9 @@ pub fn decode(
         }
         match frame.dispose {
             gif::DisposalMethod::Background => {
-                for y in 0..frame.height as u32 {
-                    for x in 0..frame.width as u32 {
-                        let (dx, dy) = (x + frame.left as u32, y + frame.top as u32);
-                        if dx < w && dy < h {
-                            canvas.put_pixel(dx, dy, Rgba([0, 0, 0, 0]));
-                        }
-                    }
+                let buffer: &mut [u8] = &mut canvas;
+                for y in ys {
+                    buffer[y * row_bytes + xs.start * 4..y * row_bytes + xs.end * 4].fill(0);
                 }
             }
             gif::DisposalMethod::Previous => {
@@ -87,6 +85,19 @@ pub fn decode(
         bail!("the file decoded to zero frames");
     }
     Ok(frames)
+}
+
+/// The canvas columns and rows `frame` covers, clipped to a `w`x`h` canvas: a
+/// frame is free to hang off the edge, and the part that does is not drawn.
+fn clip(frame: &gif::Frame, w: u32, h: u32) -> (Range<usize>, Range<usize>) {
+    let span = |at: u16, len: u16, max: u32| {
+        let end = (at as usize + len as usize).min(max as usize);
+        (at as usize).min(end)..end
+    };
+    (
+        span(frame.left, frame.width, w),
+        span(frame.top, frame.height, h),
+    )
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -227,14 +238,24 @@ pub fn encode(
         Some(n) => gif::Repeat::Finite(n),
     })?;
 
+    let colors = &palette[..color_count * 3];
+    let mut error = Vec::new();
     let total = enc.frames.len();
     for (i, (img, delay)) in enc.frames.iter().enumerate() {
+        let indexed = index_frame(
+            img,
+            &quant,
+            colors,
+            transparent_index,
+            settings.dither,
+            &mut error,
+        );
         let frame = gif::Frame {
             width: w as u16,
             height: h as u16,
             delay: *delay,
             transparent: transparent_index,
-            buffer: index_frame(img, &quant, transparent_index, settings.dither).into(),
+            buffer: indexed.into(),
             ..Default::default()
         };
         encoder.write_frame(&frame).context("writing GIF frame")?;
@@ -264,17 +285,21 @@ fn sample(frames: &[(RgbaImage, u16)]) -> Vec<u8> {
     out
 }
 
+/// `palette` is the quantizer's own colours, `error` the dither's scratch:
+/// both outlive the frame so a long export does not rebuild them per frame.
 fn index_frame(
     img: &RgbaImage,
     quant: &NeuQuant,
+    palette: &[u8],
     transparent: Option<u8>,
     dither: bool,
+    error: &mut Vec<[i16; 3]>,
 ) -> Vec<u8> {
     let (w, h) = img.dimensions();
     let mut out = vec![0u8; (w * h) as usize];
     // Floyd-Steinberg error, one row of lookahead plus the current row.
-    let mut error = vec![[0i16; 3]; (w as usize + 2) * 2];
-    let palette = quant.color_map_rgb();
+    error.clear();
+    error.resize((w as usize + 2) * 2, [0; 3]);
 
     for y in 0..h {
         for x in 0..w {
@@ -400,6 +425,7 @@ mod tests {
 
     use super::*;
     use crate::core::render::no_text;
+    use image::Rgba;
 
     fn flat(w: u32, h: u32, color: [u8; 4]) -> RgbaImage {
         RgbaImage::from_pixel(w, h, Rgba(color))
