@@ -134,11 +134,14 @@ fn decoded_for_kept(kept: usize, drop_nth: Option<usize>) -> usize {
 }
 
 /// The rate `fps` of decoded frames plays at once the drop has taken its share
-/// out: N-1 of every N stay to cover the same stretch of time.
-fn kept_rate(fps: f64, drop_nth: Option<usize>) -> f64 {
-    match thinning(drop_nth) {
-        Some(n) => fps * (n - 1) as f64 / n as f64,
-        None => fps,
+/// out, so the kept frames cover the same stretch of time. Exact from the
+/// counts — `decoded` frames in, `kept` out — when they are known; N-1 of
+/// every N, the long-run share, when they are not.
+fn kept_rate(fps: f64, drop_nth: Option<usize>, counts: Option<(usize, usize)>) -> f64 {
+    match (thinning(drop_nth), counts) {
+        (None, _) => fps,
+        (Some(_), Some((decoded, kept))) if decoded > 0 => fps * kept as f64 / decoded as f64,
+        (Some(n), _) => fps * (n - 1) as f64 / n as f64,
     }
 }
 
@@ -242,7 +245,10 @@ impl ImportPlan {
     /// drop takes out, which is what keeps a thinned import the same length as
     /// the clip it came from.
     pub fn playback_fps(&self) -> f64 {
-        kept_rate(self.fps, self.drop_nth)
+        let counts = self
+            .decoded_frames()
+            .map(|d| (d, kept_frames(d, self.drop_nth)));
+        kept_rate(self.fps, self.drop_nth, counts)
     }
 }
 
@@ -485,12 +491,7 @@ pub fn import_planned(
 
     // The drop leaves fewer frames covering the same stretch of time, so the
     // delays come from the rate they actually play at, not the decode's.
-    let kept_fps = match (drop_nth, decoded) {
-        (Some(_), d) if d > frames.len() && !frames.is_empty() => {
-            fps * frames.len() as f64 / d as f64
-        }
-        _ => fps,
-    };
+    let kept_fps = kept_rate(fps, drop_nth, Some((decoded, frames.len())));
     let delays = delays_for_fps(kept_fps, frames.len());
     for (frame, delay) in frames.iter_mut().zip(delays) {
         frame.delay_cs = delay;
@@ -664,6 +665,26 @@ mod tests {
         assert_eq!(plan.fps, 30.0);
         assert_eq!(plan.frames(), Some(150));
         assert_eq!(plan.playback_fps(), 30.0);
+    }
+
+    /// Regression: the summary quoted the long-run N-1 of N share while the
+    /// import timed the frames it actually kept, so ten frames thinned by
+    /// three showed 6.67 fps and played at 7.
+    #[test]
+    fn the_previewed_rate_is_the_rate_the_kept_frames_play_at() {
+        let info = VideoInfo {
+            width: 64,
+            height: 64,
+            fps: 10.0,
+            duration_s: Some(1.0),
+        };
+        let options = ImportOptions {
+            drop_nth: Some(3),
+            ..ImportOptions::default()
+        };
+        let plan = plan_for(info, &options);
+        assert_eq!(plan.frames(), Some(7));
+        assert_eq!(plan.playback_fps(), 7.0, "seven frames over one second");
     }
 
     #[test]
