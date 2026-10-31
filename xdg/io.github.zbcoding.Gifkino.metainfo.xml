@@ -53,6 +53,18 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.1.6" date="2026-10-31">
+      <description>
+        <p>One menu bar for every editing command, and new frame effects.</p>
+        <ul>
+          <li>Frames, Insert, Effects, Image and Optimize menus sit in the header; the bar folds into the main menu in a narrow window</li>
+          <li>Mirror, fade in, fade out and a loop cross-fade act on the frames in scope</li>
+          <li>Deleting frames at the start or end no longer moves their time onto the next frame</li>
+          <li>Large selections, the timeline strip, opening and exporting do less work</li>
+          <li>Unbinding a shortcut saves it, and the size estimate, thumbnail tooltips and delay dialogs stay current</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.5" date="2026-09-25">
       <description>
         <p>Overlays snap to the canvas edges and centre lines.</p>
