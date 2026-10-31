@@ -187,8 +187,9 @@ mod tests {
                     }
                 }
                 3 => {
-                    if let Some(id) = ed.doc.overlays.last().map(|o| o.id) {
-                        ed.edit("Lower overlay", 1, |d| d.move_overlay_z(id, false));
+                    if let [.., below, top] = ed.doc.overlays.as_slice() {
+                        let (id, below) = (top.id, below.id);
+                        ed.edit("Lower overlay", 1, |d| d.restack_overlay(id, below, false));
                     }
                 }
                 4 if n > 2 => {
@@ -197,7 +198,7 @@ mod tests {
                 }
                 5 => {
                     let i = rng.next(n);
-                    ed.edit("Duplicate frame", 1, |d| d.duplicate_frame(i));
+                    ed.edit("Duplicate frame", 1, |d| d.duplicate_frames_at(&[i]));
                 }
                 7 => {
                     // A scoped edit splits an overlay into pieces with fresh

@@ -263,16 +263,7 @@ impl Scope {
             Scope::ThisFrame if playhead < frame_count => vec![playhead],
             Scope::ThisFrame => Vec::new(),
             Scope::AllFrames => (0..frame_count).collect(),
-            Scope::Frames(picked) => {
-                let mut frames: Vec<usize> = picked
-                    .iter()
-                    .copied()
-                    .filter(|i| *i < frame_count)
-                    .collect();
-                frames.sort_unstable();
-                frames.dedup();
-                frames
-            }
+            Scope::Frames(picked) => sorted_existing(picked, frame_count),
         }
     }
 
@@ -285,6 +276,21 @@ impl Scope {
             _ => 0..0,
         }
     }
+}
+
+/// `indices` below `len`, sorted and deduplicated.
+pub(super) fn sorted_existing(indices: &[usize], len: usize) -> Vec<usize> {
+    let mut existing: Vec<usize> = indices.iter().copied().filter(|i| *i < len).collect();
+    existing.sort_unstable();
+    existing.dedup();
+    existing
+}
+
+/// Sorted, deduplicated `frames` as their contiguous runs.
+pub(super) fn runs(frames: &[usize]) -> impl Iterator<Item = Range<usize>> + '_ {
+    frames
+        .chunk_by(|a, b| a + 1 == *b)
+        .map(|run| run[0]..run[run.len() - 1] + 1)
 }
 
 #[derive(Clone, PartialEq, Debug, Default)]
@@ -347,8 +353,7 @@ impl Document {
         transform: Transform,
         range: Range<usize>,
     ) -> OverlayId {
-        let id = OverlayId(self.next_id);
-        self.next_id += 1;
+        let id = self.fresh_id();
         self.overlays.push(Overlay {
             id,
             name: name.into(),
@@ -375,23 +380,9 @@ impl Document {
         frames: &[usize],
     ) -> Vec<OverlayId> {
         let name = name.into();
-        let mut ids = Vec::new();
-        let mut iter = frames.iter().copied();
-        let Some(mut start) = iter.next() else {
-            return ids;
-        };
-        let mut end = start + 1;
-        for f in iter {
-            if f == end {
-                end = f + 1;
-                continue;
-            }
-            ids.push(self.add_overlay(name.clone(), kind.clone(), transform, start..end));
-            start = f;
-            end = f + 1;
-        }
-        ids.push(self.add_overlay(name, kind, transform, start..end));
-        ids
+        runs(frames)
+            .map(|run| self.add_overlay(name.clone(), kind.clone(), transform, run))
+            .collect()
     }
 
     pub fn remove_overlay(&mut self, id: OverlayId) -> Option<Overlay> {
@@ -399,14 +390,20 @@ impl Document {
         Some(self.overlays.remove(i))
     }
 
-    /// Raise or lower one step in z-order.
-    pub fn move_overlay_z(&mut self, id: OverlayId, up: bool) {
-        let Some(i) = self.overlays.iter().position(|o| o.id == id) else {
-            return;
-        };
-        let j = if up { i + 1 } else { i.wrapping_sub(1) };
-        if j < self.overlays.len() {
-            self.overlays.swap(i, j);
+    fn fresh_id(&mut self) -> OverlayId {
+        let id = OverlayId(self.next_id);
+        self.next_id += 1;
+        id
+    }
+
+    /// A copy of the overlay at `index` on `range` instead, under a fresh id:
+    /// the piece a split or a copy cuts off it. Built off the whole overlay,
+    /// so a field added to `Overlay` carries over without anyone listing it.
+    pub(super) fn piece_of(&mut self, index: usize, range: Range<usize>) -> Overlay {
+        Overlay {
+            id: self.fresh_id(),
+            range,
+            ..self.overlays[index].clone()
         }
     }
 
@@ -440,10 +437,7 @@ impl Document {
             return (id, edit.len());
         }
         let (before, after) = (full.start..edit.start, edit.end..full.end);
-        let mut piece = self.overlays[i].clone();
-        piece.id = OverlayId(self.next_id);
-        self.next_id += 1;
-        piece.range = edit.clone();
+        let mut piece = self.piece_of(i, edit.clone());
         f(&mut piece);
         let edited = piece.id;
         if before.is_empty() {
@@ -456,10 +450,7 @@ impl Document {
                 self.overlays.insert(i + 1, piece);
             } else {
                 // The edit sits in the middle: the right half is its own too.
-                let mut rest = self.overlays[i].clone();
-                rest.id = OverlayId(self.next_id);
-                self.next_id += 1;
-                rest.range = after;
+                let rest = self.piece_of(i, after);
                 self.overlays.insert(i + 1, piece);
                 self.overlays.insert(i + 2, rest);
             }
@@ -641,23 +632,6 @@ mod tests {
         assert_eq!(doc.overlays_on(5).count(), 0);
     }
 
-    #[test]
-    fn z_order_is_list_order() {
-        let mut doc = blank(4, 4, 2);
-        let a = doc.add_overlay("a", shape(), Transform::at(0.0, 0.0, 1.0, 1.0), 0..2);
-        let b = doc.add_overlay("b", shape(), Transform::at(0.0, 0.0, 1.0, 1.0), 0..2);
-        doc.move_overlay_z(a, true);
-        assert_eq!(
-            doc.overlays.iter().map(|o| o.id).collect::<Vec<_>>(),
-            vec![b, a]
-        );
-        doc.move_overlay_z(b, false); // already at the bottom, no-op
-        assert_eq!(
-            doc.overlays.iter().map(|o| o.id).collect::<Vec<_>>(),
-            vec![b, a]
-        );
-    }
-
     /// One overlay carries one transform for its whole range, so an edit
     /// scoped to part of that range must split it: the edited frames become
     /// their own overlay, the rest keeps the old transform, and the pieces
@@ -751,7 +725,6 @@ mod tests {
         doc.remove_overlay(gone);
         let before = doc.clone();
 
-        doc.move_overlay_z(gone, false);
         let (edited, touched) = doc.edit_on_frames(gone, 0..10, |_| panic!("edit ran"));
         assert_eq!((edited, touched), (gone, 0));
         assert_eq!(doc, before);

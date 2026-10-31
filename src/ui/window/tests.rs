@@ -181,7 +181,7 @@ fn frame_edits_do_rebuild_the_strip() {
     let mut doc = doc(4);
     let before = strip_keys(&doc);
 
-    doc.duplicate_frame(0);
+    doc.duplicate_frames_at(&[0]);
     assert_ne!(strip_keys(&doc), before);
 
     let after_duplicate = strip_keys(&doc);
@@ -192,7 +192,9 @@ fn frame_edits_do_rebuild_the_strip() {
     // flag rides along with the key.
     let mut doc = doc.clone();
     let opaque = strip_keys(&doc);
-    doc.replace_frame_pixels(0, image::RgbaImage::new(8, 8));
+    let mut edited = Frame::new(image::RgbaImage::new(8, 8), 10);
+    edited.detached = true;
+    doc.frames[0] = edited;
     assert_ne!(strip_keys(&doc), opaque);
     assert!(strip_keys(&doc)[0].1, "detached");
 }
@@ -1389,7 +1391,7 @@ fn crop_completion_shifts_active_canvas_work_by_the_kept_origin() {
     });
     let mut crop = Some((10.0, 20.0, 30.0, 40.0));
 
-    scale_in_flight_canvas(&mut drag, &mut crop, 1.0, 1.0, 4.0, 6.0);
+    scale_in_flight_canvas(&mut drag, &mut crop, 1.0, 1.0, -4.0, -6.0);
 
     let drag = drag.unwrap();
     assert_eq!(drag.from, (6.0, 14.0));

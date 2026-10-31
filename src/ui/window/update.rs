@@ -755,20 +755,14 @@ impl Component for App {
                 label,
                 frames_touched,
                 scale,
-                shift,
+                offset,
                 frames,
                 land,
             } = *done;
-            let (fx, fy) = scale;
-            let (dx, dy) = shift;
             let (change, _) = self.editor.edit(label, frames_touched, |d| {
-                land(d, frames);
-                d.scale_overlays(fx, fy);
-                for o in &mut d.overlays {
-                    o.transform.x -= dx;
-                    o.transform.y -= dy;
-                }
+                land(d, frames, scale, offset);
             });
+            let ((fx, fy), (dx, dy)) = (scale, offset);
             scale_in_flight_canvas(&mut self.drag, &mut self.crop_rect, fx, fy, dx, dy);
             self.after_edit();
             self.toast_if_document_wide(&sender, &change, self.frame_count());
@@ -793,16 +787,13 @@ impl Component for App {
                 n("Frames added")
             };
             let (change, _) = self.editor.edit(label, added, |d| splice.apply(d));
-            // `scale_in_flight_canvas` subtracts the origin the pixels moved
-            // to; padding moves them the other way, so the margin goes in
-            // negative.
             scale_in_flight_canvas(
                 &mut self.drag,
                 &mut self.crop_rect,
                 fx,
                 fy,
-                -(dx as f32),
-                -(dy as f32),
+                dx as f32,
+                dy as f32,
             );
             self.playhead = at.min(self.frame_count().saturating_sub(1));
             self.after_edit();

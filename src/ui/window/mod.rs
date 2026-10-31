@@ -513,7 +513,9 @@ struct Drag {
 }
 
 /// Keep canvas gestures and a pending crop in the same image coordinate space
-/// when an asynchronous resize lands in the middle of an interaction.
+/// when an asynchronous resize lands in the middle of an interaction: scaled
+/// by `(fx, fy)` and moved by `(dx, dy)`, the same as `Document::land` does
+/// to the overlays.
 fn scale_in_flight_canvas(
     drag: &mut Option<Drag>,
     crop_rect: &mut Option<(f32, f32, f32, f32)>,
@@ -526,16 +528,16 @@ fn scale_in_flight_canvas(
         return;
     }
     if let Some((x, y, w, h)) = crop_rect {
-        (*x, *y, *w, *h) = (*x * fx - dx, *y * fy - dy, *w * fx, *h * fy);
+        (*x, *y, *w, *h) = (*x * fx + dx, *y * fy + dy, *w * fx, *h * fy);
     }
     if let Some(drag) = drag {
-        drag.from = (drag.from.0 * fx - dx, drag.from.1 * fy - dy);
+        drag.from = (drag.from.0 * fx + dx, drag.from.1 * fy + dy);
         // Resampled pixels are a different size on screen; the reach is a
         // screen distance, so it follows them.
         drag.snap_reach *= fx.min(fy);
         for transform in [&mut drag.origin, &mut drag.current] {
-            transform.x = transform.x * fx - dx;
-            transform.y = transform.y * fy - dy;
+            transform.x = transform.x * fx + dx;
+            transform.y = transform.y * fy + dy;
             transform.w *= fx;
             transform.h *= fy;
         }
@@ -658,7 +660,7 @@ impl FrameWork {
     }
 
     /// How overlays scale when the work lands. A zoom keeps the canvas, so it
-    /// is `(1.0, 1.0)` and `scale_overlays` moves nothing.
+    /// is `(1.0, 1.0)` and nothing moves.
     fn scale(&self, doc: &Document) -> (f32, f32) {
         match self {
             FrameWork::Resize(w, h) => {
@@ -672,26 +674,27 @@ impl FrameWork {
     /// How overlays move when the work lands, on top of any scale. Only a
     /// crop moves the origin — the frame it kept starts somewhere other than
     /// `(0, 0)`, so every overlay has to follow it there.
-    fn shift(&self) -> (f32, f32) {
+    fn offset(&self) -> (f32, f32) {
         match self {
-            FrameWork::Crop { rect: (x, y, _, _) } => (*x as f32, *y as f32),
+            FrameWork::Crop { rect: (x, y, _, _) } => (-(*x as f32), -(*y as f32)),
             _ => (0.0, 0.0),
         }
     }
 
-    /// How the produced frames go into the document. Most work swaps frames
-    /// in by index; a loop cross-fade also drops the head it dissolved into.
-    fn landing(&self) -> fn(&mut Document, Vec<(usize, Frame)>) {
+    /// How the produced frames go into the document. Most work lands them
+    /// with the overlays following the canvas; a loop cross-fade keeps the
+    /// canvas and also drops the head it dissolved into.
+    fn landing(&self) -> Landing {
         match self {
-            FrameWork::LoopFade { .. } => Document::apply_loop_fade,
-            _ => |doc, frames| {
-                for (i, frame) in frames {
-                    doc.frames[i] = frame;
-                }
-            },
+            FrameWork::LoopFade { .. } => |doc, tail, _, _| doc.apply_loop_fade(tail),
+            _ => Document::land,
         }
     }
 }
+
+/// Puts a finished frame job's frames into the document, given the scale
+/// and offset its overlays follow.
+type Landing = fn(&mut Document, Vec<(usize, Frame)>, (f32, f32), (f32, f32));
 
 /// What a finished frame job hands back: the produced frames as
 /// `(index, frame)` pairs, plus what the edit needs to say and to scale.
@@ -700,9 +703,9 @@ pub struct WorkDone {
     label: &'static str,
     frames_touched: usize,
     scale: (f32, f32),
-    shift: (f32, f32),
+    offset: (f32, f32),
     frames: Vec<(usize, Frame)>,
-    land: fn(&mut Document, Vec<(usize, Frame)>),
+    land: Landing,
 }
 
 /// How an import ended. A cancelled one is not a failure: the user asked for

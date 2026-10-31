@@ -5,7 +5,7 @@ use std::ops::Range;
 
 use image::RgbaImage;
 
-use super::model::{Document, Frame, Overlay, OverlayId, Rgba8};
+use super::model::{Document, Frame, Overlay, OverlayId, Rgba8, runs, sorted_existing};
 
 /// Where a removed frame's delay goes. A frame dropped from between two
 /// survivors leaves the one before it on screen in its place, so that one
@@ -73,7 +73,7 @@ impl Document {
         for (i, frame) in std::mem::take(&mut self.frames).into_iter().enumerate() {
             if keep[i] {
                 let mut frame = frame;
-                frame.delay_cs = (frame.delay_cs as u32 + carry).min(u16::MAX as u32) as u16;
+                frame.delay_cs = add_delay(frame.delay_cs, carry);
                 carry = 0;
                 frames.push(frame);
             } else if delay == DroppedDelay::TrimEnds
@@ -82,8 +82,7 @@ impl Document {
                 continue;
             } else if let Some(prev) = frames.last_mut() {
                 // Predecessor absorbs the delay; without this the result plays fast.
-                prev.delay_cs =
-                    (prev.delay_cs as u32 + frame.delay_cs as u32).min(u16::MAX as u32) as u16;
+                prev.delay_cs = add_delay(prev.delay_cs, frame.delay_cs as u32);
             } else {
                 // Nothing kept yet, so the delay rolls forward instead.
                 carry += frame.delay_cs as u32;
@@ -114,39 +113,17 @@ impl Document {
     /// Delete an arbitrary set of frames. Ctrl+click in the strip picks frames
     /// one at a time, so what comes back need not be a run.
     pub fn delete_frames_at(&mut self, frames: &[usize]) {
-        let doomed: std::collections::HashSet<usize> = frames.iter().copied().collect();
-        self.retain_frames(|i| !doomed.contains(&i), DroppedDelay::TrimEnds);
+        let doomed = self.mask(frames);
+        self.retain_frames(|i| !doomed[i], DroppedDelay::TrimEnds);
     }
 
-    /// Splice `frame` into the timeline at `at`, shifting every overlay range
-    /// at or after it forward by one — the same bookkeeping a duplicate does
-    /// for the copy it inserts.
-    pub fn insert_frame_at(&mut self, at: usize, frame: Frame) {
-        let at = at.min(self.frames.len());
-        self.frames.insert(at, frame);
-        for o in &mut self.overlays {
-            let shift = |i: usize| if i >= at { i + 1 } else { i };
-            o.range = shift(o.range.start)..shift(o.range.end);
-        }
-    }
-
-    /// Freeze-frame: the copy lands directly after the source and inherits the
-    /// overlays that cover it.
-    pub fn duplicate_frame(&mut self, index: usize) {
-        if index < self.frames.len() {
-            self.duplicate_frames_at(&[index]);
-        }
-    }
-
-    /// `duplicate_frame` for every frame in `picked` at once: one pass over
+    /// Freeze-frame every frame in `picked` at once: each copy lands directly
+    /// after its source and inherits the overlays that cover it. One pass over
     /// the frames and one over the overlays, where duplicating them one at a
     /// time shifts the whole list once per copy. Stale indices are skipped.
     pub fn duplicate_frames_at(&mut self, picked: &[usize]) {
         let n = self.frames.len();
-        let mut twinned = vec![false; n];
-        for &i in picked.iter().filter(|i| **i < n) {
-            twinned[i] = true;
-        }
+        let twinned = self.mask(picked);
         // `copies_before[b]`: how many copies land ahead of boundary `b`. A
         // copy of frame `j` sits at `j + 1`, so it pushes every boundary past
         // `j` along — an overlay ending just after `j` grows over the copy.
@@ -168,16 +145,13 @@ impl Document {
     }
 
     /// Splice a run of frames in at `at`, keeping their order. Paste: the
-    /// clipboard's frames land together, and — like `duplicate_frame` — they
+    /// clipboard's frames land together, and — like a duplicate — they
     /// inherit the overlays that cover the slot they go into.
     pub fn insert_frames_at(&mut self, at: usize, frames: Vec<Frame>) {
         let at = at.min(self.frames.len());
         let added = frames.len();
         self.frames.splice(at..at, frames);
-        let shift = |i: usize| if i >= at { i + added } else { i };
-        for o in &mut self.overlays {
-            o.range = shift(o.range.start)..shift(o.range.end);
-        }
+        self.shift_overlay_ranges(at, added, true);
     }
 
     /// Splice frames from another file in at `at` without letting the
@@ -194,19 +168,35 @@ impl Document {
             return;
         }
         self.frames.splice(at..at, frames);
+        self.shift_overlay_ranges(at, added, false);
+    }
+
+    /// Make room in every overlay range for `by` frames arriving at `at`. A
+    /// range starting at or after `at` moves along with the frames after it;
+    /// one that merely ends at `at` grows over the arrivals only when
+    /// `grow_touching`, which is the whole difference between a paste and an
+    /// import or a moved frame.
+    fn shift_overlay_ranges(&mut self, at: usize, by: usize, grow_touching: bool) {
         for o in &mut self.overlays {
-            let start = if o.range.start >= at {
-                o.range.start + added
-            } else {
-                o.range.start
-            };
-            let end = if o.range.end > at {
-                o.range.end + added
-            } else {
-                o.range.end
-            };
-            o.range = start..end;
+            if o.range.start >= at {
+                o.range.start += by;
+            }
+            if o.range.end > at || (grow_touching && o.range.end == at) {
+                o.range.end += by;
+            }
         }
+    }
+
+    /// One flag per frame, set for each index in `indices`. Indices past the
+    /// end are skipped, so a stale selection never indexes out of bounds.
+    fn mask(&self, indices: &[usize]) -> Vec<bool> {
+        let mut mask = vec![false; self.frames.len()];
+        for &i in indices {
+            if let Some(flag) = mask.get_mut(i) {
+                *flag = true;
+            }
+        }
+        mask
     }
 
     /// Move `id` directly above or below `other` in the z-order, leaving
@@ -265,26 +255,18 @@ impl Document {
         self.frames.insert(to, frame);
 
         // Reinsertion here moves an *existing* frame back in, not a fresh
-        // duplicate, so — unlike `insert_frame_at` — a range that merely
-        // touches `to` must not grow to swallow it; only the carried
-        // overlays below get to cover the reinserted frame's new slot.
-        let shift_start = |i: usize| if i >= to { i + 1 } else { i };
-        let shift_end = |i: usize| if i > to { i + 1 } else { i };
-        for o in &mut self.overlays {
-            o.range = shift_start(o.range.start)..shift_end(o.range.end);
-        }
+        // duplicate, so — unlike a paste — a range that merely touches `to`
+        // must not grow to swallow it; only the carried overlays below get
+        // to cover the reinserted frame's new slot.
+        self.shift_overlay_ranges(to, 1, false);
 
         for idx in carried {
             if self.overlays[idx].range.is_empty() {
                 // Nothing of it was left behind: the whole overlay relocates.
                 self.overlays[idx].range = to..to + 1;
             } else {
-                let source = self.overlays[idx].clone();
-                let id = self.add_overlay(source.name, source.kind, source.transform, to..to + 1);
-                if let Some(o) = self.overlay_mut(id) {
-                    o.opacity = source.opacity;
-                    o.hidden = source.hidden;
-                }
+                let piece = self.piece_of(idx, to..to + 1);
+                self.overlays.push(piece);
             }
         }
 
@@ -355,39 +337,19 @@ impl Document {
     ///
     /// Returns the frames the copy landed on.
     pub fn copy_overlay_to(&mut self, id: OverlayId, frames: &[usize]) -> usize {
-        let Some(source) = self.overlay(id).cloned() else {
+        let Some(source) = self.overlays.iter().position(|o| o.id == id) else {
             return 0;
         };
-        let mut targets: Vec<usize> = frames
-            .iter()
-            .copied()
-            .filter(|f| *f < self.frames.len() && !source.range.contains(f))
-            .collect();
-        targets.sort_unstable();
-        targets.dedup();
+        let covered = self.overlays[source].range.clone();
+        let mut targets = sorted_existing(frames, self.frames.len());
+        targets.retain(|f| !covered.contains(f));
         if targets.is_empty() {
             return 0;
         }
-        let appended = self.overlays.len();
-        let ids = self.add_overlay_over(
-            source.name.clone(),
-            source.kind.clone(),
-            source.transform,
-            &targets,
-        );
-        for piece in ids {
-            if let Some(o) = self.overlay_mut(piece) {
-                o.opacity = source.opacity;
-                o.hidden = source.hidden;
-            }
-        }
-        let pieces: Vec<Overlay> = self.overlays.split_off(appended);
-        let at = self
-            .overlays
-            .iter()
-            .position(|o| o.id == id)
-            .map_or(self.overlays.len(), |i| i + 1);
-        self.overlays.splice(at..at, pieces);
+        let pieces: Vec<Overlay> = runs(&targets)
+            .map(|run| self.piece_of(source, run))
+            .collect();
+        self.overlays.splice(source + 1..source + 1, pieces);
         self.coalesce_overlays();
         targets.len()
     }
@@ -400,10 +362,7 @@ impl Document {
     /// plain `move_frame`, so overlays carry along and re-coalesce exactly
     /// the way a single-frame move already handles them.
     pub fn move_frames_to(&mut self, picked: &[usize], to: usize) {
-        let mut picked: Vec<usize> = picked.to_vec();
-        picked.sort_unstable();
-        picked.dedup();
-        picked.retain(|&i| i < self.frames.len());
+        let picked = sorted_existing(picked, self.frames.len());
         if picked.is_empty() || to >= self.frames.len() {
             return;
         }
@@ -453,17 +412,6 @@ impl Document {
             return;
         }
         self.retain_frames(|i| (i + 1) % n != 0, DroppedDelay::Keep);
-    }
-
-    /// Replace one frame's pixels, as the external editor handoff does. The
-    /// frame is detached from then on: overlays covering it skip it.
-    pub fn replace_frame_pixels(&mut self, index: usize, pixels: RgbaImage) {
-        if let Some(f) = self.frames.get_mut(index) {
-            // Rebuild rather than assign: the thumbnail and the opacity flag
-            // are cached off these pixels.
-            *f = Frame::new(pixels, f.delay_cs);
-            f.detached = true;
-        }
     }
 
     /// Drop the `count` frames whose loss shows the least, which is what
@@ -539,112 +487,80 @@ impl Document {
         self.retain_frames(|i| !doomed[i], DroppedDelay::Keep);
     }
 
-    /// Crop every frame to `rect`, clamped to the canvas. Document-wide by
-    /// design: a GIF has one canvas, so frames of different sizes are not a
-    /// thing this model can hold. Overlays keep their place on the image by
-    /// moving with the origin.
-    pub fn crop(&mut self, x: u32, y: u32, w: u32, h: u32) {
-        let (cw, ch) = self.size();
-        let x = x.min(cw.saturating_sub(1));
-        let y = y.min(ch.saturating_sub(1));
-        let w = w.min(cw - x).max(1);
-        let h = h.min(ch - y).max(1);
-        if (x, y, w, h) == (0, 0, cw, ch) {
-            return;
-        }
-        for (i, frame) in self.cropped_frames(x, y, w, h, |_, _| {}) {
-            self.frames[i] = frame;
-        }
-        for o in &mut self.overlays {
-            o.transform.x -= x as f32;
-            o.transform.y -= y as f32;
-        }
-    }
-
-    /// The frames a crop would produce, as `(index, frame)` pairs, the way
-    /// `resized_frames` does for a resize — the slow half a background
-    /// worker runs, since every frame changes together and a few hundred of
-    /// them is not instant. `crop` still does the overlay shift itself: it
-    /// is cheap, and a caller landing this list has to do it exactly once
-    /// regardless of how many frames were touched.
+    /// The frames a crop to `rect` would produce, as `(index, frame)` pairs,
+    /// `rect` clamped to the canvas — the slow half a background worker
+    /// runs, since every frame changes together and a few hundred of them is
+    /// not instant. Document-wide by design: a GIF has one canvas, so frames
+    /// of different sizes are not a thing this model can hold. Overlays keep
+    /// their place on the image by moving with the origin, which `land` does
+    /// once for the whole list when given minus the kept corner as `offset`.
     pub fn cropped_frames(
         &self,
         x: u32,
         y: u32,
         w: u32,
         h: u32,
-        mut progress: impl FnMut(usize, usize),
+        progress: impl FnMut(usize, usize),
     ) -> Vec<(usize, Frame)> {
-        let (cw, ch) = self.size();
-        if cw == 0 || ch == 0 {
+        let Some((x, y, w, h)) = clamp_rect(self.size(), x, y, w, h) else {
             return Vec::new();
-        }
-        let (x, y) = (x.min(cw - 1), y.min(ch - 1));
-        let (w, h) = (w.min(cw - x).max(1), h.min(ch - y).max(1));
-        let total = self.frames.len();
-        self.frames
-            .iter()
-            .enumerate()
-            .map(|(i, frame)| {
-                let pixels = crop_with_padding(frame.pixels.as_ref(), x, y, w, h);
-                let mut produced = Frame::new(pixels, frame.delay_cs);
-                produced.detached = frame.detached;
-                progress(i + 1, total);
-                (i, produced)
-            })
-            .collect()
-    }
-
-    /// Scale the whole document. Overlays scale with it, so a caption keeps its
-    /// proportions rather than sliding off a smaller canvas.
-    pub fn resize(&mut self, w: u32, h: u32) {
-        let (cw, ch) = self.size();
-        let (w, h) = (w.max(1), h.max(1));
-        if cw == 0 || ch == 0 || (w, h) == (cw, ch) {
-            return;
-        }
-        let (fx, fy) = (w as f32 / cw as f32, h as f32 / ch as f32);
-        for (i, frame) in self.resized_frames(w, h, |_, _| {}) {
-            self.frames[i] = frame;
-        }
-        self.scale_overlays(fx, fy);
+        };
+        self.produce(0..self.frames.len(), progress, |_, frame| {
+            crop_with_padding(frame.pixels.as_ref(), x, y, w, h)
+        })
     }
 
     /// The frames a whole-document resize would produce, as `(index, frame)`
-    /// pairs so a caller can apply them by position. This is the slow half of
-    /// `resize`, the half a background worker runs; the mutator stays on the
-    /// main thread because swapping indexed frames is cheap. `progress`
-    /// reports `(done, total)` once per finished frame.
+    /// pairs so a caller can apply them by position. This is the slow half a
+    /// background worker runs; `land` swaps them in on the main thread and
+    /// scales the overlays with them, so a caption keeps its proportions
+    /// rather than sliding off a smaller canvas. `progress` reports `(done,
+    /// total)` once per finished frame.
     pub fn resized_frames(
         &self,
         w: u32,
         h: u32,
-        mut progress: impl FnMut(usize, usize),
+        progress: impl FnMut(usize, usize),
     ) -> Vec<(usize, Frame)> {
         let (w, h) = (w.max(1), h.max(1));
-        let total = self.frames.len();
-        self.frames
-            .iter()
-            .enumerate()
-            .map(|(i, frame)| {
-                let pixels = image::imageops::resize(
-                    frame.pixels.as_ref(),
-                    w,
-                    h,
-                    image::imageops::FilterType::Triangle,
-                );
-                let mut produced = Frame::new(pixels, frame.delay_cs);
-                produced.detached = frame.detached;
-                progress(i + 1, total);
-                (i, produced)
-            })
-            .collect()
+        self.produce(0..self.frames.len(), progress, |_, frame| {
+            image::imageops::resize(
+                frame.pixels.as_ref(),
+                w,
+                h,
+                image::imageops::FilterType::Triangle,
+            )
+        })
+    }
+
+    /// Land a frame job: each produced frame replaces the one at its index,
+    /// then every overlay is scaled by `scale` and moved by `offset` so it
+    /// stays over the pixels it was drawn on. A resize passes its factors, a
+    /// crop minus the corner it kept, a splice onto a grown canvas both; work
+    /// that keeps the canvas passes `(1.0, 1.0)` and `(0.0, 0.0)`.
+    pub fn land(
+        &mut self,
+        frames: Vec<(usize, Frame)>,
+        (fx, fy): (f32, f32),
+        (dx, dy): (f32, f32),
+    ) {
+        self.swap_in(frames);
+        self.scale_overlays(fx, fy);
+        self.translate_overlays(dx, dy);
+    }
+
+    /// Put each produced frame in at its index. A stale index is skipped.
+    fn swap_in(&mut self, frames: Vec<(usize, Frame)>) {
+        for (i, frame) in frames {
+            if let Some(slot) = self.frames.get_mut(i) {
+                *slot = frame;
+            }
+        }
     }
 
     /// Scale every overlay's box by `(fx, fy)`, a text overlay's point size
-    /// following the height. `resize` passes the real factors; a zoom keeps
-    /// the canvas, so it passes `(1.0, 1.0)` and nothing moves.
-    pub fn scale_overlays(&mut self, fx: f32, fy: f32) {
+    /// following the height.
+    fn scale_overlays(&mut self, fx: f32, fy: f32) {
         for o in &mut self.overlays {
             o.transform.x *= fx;
             o.transform.y *= fy;
@@ -656,20 +572,21 @@ impl Document {
         }
     }
 
-    /// Blow `rect` up to fill the canvas, on the frames in `range` only. The
-    /// canvas size never changes, which is what makes this safe per frame in a
-    /// way `crop` is not.
-    pub fn zoom_frames(&mut self, frames: &[usize], x: u32, y: u32, w: u32, h: u32) {
-        for (i, frame) in self.zoomed_frames(frames, x, y, w, h, |_, _| {}) {
-            self.frames[i] = frame;
+    /// Move every overlay's box by `(dx, dy)`.
+    fn translate_overlays(&mut self, dx: f32, dy: f32) {
+        for o in &mut self.overlays {
+            o.transform.x += dx;
+            o.transform.y += dy;
         }
     }
 
-    /// The frames a zoom would produce, as `(index, frame)` pairs, the way
-    /// `resized_frames` does for a resize. Indices past the end of the frame
-    /// list are skipped, and an empty document makes an empty answer — the
-    /// canvas size must not reach the `cw - 1` below. `progress` reports
-    /// `(done, total)` over the frames that will actually be produced.
+    /// The frames a zoom would produce: `rect` blown up to fill the canvas,
+    /// as `(index, frame)` pairs the way `resized_frames` does for a resize.
+    /// The canvas size never changes, which is what makes this safe per frame
+    /// in a way a crop is not. Indices past the end of the frame list are
+    /// skipped, and an empty document makes an empty answer. `progress`
+    /// reports `(done, total)` over the frames that will actually be
+    /// produced.
     pub fn zoomed_frames(
         &self,
         indices: &[usize],
@@ -677,88 +594,43 @@ impl Document {
         y: u32,
         w: u32,
         h: u32,
-        mut progress: impl FnMut(usize, usize),
+        progress: impl FnMut(usize, usize),
     ) -> Vec<(usize, Frame)> {
         let (cw, ch) = self.size();
-        if cw == 0 || ch == 0 {
+        let Some((x, y, w, h)) = clamp_rect((cw, ch), x, y, w, h) else {
             return Vec::new();
-        }
-        let (x, y) = (x.min(cw - 1), y.min(ch - 1));
-        let (w, h) = (w.min(cw - x).max(1), h.min(ch - y).max(1));
-        let wanted: Vec<usize> = indices
-            .iter()
-            .copied()
-            .filter(|i| *i < self.frames.len())
-            .collect();
-        let total = wanted.len();
-        wanted
-            .into_iter()
-            .enumerate()
-            .map(|(done, i)| {
-                let frame = &self.frames[i];
-                let cropped = crop_with_padding(frame.pixels.as_ref(), x, y, w, h);
-                let pixels = image::imageops::resize(
-                    &cropped,
-                    cw,
-                    ch,
-                    image::imageops::FilterType::Triangle,
-                );
-                let mut produced = Frame::new(pixels, frame.delay_cs);
-                produced.detached = frame.detached;
-                progress(done + 1, total);
-                (i, produced)
-            })
-            .collect()
+        };
+        self.produce(self.existing(indices).into_iter(), progress, |_, frame| {
+            let cropped = crop_with_padding(frame.pixels.as_ref(), x, y, w, h);
+            image::imageops::resize(&cropped, cw, ch, image::imageops::FilterType::Triangle)
+        })
     }
 
-    /// Keep `rect` and make everything outside it transparent, on the frames
-    /// in `indices` only. Unlike `zoom_frames` the kept region is not scaled
-    /// back up to fill the canvas — it stays at its own size and sits where it
-    /// was cropped from — so a frame can *look* smaller than the others
-    /// without the model needing a per-frame canvas size.
-    pub fn shrink_frames(&mut self, frames: &[usize], x: u32, y: u32, w: u32, h: u32) {
-        for (i, frame) in self.shrunk_frame_list(frames, x, y, w, h, |_, _| {}) {
-            self.frames[i] = frame;
-        }
-    }
-
-    /// The frames a shrink would produce, as `(index, frame)` pairs, the way
-    /// `zoomed_frames` does for a zoom.
-    pub fn shrunk_frame_list(
+    /// The frames a shrink would produce, as `(index, frame)` pairs the way
+    /// `zoomed_frames` does for a zoom: `rect` is kept and everything outside
+    /// it made transparent. Unlike a zoom the kept region is not scaled back
+    /// up to fill the canvas — it stays at its own size and sits where it was
+    /// cropped from — so a frame can *look* smaller than the others without
+    /// the model needing a per-frame canvas size.
+    pub fn shrunk_frames(
         &self,
         indices: &[usize],
         x: u32,
         y: u32,
         w: u32,
         h: u32,
-        mut progress: impl FnMut(usize, usize),
+        progress: impl FnMut(usize, usize),
     ) -> Vec<(usize, Frame)> {
         let (cw, ch) = self.size();
-        if cw == 0 || ch == 0 {
+        let Some((x, y, w, h)) = clamp_rect((cw, ch), x, y, w, h) else {
             return Vec::new();
-        }
-        let (x, y) = (x.min(cw - 1), y.min(ch - 1));
-        let (w, h) = (w.min(cw - x).max(1), h.min(ch - y).max(1));
-        let wanted: Vec<usize> = indices
-            .iter()
-            .copied()
-            .filter(|i| *i < self.frames.len())
-            .collect();
-        let total = wanted.len();
-        wanted
-            .into_iter()
-            .enumerate()
-            .map(|(done, i)| {
-                let frame = &self.frames[i];
-                let kept = image::imageops::crop_imm(frame.pixels.as_ref(), x, y, w, h).to_image();
-                let mut canvas = RgbaImage::new(cw, ch);
-                image::imageops::replace(&mut canvas, &kept, x as i64, y as i64);
-                let mut produced = Frame::new(canvas, frame.delay_cs);
-                produced.detached = frame.detached;
-                progress(done + 1, total);
-                (i, produced)
-            })
-            .collect()
+        };
+        self.produce(self.existing(indices).into_iter(), progress, |_, frame| {
+            let kept = image::imageops::crop_imm(frame.pixels.as_ref(), x, y, w, h).to_image();
+            let mut canvas = RgbaImage::new(cw, ch);
+            image::imageops::replace(&mut canvas, &kept, x as i64, y as i64);
+            canvas
+        })
     }
 
     /// The frames a mirror would produce, as `(index, frame)` pairs the way
@@ -768,23 +640,16 @@ impl Document {
         &self,
         indices: &[usize],
         axis: Axis,
-        mut progress: impl FnMut(usize, usize),
+        progress: impl FnMut(usize, usize),
     ) -> Vec<(usize, Frame)> {
-        let wanted = self.existing(indices);
-        let total = wanted.len();
-        wanted
-            .into_iter()
-            .enumerate()
-            .map(|(done, i)| {
-                let frame = &self.frames[i];
-                let pixels = match axis {
-                    Axis::Horizontal => image::imageops::flip_horizontal(frame.pixels.as_ref()),
-                    Axis::Vertical => image::imageops::flip_vertical(frame.pixels.as_ref()),
-                };
-                progress(done + 1, total);
-                (i, rebuilt(frame, pixels))
-            })
-            .collect()
+        self.produce(
+            self.existing(indices).into_iter(),
+            progress,
+            |_, frame| match axis {
+                Axis::Horizontal => image::imageops::flip_horizontal(frame.pixels.as_ref()),
+                Axis::Vertical => image::imageops::flip_vertical(frame.pixels.as_ref()),
+            },
+        )
     }
 
     /// The frames a fade over `indices` would produce. The picked frames are
@@ -797,29 +662,21 @@ impl Document {
         indices: &[usize],
         fade: Fade,
         colour: Rgba8,
-        mut progress: impl FnMut(usize, usize),
+        progress: impl FnMut(usize, usize),
     ) -> Vec<(usize, Frame)> {
-        let mut wanted = self.existing(indices);
-        wanted.sort_unstable();
-        wanted.dedup();
+        let wanted = sorted_existing(indices, self.frames.len());
         let total = wanted.len();
-        wanted
-            .into_iter()
-            .enumerate()
-            .map(|(step, i)| {
-                let amount = match fade {
-                    Fade::In => 1.0 - step as f32 / total as f32,
-                    Fade::Out => (step + 1) as f32 / total as f32,
-                };
-                let frame = &self.frames[i];
-                let mut pixels = (*frame.pixels).clone();
-                for p in pixels.pixels_mut() {
-                    p.0 = mix(p.0, colour, amount);
-                }
-                progress(step + 1, total);
-                (i, rebuilt(frame, pixels))
-            })
-            .collect()
+        self.produce(wanted.into_iter(), progress, |step, frame| {
+            let amount = match fade {
+                Fade::In => 1.0 - step as f32 / total as f32,
+                Fade::Out => (step + 1) as f32 / total as f32,
+            };
+            let mut pixels = (*frame.pixels).clone();
+            for p in pixels.pixels_mut() {
+                p.0 = mix(p.0, colour, amount);
+            }
+            pixels
+        })
     }
 
     /// How many frames a loop cross-fade can blend: the head it fades into
@@ -836,24 +693,21 @@ impl Document {
     pub fn loop_faded_frames(
         &self,
         count: usize,
-        mut progress: impl FnMut(usize, usize),
+        progress: impl FnMut(usize, usize),
     ) -> Vec<(usize, Frame)> {
         let count = count.min(self.loop_fade_limit());
         let tail_start = self.frames.len() - count;
-        (0..count)
-            .map(|step| {
-                let (tail, head) = (&self.frames[tail_start + step], &self.frames[step]);
-                let into_head = (step + 1) as f32 / (count + 1) as f32;
-                let (w, h) = tail.pixels.dimensions();
-                let head_pixels = crop_with_padding(head.pixels.as_ref(), 0, 0, w, h);
-                let mut pixels = (*tail.pixels).clone();
-                for (p, q) in pixels.pixels_mut().zip(head_pixels.pixels()) {
-                    p.0 = mix(p.0, q.0, into_head);
-                }
-                progress(step + 1, count);
-                (tail_start + step, rebuilt(tail, pixels))
-            })
-            .collect()
+        self.produce(tail_start..self.frames.len(), progress, |step, tail| {
+            let head = &self.frames[step];
+            let into_head = (step + 1) as f32 / (count + 1) as f32;
+            let (w, h) = tail.pixels.dimensions();
+            let head_pixels = crop_with_padding(head.pixels.as_ref(), 0, 0, w, h);
+            let mut pixels = (*tail.pixels).clone();
+            for (p, q) in pixels.pixels_mut().zip(head_pixels.pixels()) {
+                p.0 = mix(p.0, q.0, into_head);
+            }
+            pixels
+        })
     }
 
     /// Land a loop cross-fade: swap in the dissolved tail, then drop the head
@@ -861,10 +715,29 @@ impl Document {
     /// spends the tail's.
     pub fn apply_loop_fade(&mut self, tail: Vec<(usize, Frame)>) {
         let count = tail.len();
-        for (i, frame) in tail {
-            self.frames[i] = frame;
-        }
+        self.swap_in(tail);
         self.delete_frames(0..count);
+    }
+
+    /// The frame-job driver: `redraw` each frame in `indices` — given its
+    /// step through them, for a ramp — as a `rebuilt` frame paired with its
+    /// index, reporting `(done, total)` after each one.
+    fn produce(
+        &self,
+        indices: impl ExactSizeIterator<Item = usize>,
+        mut progress: impl FnMut(usize, usize),
+        mut redraw: impl FnMut(usize, &Frame) -> RgbaImage,
+    ) -> Vec<(usize, Frame)> {
+        let total = indices.len();
+        indices
+            .enumerate()
+            .map(|(step, i)| {
+                let frame = &self.frames[i];
+                let produced = rebuilt(frame, redraw(step, frame));
+                progress(step + 1, total);
+                (i, produced)
+            })
+            .collect()
     }
 
     /// `indices` with anything past the end dropped, so a stale scope never
@@ -876,6 +749,23 @@ impl Document {
             .filter(|i| *i < self.frames.len())
             .collect()
     }
+}
+
+/// `(x, y, w, h)` clamped onto a `cw`×`ch` canvas: the corner inside it, the
+/// size at least a pixel and no further than the far edge. `None` for an
+/// empty canvas, which has nowhere to put the corner.
+fn clamp_rect(
+    (cw, ch): (u32, u32),
+    x: u32,
+    y: u32,
+    w: u32,
+    h: u32,
+) -> Option<(u32, u32, u32, u32)> {
+    if cw == 0 || ch == 0 {
+        return None;
+    }
+    let (x, y) = (x.min(cw - 1), y.min(ch - 1));
+    Some((x, y, w.min(cw - x).max(1), h.min(ch - y).max(1)))
 }
 
 /// Crop against the document canvas even if a frame imported from an external
@@ -894,10 +784,15 @@ fn crop_with_padding(image: &RgbaImage, x: u32, y: u32, w: u32, h: u32) -> RgbaI
 }
 
 /// A frame with new pixels and everything else carried over from `source`.
-fn rebuilt(source: &Frame, pixels: RgbaImage) -> Frame {
+pub(super) fn rebuilt(source: &Frame, pixels: RgbaImage) -> Frame {
     let mut produced = Frame::new(pixels, source.delay_cs);
     produced.detached = source.detached;
     produced
+}
+
+/// `delay + extra`, held at the longest delay a GIF can store.
+fn add_delay(delay: u16, extra: u32) -> u16 {
+    (delay as u32 + extra).min(u16::MAX as u32) as u16
 }
 
 /// `a` with `amount` (0–1) of `b` mixed in, weighting colour by alpha so a
@@ -921,15 +816,13 @@ fn mix(a: Rgba8, b: Rgba8, amount: f32) -> Rgba8 {
 /// 33.3fps animation that runs ahead of the recording.
 pub fn delays_for_fps(fps: f64, count: usize) -> Vec<u16> {
     let mut delays = Vec::with_capacity(count);
-    let mut elapsed = 0.0f64;
     let mut written = 0u32;
     for i in 0..count {
-        elapsed = (i + 1) as f64 * 100.0 / fps;
+        let elapsed = (i + 1) as f64 * 100.0 / fps;
         let want = elapsed.round() as u32;
         delays.push((want.saturating_sub(written)).max(1) as u16);
         written = written.max(want);
     }
-    let _ = elapsed;
     delays
 }
 
@@ -1005,24 +898,24 @@ mod tests {
         assert_eq!(d.overlay(later).unwrap().range, 6..8);
     }
 
-    /// Regression: `replace_frame_pixels` used to assign `pixels` in place,
-    /// leaving the cached thumbnail and opacity flag describing the old image.
+    /// Regression: replacing a frame's pixels used to assign them in place,
+    /// leaving the cached thumbnail and opacity flag describing the old
+    /// image. Every producer rebuilds through `rebuilt` instead.
     #[test]
-    fn replacing_pixels_refreshes_the_cached_thumbnail() {
-        let mut doc = Document::from_frames(vec![Frame::new(
+    fn rebuilding_a_frame_refreshes_the_cached_thumbnail() {
+        let mut before = Frame::new(
             RgbaImage::from_pixel(80, 80, image::Rgba([255, 0, 0, 255])),
             9,
-        )]);
-        let before = doc.frames[0].clone();
+        );
+        before.detached = true;
 
-        doc.replace_frame_pixels(
-            0,
+        let after = rebuilt(
+            &before,
             RgbaImage::from_pixel(80, 20, image::Rgba([0, 0, 255, 128])),
         );
-        let after = &doc.frames[0];
 
         assert_eq!(after.delay_cs, 9, "the delay survives the swap");
-        assert!(after.detached);
+        assert!(after.detached, "so does the detached flag");
         assert!(!after.opaque, "the new pixels have alpha");
         assert_ne!(
             after.thumb.height(),
@@ -1051,7 +944,7 @@ mod tests {
             "distinct frames, distinct keys"
         );
 
-        doc.duplicate_frame(1);
+        doc.duplicate_frames_at(&[1]);
         assert_eq!(
             doc.frames[1].key, doc.frames[2].key,
             "a copy is the same image"
@@ -1319,7 +1212,7 @@ mod tests {
     #[test]
     fn move_frames_to_moves_a_frame_and_its_duplicate_together() {
         let mut d = doc_distinct(3);
-        d.duplicate_frame(2);
+        d.duplicate_frames_at(&[2]);
         d.frames[3].delay_cs = 40; // tell the copy from its source
         d.move_frames_to(&[2, 3], 0);
         assert_eq!(order(&d), vec![2, 2, 0, 1], "both picked frames lead");
@@ -1352,7 +1245,7 @@ mod tests {
         let mut d = doc(4, 10);
         let covering = d.add_overlay("a", shape(), Transform::at(0., 0., 1., 1.), 1..3);
         let after = d.add_overlay("b", shape(), Transform::at(0., 0., 1., 1.), 3..4);
-        d.duplicate_frame(1);
+        d.duplicate_frames_at(&[1]);
         assert_eq!(d.frames.len(), 5);
         assert_eq!(d.overlay(covering).unwrap().range, 1..4);
         assert_eq!(d.overlay(after).unwrap().range, 4..5);
@@ -1376,18 +1269,18 @@ mod tests {
         // The one-at-a-time definition: a copy spliced in right after it.
         for &i in picked.iter().rev().filter(|i| **i < 7) {
             let copy = one_by_one.frames[i].clone();
-            one_by_one.insert_frame_at(i + 1, copy);
+            one_by_one.insert_frames_at(i + 1, vec![copy]);
         }
         assert_eq!(order(&one_pass), vec![0, 1, 1, 2, 3, 4, 4, 5, 6, 6]);
         assert_eq!(one_pass, one_by_one);
     }
 
     #[test]
-    fn insert_frame_at_shifts_overlays_like_duplicate_does() {
+    fn inserting_one_frame_shifts_overlays_like_duplicate_does() {
         let mut d = doc(4, 10);
         let covering = d.add_overlay("a", shape(), Transform::at(0., 0., 1., 1.), 1..3);
         let after = d.add_overlay("b", shape(), Transform::at(0., 0., 1., 1.), 3..4);
-        d.insert_frame_at(1, Frame::new(RgbaImage::new(2, 2), 10));
+        d.insert_frames_at(1, vec![Frame::new(RgbaImage::new(2, 2), 10)]);
         assert_eq!(d.frames.len(), 5);
         assert_eq!(d.overlay(covering).unwrap().range, 2..4);
         assert_eq!(d.overlay(after).unwrap().range, 4..5);
@@ -1443,7 +1336,7 @@ mod tests {
     fn a_stale_frame_index_changes_nothing() {
         let mut d = doc_distinct(3);
         let before = d.clone();
-        d.duplicate_frame(3);
+        d.duplicate_frames_at(&[3]);
         d.reverse_frames(1..4);
         assert_eq!(d, before);
     }
@@ -1735,6 +1628,11 @@ mod tests {
         );
     }
 
+    /// Land frames from a job that keeps the canvas: nothing to scale or move.
+    fn land_in_place(d: &mut Document, frames: Vec<(usize, Frame)>) {
+        d.land(frames, (1.0, 1.0), (0.0, 0.0));
+    }
+
     /// Crop is document-wide and takes the overlays with it, so an annotation
     /// stays on the pixel it was pointing at.
     #[test]
@@ -1746,7 +1644,8 @@ mod tests {
         );
         let id = d.add_overlay("a", shape(), Transform::at(30.0, 25.0, 10.0, 10.0), 0..3);
 
-        d.crop(20, 15, 50, 40);
+        let cropped = d.cropped_frames(20, 15, 50, 40, |_, _| {});
+        d.land(cropped, (1.0, 1.0), (-20.0, -15.0));
 
         assert_eq!(d.size(), (50, 40));
         assert!(d.frames.iter().all(|f| f.pixels.dimensions() == (50, 40)));
@@ -1762,12 +1661,12 @@ mod tests {
     #[test]
     fn crop_clamps_to_the_canvas_rather_than_panicking() {
         let mut d = Document::from_frames(vec![Frame::new(RgbaImage::new(20, 20), 5)]);
-        d.crop(15, 15, 400, 400);
+        let cropped = d.cropped_frames(15, 15, 400, 400, |_, _| {});
+        land_in_place(&mut d, cropped);
         assert_eq!(d.size(), (5, 5));
 
-        let mut d = Document::from_frames(vec![Frame::new(RgbaImage::new(20, 20), 5)]);
-        d.crop(0, 0, 20, 20);
-        assert_eq!(d.size(), (20, 20), "a no-op crop leaves the frames alone");
+        let empty = Document::default();
+        assert!(empty.cropped_frames(0, 0, 10, 10, |_, _| {}).is_empty());
     }
 
     #[test]
@@ -1781,7 +1680,8 @@ mod tests {
         ]);
         let mut zoomed = cropped.clone();
 
-        cropped.crop(5, 5, 10, 10);
+        let frames = cropped.cropped_frames(5, 5, 10, 10, |_, _| {});
+        cropped.land(frames, (1.0, 1.0), (-5.0, -5.0));
         assert!(
             cropped
                 .frames
@@ -1790,17 +1690,17 @@ mod tests {
         );
         assert_eq!(cropped.frames[1].pixels.get_pixel(9, 9).0[3], 0);
 
-        zoomed.zoom_frames(&[1], 5, 5, 10, 10);
+        let frames = zoomed.zoomed_frames(&[1], 5, 5, 10, 10, |_, _| {});
+        land_in_place(&mut zoomed, frames);
         assert_eq!(zoomed.frames[1].pixels.dimensions(), (20, 20));
         assert_eq!(zoomed.frames[1].pixels.get_pixel(19, 19).0[3], 0);
     }
 
-    /// The producer the async crop runs must agree with the mutator: the
-    /// overlay shift is the mutator's job either way, but the pixels and the
-    /// carried-over delay/detached flags have to match exactly.
+    /// What a wholesale frame swap would otherwise lose rides along with a
+    /// crop: the delay and the detached flag. Progress counts every frame.
     #[test]
-    fn cropped_frames_match_crop_and_carry_delay_and_detached() {
-        let mut d = Document::from_frames(
+    fn cropped_frames_carry_delay_and_detached() {
+        let d = Document::from_frames(
             (0..3)
                 .map(|i| {
                     let mut img = RgbaImage::new(40, 40);
@@ -1811,55 +1711,25 @@ mod tests {
                 })
                 .collect(),
         );
-        let mut other = d.clone();
-
-        d.crop(5, 5, 20, 20);
 
         let mut seen = Vec::new();
-        let produced = other.cropped_frames(5, 5, 20, 20, |done, total| seen.push((done, total)));
-        for (i, frame) in produced {
-            other.frames[i] = frame;
-        }
-        for o in &mut other.overlays {
-            o.transform.x -= 5.0;
-            o.transform.y -= 5.0;
-        }
+        let produced = d.cropped_frames(5, 5, 20, 20, |done, total| seen.push((done, total)));
 
-        assert_eq!(other, d, "the producer must match what crop() does");
         assert_eq!(
-            d.frames.iter().map(|f| f.delay_cs).collect::<Vec<_>>(),
+            produced.iter().map(|(i, _)| *i).collect::<Vec<_>>(),
+            vec![0, 1, 2]
+        );
+        assert_eq!(
+            produced.iter().map(|(_, f)| f.delay_cs).collect::<Vec<_>>(),
             vec![3, 4, 5],
             "delays survive the crop"
         );
-        assert!(d.frames[1].detached, "detached survives the crop");
+        assert!(produced[1].1.detached, "detached survives the crop");
         assert_eq!(
             seen,
             vec![(1, 3), (2, 3), (3, 3)],
             "progress is reported once per frame"
         );
-
-        let empty = Document::default();
-        assert!(empty.cropped_frames(0, 0, 10, 10, |_, _| {}).is_empty());
-    }
-
-    #[test]
-    fn resize_scales_the_overlays_too() {
-        let mut d = Document::from_frames(vec![Frame::new(RgbaImage::new(100, 100), 5)]);
-        let id = d.add_overlay("a", shape(), Transform::at(10.0, 20.0, 40.0, 40.0), 0..1);
-        d.resize(50, 50);
-        assert_eq!(d.size(), (50, 50));
-        let t = d.overlay(id).unwrap().transform;
-        assert_eq!((t.x, t.y, t.w, t.h), (5.0, 10.0, 20.0, 20.0));
-    }
-
-    /// The filmstrip rebuilds a frame only when its key changes, so resizing
-    /// to the size the canvas already has must not remake every frame.
-    #[test]
-    fn resizing_to_the_current_size_rebuilds_nothing() {
-        let mut d = doc(3, 5);
-        let keys: Vec<u64> = d.frames.iter().map(|f| f.key).collect();
-        d.resize(2, 2);
-        assert_eq!(d.frames.iter().map(|f| f.key).collect::<Vec<_>>(), keys);
     }
 
     /// Zoom is the per-frame answer to crop: the canvas keeps its size, so
@@ -1877,7 +1747,8 @@ mod tests {
         );
         let untouched = d.frames[3].key;
 
-        d.zoom_frames(&[1, 2], 0, 0, 20, 20);
+        let zoomed = d.zoomed_frames(&[1, 2], 0, 0, 20, 20, |_, _| {});
+        land_in_place(&mut d, zoomed);
 
         assert!(
             d.frames.iter().all(|f| f.pixels.dimensions() == (40, 40)),
@@ -1904,11 +1775,11 @@ mod tests {
         );
     }
 
-    /// The producer the async resize runs must agree with the mutator the sync
-    /// path uses, down to what a wholesale frame swap would otherwise lose:
-    /// the delay and the detached flag ride along.
+    /// A resize lands its frames and scales the overlays with them, down to
+    /// what a wholesale frame swap would otherwise lose: the delay and the
+    /// detached flag ride along.
     #[test]
-    fn resized_frames_match_resize_and_carry_delay_and_detached() {
+    fn a_resize_lands_its_frames_and_scales_the_overlays() {
         let mut d = Document::from_frames(
             (0..3)
                 .map(|i| {
@@ -1921,18 +1792,18 @@ mod tests {
                 .collect(),
         );
         let id = d.add_overlay("a", shape(), Transform::at(10.0, 20.0, 40.0, 40.0), 0..3);
-        let mut other = d.clone();
-
-        d.resize(20, 20);
+        let caption = d.add_overlay(
+            "t",
+            OverlayKind::Text(crate::core::TextOverlay::default()),
+            Transform::at(0.0, 0.0, 8.0, 8.0),
+            0..3,
+        );
 
         let mut seen = Vec::new();
-        let produced = other.resized_frames(20, 20, |done, total| seen.push((done, total)));
-        for (i, frame) in produced {
-            other.frames[i] = frame;
-        }
-        other.scale_overlays(0.5, 0.5);
+        let produced = d.resized_frames(20, 10, |done, total| seen.push((done, total)));
+        d.land(produced, (0.5, 0.25), (0.0, 0.0));
 
-        assert_eq!(other, d, "the producer must match what resize() does");
+        assert_eq!(d.size(), (20, 10));
         assert_eq!(
             d.frames.iter().map(|f| f.delay_cs).collect::<Vec<_>>(),
             vec![3, 4, 5],
@@ -1940,7 +1811,11 @@ mod tests {
         );
         assert!(d.frames[1].detached, "detached survives the resample");
         let t = d.overlay(id).unwrap().transform;
-        assert_eq!((t.x, t.y, t.w, t.h), (5.0, 10.0, 20.0, 20.0));
+        assert_eq!((t.x, t.y, t.w, t.h), (5.0, 5.0, 20.0, 10.0));
+        let Some(OverlayKind::Text(text)) = d.overlay(caption).map(|o| &o.kind) else {
+            panic!("the caption is text");
+        };
+        assert_eq!(text.size_px, 8.0, "a point size follows the height");
         assert_eq!(
             seen,
             vec![(1, 3), (2, 3), (3, 3)],
@@ -1949,24 +1824,18 @@ mod tests {
     }
 
     #[test]
-    fn resized_frames_clamp_zero_dimensions_like_resize() {
-        let mut resized = doc(1, 5);
-        let mut produced = resized.clone();
-
-        resized.resize(0, 0);
-        for (i, frame) in produced.resized_frames(0, 0, |_, _| {}) {
-            produced.frames[i] = frame;
-        }
-
-        assert_eq!(produced, resized);
-        assert_eq!(produced.size(), (1, 1));
+    fn resized_frames_clamp_zero_dimensions() {
+        let mut d = doc(1, 5);
+        let produced = d.resized_frames(0, 0, |_, _| {});
+        land_in_place(&mut d, produced);
+        assert_eq!(d.size(), (1, 1));
     }
 
-    /// The producer the async zoom runs must agree with the mutator: delay and
-    /// detached ride along, progress counts only the frames it will produce,
-    /// and indices past the end are skipped rather than misaligning the pairs.
+    /// The zoom producer carries delay and detached along, counts progress
+    /// only over the frames it will produce, and skips indices past the end
+    /// rather than misaligning the pairs.
     #[test]
-    fn zoomed_frames_match_zoom_frames_and_skip_out_of_range() {
+    fn zoomed_frames_carry_delay_and_detached_and_skip_out_of_range() {
         let mut d = Document::from_frames(
             (0..4)
                 .map(|i| {
@@ -1980,18 +1849,21 @@ mod tests {
         );
         let mut other = d.clone();
 
-        d.zoom_frames(&[1, 2], 0, 0, 20, 20);
+        let zoomed = d.zoomed_frames(&[1, 2], 0, 0, 20, 20, |_, _| {});
+        land_in_place(&mut d, zoomed);
 
         let mut seen = Vec::new();
         // Index 9 is past the end: it must not appear as a pair.
         let produced = other.zoomed_frames(&[1, 9, 2], 0, 0, 20, 20, |done, total| {
             seen.push((done, total))
         });
-        for (i, frame) in produced {
-            other.frames[i] = frame;
-        }
+        assert_eq!(
+            produced.iter().map(|(i, _)| *i).collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+        land_in_place(&mut other, produced);
 
-        assert_eq!(other, d, "the producer must match what zoom_frames() does");
+        assert_eq!(other, d, "a stale index changes nothing");
         assert_eq!(
             seen,
             vec![(1, 2), (2, 2)],
@@ -2031,7 +1903,8 @@ mod tests {
         );
         let untouched = d.frames[2].key;
 
-        d.shrink_frames(&[0, 1], 4, 4, 8, 8);
+        let shrunk = d.shrunk_frames(&[0, 1], 4, 4, 8, 8, |_, _| {});
+        land_in_place(&mut d, shrunk);
 
         assert!(
             d.frames.iter().all(|f| f.pixels.dimensions() == (20, 20)),
@@ -2050,7 +1923,7 @@ mod tests {
     }
 
     #[test]
-    fn shrunk_frame_list_matches_shrink_frames_and_skips_out_of_range() {
+    fn shrunk_frames_carry_detached_and_skip_out_of_range() {
         let mut d = Document::from_frames(
             (0..3)
                 .map(|i| {
@@ -2065,27 +1938,23 @@ mod tests {
         );
         let mut other = d.clone();
 
-        d.shrink_frames(&[0, 1], 2, 2, 10, 10);
+        let shrunk = d.shrunk_frames(&[0, 1], 2, 2, 10, 10, |_, _| {});
+        land_in_place(&mut d, shrunk);
 
         let mut seen = Vec::new();
-        let produced = other.shrunk_frame_list(&[0, 9, 1], 2, 2, 10, 10, |done, total| {
+        let produced = other.shrunk_frames(&[0, 9, 1], 2, 2, 10, 10, |done, total| {
             seen.push((done, total))
         });
-        for (i, frame) in produced {
-            other.frames[i] = frame;
-        }
+        land_in_place(&mut other, produced);
 
-        assert_eq!(
-            other, d,
-            "the producer must match what shrink_frames() does"
-        );
+        assert_eq!(other, d, "a stale index changes nothing");
         assert_eq!(seen, vec![(1, 2), (2, 2)]);
         assert!(d.frames[1].detached, "detached survives the shrink");
 
         let empty = Document::default();
         assert!(
             empty
-                .shrunk_frame_list(&[0], 0, 0, 10, 10, |_, _| {})
+                .shrunk_frames(&[0], 0, 0, 10, 10, |_, _| {})
                 .is_empty()
         );
     }

@@ -743,7 +743,7 @@ pub(super) fn run_frame_work(doc: &Document, work: FrameWork, sender: &Component
                 }
                 FrameWork::Shrink { frames, rect } => {
                     let (x, y, w, h) = *rect;
-                    doc.shrunk_frame_list(frames, x, y, w, h, &mut progress)
+                    doc.shrunk_frames(frames, x, y, w, h, &mut progress)
                 }
                 FrameWork::Crop { rect } => {
                     let (x, y, w, h) = *rect;
@@ -763,7 +763,7 @@ pub(super) fn run_frame_work(doc: &Document, work: FrameWork, sender: &Component
                 label: work.label(),
                 frames_touched: frames.len(),
                 scale: work.scale(&doc),
-                shift: work.shift(),
+                offset: work.offset(),
                 frames,
                 land: work.landing(),
             })

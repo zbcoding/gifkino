@@ -8,6 +8,7 @@
 use image::RgbaImage;
 
 use super::model::{Document, Frame};
+use super::ops::rebuilt;
 
 /// What gives way when incoming frames are not the canvas size. Two
 /// questions, four answers: whose size wins — the open document's canvas or
@@ -172,8 +173,7 @@ pub fn plan_splice(
         + incoming.iter().filter(|f| needs_work(f)).count();
     let mut done = 0;
     let mut redraw = |frame: &Frame| {
-        let mut produced = Frame::new(refit(frame.pixels.as_ref(), canvas, mode), frame.delay_cs);
-        produced.detached = frame.detached;
+        let produced = rebuilt(frame, refit(frame.pixels.as_ref(), canvas, mode));
         done += 1;
         progress(done, total);
         produced
@@ -210,18 +210,8 @@ impl Splice {
     /// in at `at`, and every overlay follows the canvas it was drawn on. The
     /// answer is how many frames the document gained, for the history step.
     pub fn apply(self, doc: &mut Document) -> usize {
-        for (i, frame) in self.existing {
-            if let Some(slot) = doc.frames.get_mut(i) {
-                *slot = frame;
-            }
-        }
-        let (fx, fy) = self.overlays.scale;
-        doc.scale_overlays(fx, fy);
         let (dx, dy) = self.overlays.offset;
-        for overlay in &mut doc.overlays {
-            overlay.transform.x += dx as f32;
-            overlay.transform.y += dy as f32;
-        }
+        doc.land(self.existing, self.overlays.scale, (dx as f32, dy as f32));
         let added = self.incoming.len();
         doc.insert_foreign_frames_at(self.at, self.incoming);
         added
