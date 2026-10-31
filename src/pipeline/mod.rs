@@ -16,15 +16,21 @@ pub fn import_any(
     options: &video::ImportOptions,
     progress: &mut dyn FnMut(usize, Option<usize>) -> bool,
 ) -> Result<Vec<Frame>> {
-    if has_extension(path, "gif") {
-        return gif::decode_path(path, progress);
+    if needs_ffmpeg(path) {
+        return video::import(path, options, progress);
     }
     if is_still_image(path) {
         let frame = decode_still(path)?;
         progress(1, Some(1));
         return Ok(vec![frame]);
     }
-    video::import(path, options, progress)
+    gif::decode_path(path, progress)
+}
+
+/// What `import_any` hands to ffmpeg: everything that is neither a GIF nor a
+/// still image.
+pub fn needs_ffmpeg(path: &Path) -> bool {
+    !has_extension(path, "gif") && !is_still_image(path)
 }
 
 /// A single still image as one frame. `delay_cs` is what a frame appended to
@@ -64,7 +70,7 @@ pub fn is_still_image(path: &Path) -> bool {
     })
 }
 
-pub fn has_extension(path: &Path, want: &str) -> bool {
+fn has_extension(path: &Path, want: &str) -> bool {
     path.extension()
         .is_some_and(|e| e.eq_ignore_ascii_case(want))
 }

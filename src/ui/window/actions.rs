@@ -675,7 +675,7 @@ pub(super) fn plan_import(
     cancel: Arc<AtomicBool>,
     sender: &ComponentSender<App>,
 ) {
-    if pipeline::has_extension(&path, "gif") || pipeline::is_still_image(&path) {
+    if !pipeline::needs_ffmpeg(&path) {
         load(path, None, options, cancel, sender);
         return;
     }
