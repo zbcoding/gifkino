@@ -209,25 +209,10 @@ pub struct ShapeOverlay {
     pub stroke: Option<(Rgba8, f32)>,
 }
 
-#[derive(Clone, PartialEq)]
-pub struct ImageOverlay {
-    pub pixels: Arc<RgbaImage>,
-}
-
-impl fmt::Debug for ImageOverlay {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let (w, h) = self.pixels.dimensions();
-        write!(f, "ImageOverlay({w}x{h})")
-    }
-}
-
 #[derive(Clone, PartialEq, Debug)]
 pub enum OverlayKind {
     Text(TextOverlay),
     Shape(ShapeOverlay),
-    // ponytail: no insert-image UI exists yet; render.rs already draws these.
-    #[allow(dead_code)]
-    Image(ImageOverlay),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]

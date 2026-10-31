@@ -40,12 +40,6 @@ fn stamp(dst: &mut RgbaImage, overlay: &Overlay, text: TextRasterizer<'_>) {
     let src = match &overlay.kind {
         OverlayKind::Text(o) => text(o, w, h),
         OverlayKind::Shape(o) => rasterize_shape(o, w, h),
-        OverlayKind::Image(o) => image::imageops::resize(
-            o.pixels.as_ref(),
-            w,
-            h,
-            image::imageops::FilterType::Triangle,
-        ),
     };
     draw_transformed(dst, &src, t, overlay.opacity);
 }
@@ -228,8 +222,7 @@ fn put(img: &mut RgbaImage, x: u32, y: u32, color: Option<Rgba8>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::model::{Frame, ImageOverlay};
-    use std::sync::Arc;
+    use crate::core::model::Frame;
 
     fn red_rect() -> OverlayKind {
         OverlayKind::Shape(ShapeOverlay {
@@ -276,25 +269,6 @@ mod tests {
             composite(&d, 2, &no_text).unwrap().get_pixel(5, 5).0,
             [0, 0, 0, 0]
         );
-    }
-
-    /// A pasted image is scaled into its box, not drawn at its own size, and
-    /// paints nothing outside the box.
-    #[test]
-    fn an_image_overlay_is_scaled_to_fill_its_box() {
-        let (red, blue) = (Rgba([255, 0, 0, 255]), Rgba([0, 0, 255, 255]));
-        let mut src = RgbaImage::from_pixel(2, 2, red);
-        src.put_pixel(1, 1, blue);
-        let mut d = doc();
-        let image = OverlayKind::Image(ImageOverlay {
-            pixels: Arc::new(src),
-        });
-        d.add_overlay("i", image, Transform::at(1.0, 1.0, 8.0, 8.0), 0..1);
-        let out = composite(&d, 0, &no_text).unwrap();
-        assert_eq!(out.get_pixel(1, 1), &red, "top-left corner of the box");
-        assert_eq!(out.get_pixel(8, 8), &blue, "bottom-right, 8px away, not 2");
-        assert_eq!(out.get_pixel(0, 0).0, [0, 0, 0, 0], "outside the box");
-        assert_eq!(out.get_pixel(9, 9).0, [0, 0, 0, 0], "outside the box");
     }
 
     /// An overlay dragged partly off the canvas paints the part still on it,
