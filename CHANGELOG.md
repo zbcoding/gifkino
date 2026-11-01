@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Translations
+
+- Spanish (`es`) and Brazilian Portuguese (`pt_BR`). Both are AI
+  translations marked for human review, as German and Japanese are.
+
 ## 0.1.6 — 2026-10-31
 
 ### Menus
