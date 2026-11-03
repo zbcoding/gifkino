@@ -16,20 +16,21 @@ vp run build     # wasm + bundle → dist/; ../build.sh assembles the site
 
 ## Modules
 
-| File                 | Role                                                                                              |
-| -------------------- | ------------------------------------------------------------------------------------------------- |
-| `worker/worker.ts`   | Worker entry: one wasm `Editor`, text rasterizer installed.                                       |
-| `worker/serve.ts`    | Answers protocol requests against the editor; testable with a stand-in.                           |
-| `worker/protocol.ts` | Request/response types, `DocSnapshot`, `FrameSource`, `Picture`.                                  |
-| `worker/text.ts`     | `TextRasterizer`: Pango description → CSS font, WordChar wrap, outline under fill.                |
-| `rpc.ts`             | Page-side client: one promise per request, progress callbacks, worker errors reject.              |
-| `state.ts`           | `AppState`, `Store`, pure transitions (`edited`, `opened`, `framesInScope`).                      |
-| `app.ts`             | `App`: dispatch, registries, open/export, busy bar, size estimate.                                |
-| `playback.ts`        | Play/pause on per-frame delays.                                                                   |
-| `core.ts`            | The shell's own commands: open, export, undo, redo, play-pause; scope toggle; drop; unload guard. |
-| `ui/`                | Layout, header + menus, canvas view, transport, doc info, DOM helpers.                            |
-| `i18n.ts`            | `t(msgid)` / `tn(one, many, count)` / `fill(template, values)`; msgids are the desktop's.         |
-| `slices.ts`          | The list of slice installers.                                                                     |
+| File                 | Role                                                                                                 |
+| -------------------- | ---------------------------------------------------------------------------------------------------- |
+| `worker/worker.ts`   | Worker entry: one wasm `Editor`, text rasterizer installed.                                          |
+| `worker/serve.ts`    | Answers protocol requests against the editor; testable with a stand-in.                              |
+| `worker/protocol.ts` | Request/response types, `DocSnapshot`, `FrameSource`, `Picture`.                                     |
+| `worker/text.ts`     | `TextRasterizer`: Pango description → CSS font, WordChar wrap, outline under fill.                   |
+| `rpc.ts`             | Page-side client: one promise per request, progress callbacks, worker errors reject.                 |
+| `state.ts`           | `AppState`, `Store`, pure transitions (`edited`, `opened`, `framesInScope`).                         |
+| `app.ts`             | `App`: dispatch, registries, open/export, busy bar, size estimate.                                   |
+| `playback.ts`        | Play/pause on per-frame delays.                                                                      |
+| `core.ts`            | The shell's own commands: open, export, undo, redo, play-pause; scope toggle; drop; unload guard.    |
+| `gifsicle/`          | gifsicle built for WASI (`build.sh`; the `.wasm` is committed) and run on stdin/stdout by `wasi.ts`. |
+| `ui/`                | Layout, header + menus, canvas view, transport, doc info, DOM helpers.                               |
+| `i18n.ts`            | `t(msgid)` / `tn(one, many, count)` / `fill(template, values)`; msgids are the desktop's.            |
+| `slices.ts`          | The list of slice installers.                                                                        |
 
 ## Adding a slice
 
@@ -121,9 +122,12 @@ Memory guard: `frameops/budget.ts` holds the desktop's budgets
 or splice over them before the worker is asked; a settings slice can make them
 configurable there.
 
-Export settings: the desktop has no export settings UI (Export GIF… writes
-`ExportSettings::default()`), so there is none here; an export slice adding
-gifsicle options owns that dialog.
+Export: `app.exportGif(settings)` encodes in the editor worker, then runs
+`gifsicle -O3` (plus `--lossy` when `settings.lossy` > 0) over the file in a
+worker of its own (`gifsicle/`), as desktop `export_path` does. A gifsicle that
+fails to load or run leaves the unoptimized GIF, downloaded with the same
+toast, as on a desktop without gifsicle. The desktop has no export settings UI
+(Export GIF… writes `ExportSettings::default()`), so there is none here.
 
 ## Strip and bands (`strip/`)
 

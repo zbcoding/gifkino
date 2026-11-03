@@ -105,8 +105,8 @@ pub struct ExportSettings {
     pub dither: bool,
     /// None loops forever.
     pub loops: Option<u16>,
-    /// gifsicle's `--lossy`; 0 turns it off. Only the desktop export runs
-    /// gifsicle, so only it reads this.
+    /// gifsicle's `--lossy`; 0 turns it off. The encoder ignores it: the
+    /// desktop and browser exports pass it to the gifsicle run after it.
     pub lossy: u16,
 }
 

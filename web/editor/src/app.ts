@@ -1,6 +1,7 @@
 // The one object every slice gets in `install(app)`: state, the worker, and the
 // registries the shell's layout reads. See ARCHITECTURE.md.
 
+import { runGifsicle } from "./gifsicle";
 import { fill, t } from "./i18n";
 import type { Client, RequestOptions } from "./rpc";
 import { edited, initialState, opened, Store } from "./state";
@@ -235,7 +236,7 @@ export class App {
     return [...this.importers, builtinImporter].map((importer) => importer.accept).join(",");
   }
 
-  /** Encode the document and download it, named after the opened file. */
+  /** Encode the document, optimize it with gifsicle and download it, named after the opened file. */
   async exportGif(settings: ExportSettings | null = null): Promise<void> {
     const { doc, fileName } = this.state;
     if (!doc || doc.frameCount === 0) return;
@@ -244,7 +245,7 @@ export class App {
     const bytes = await this.withBusy(t("Exporting… {done} / {total} frames"), async (report) => {
       report(0, doc.frameCount);
       const reply = await this.request("exportGif", { settings }, { progress: report });
-      return reply.value;
+      return optimized(reply.value, settings?.lossy ?? 0);
     });
     download(new Blob([bytes], { type: "image/gif" }), name);
     this.update({ dirty: false });
@@ -299,6 +300,20 @@ export class App {
 function sourceBuffers(source: FrameSource): Transferable[] {
   if (source.kind === "rgba") return source.frames.map((frame) => frame.rgba.buffer);
   return [source.bytes.buffer];
+}
+
+/**
+ * Desktop `export_path`'s gifsicle pass. A gifsicle that will not load or run
+ * leaves the unoptimized file, which is still a valid GIF, as the desktop does
+ * when gifsicle is not installed.
+ */
+async function optimized(gif: Uint8Array<ArrayBuffer>, lossy: number) {
+  try {
+    return await runGifsicle(gif, lossy);
+  } catch (error) {
+    console.warn("Exporting without gifsicle:", error);
+    return gif;
+  }
 }
 
 function download(blob: Blob, name: string): void {

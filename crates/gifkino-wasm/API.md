@@ -182,7 +182,7 @@ four grip positions (TL, TR, BL, BR) for drawing.
 
 | Method | |
 |---|---|
-| `exportGif(settings \| null, progress \| null)` → `Uint8Array` | The GIF file. `null` settings = the desktop export: full size, source speed, 256 colours, no dither, loop forever. Missing fields take those defaults. `width` resizes (height follows), `speed` divides delays, `loops` `null` = forever. `lossy` is ignored: the desktop's gifsicle `-O3`/`--lossy` pass does not run here, so files are larger than the desktop's. `progress(done, total)` after each frame. Throws on an empty document. |
+| `exportGif(settings \| null, progress \| null)` → `Uint8Array` | The GIF file. `null` settings = the desktop export: full size, source speed, 256 colours, no dither, loop forever. Missing fields take those defaults. `width` resizes (height follows), `speed` divides delays, `loops` `null` = forever. `lossy` is ignored here: it is gifsicle's, and the browser editor runs gifsicle's `-O3`/`--lossy` pass over this output itself (`web/editor/src/gifsicle/`). `progress(done, total)` after each frame. Throws on an empty document. |
 | `estimateSize()` → `number` | Bytes, from encoding 8 spread frames with the default settings and extrapolating — the desktop's size readout (which it measures without gifsicle too). Throws on an empty document. |
 
 ## Text
