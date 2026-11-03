@@ -94,7 +94,7 @@ jobs:
           org.freedesktop.Sdk.Extension.rust-stable//${RUST_EXT_VERSION}
     # ffmpeg is a ten-minute compile that changes only when the manifest pins a
     # new tarball, so the module cache is worth carrying between runs.
-    - uses: actions/cache@v4
+    - uses: actions/cache@v6
       with:
         path: .flatpak-builder
         key: flatpak-builder-${{ hashFiles('io.github.zbcoding.Gifkino.yml') }}
