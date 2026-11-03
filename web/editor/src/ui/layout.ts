@@ -89,11 +89,22 @@ function createBusyBar(app: App): HTMLElement {
   return row;
 }
 
-/** `app.toast`: a message at the bottom that fades after a few seconds. */
+/**
+ * `app.toast`: a message at the bottom that fades after a few seconds. An
+ * edit's toast offers Undo (desktop `Msg::Toast`); feedback with nothing to
+ * undo must not (`Msg::Notice`), or it would undo some earlier edit.
+ */
 function createToasts(app: App): HTMLElement {
   const host = h("div", { class: "toasts", role: "status" });
-  app.toast = (message) => {
+  app.toast = (message, options) => {
     const toast = h("div", { class: "toast" }, message);
+    if (options?.undo) {
+      const undo = () => {
+        toast.remove();
+        void app.runCommand("undo");
+      };
+      toast.append(h("button", { class: "flat", onclick: undo }, t("Undo")));
+    }
     host.append(toast);
     setTimeout(() => toast.remove(), 4000);
   };

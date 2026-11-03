@@ -14,7 +14,7 @@ import type {
   MethodResult,
   Picture,
 } from "./worker/protocol";
-import type { ExportSettings } from "./wasm/gifkino_wasm.js";
+import type { Change, ExportSettings } from "./wasm/gifkino_wasm.js";
 
 /** Header menus, in the desktop's order; `file` and `app` live in the ☰ menu. */
 export const MENUS = ["frames", "insert", "effects", "image", "optimize", "file", "app"] as const;
@@ -104,8 +104,18 @@ export class App {
   shortcutFor: (commandId: string) => string | null = () => null;
   /** Set by the canvas view: repaint the overlay layers. */
   redrawCanvas: () => void = () => {};
-  /** Set by the layout: show a transient message. */
-  toast: (message: string) => void = () => {};
+  /** Set by the layout: show a transient message; `undo` adds the edit toast's Undo button. */
+  toast: (message: string, options?: { undo?: boolean }) => void = () => {};
+
+  /**
+   * Desktop `toast_if_document_wide`: an edit earns a toast only when it
+   * reached every frame the document had, `total` being the count before the
+   * edit. Without `total` it always toasts (a splice). `undefined`: no change.
+   */
+  toastChange(change: Change | undefined, total?: number): void {
+    if (!change || change.framesTouched < Math.max(total ?? 0, 1)) return;
+    this.toast(changeMessage(change), { undo: true });
+  }
 
   readonly request: Client;
 
@@ -289,4 +299,12 @@ function download(blob: Blob, name: string): void {
   link.click();
   // The download starts asynchronously; revoking at once can cancel it.
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
+/** Desktop `change_message`: "Text added on 24 frames", or the bare label for one frame. */
+export function changeMessage(change: Change): string {
+  const label = t(change.label);
+  if (change.framesTouched <= 1) return label;
+  // Translators: Toast after an edit. {change} is a past-tense edit name such as "Frames deleted".
+  return fill(t("{change} on {count} frames"), { change: label, count: change.framesTouched });
 }

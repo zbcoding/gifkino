@@ -380,3 +380,119 @@ button.active {
   background: rgb(30 30 30 / 0.9);
   color: #fff;
 }
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  pointer-events: auto;
+}
+
+.toast button {
+  color: var(--accent);
+  min-height: 28px;
+}
+
+/* Dialogs (ui/dialog.ts): adw::AlertDialog */
+.alert-dialog {
+  width: min(440px, calc(100vw - 32px));
+  border: none;
+  border-radius: 14px;
+  padding: 24px;
+  color: var(--fg);
+  background: var(--popover-bg);
+  box-shadow: 0 8px 32px rgb(0 0 0 / 0.3);
+}
+
+.alert-dialog::backdrop {
+  background: rgb(0 0 0 / 0.35);
+}
+
+.alert-dialog h2 {
+  margin: 0 0 8px;
+  font-size: 1.2em;
+  text-align: center;
+}
+
+.alert-body {
+  margin: 0 0 16px;
+  text-align: center;
+  line-height: 1.4;
+}
+
+.alert-summary {
+  margin: 6px 0 0;
+  color: var(--dim);
+  white-space: pre-line;
+}
+
+.alert-responses {
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.alert-responses button {
+  flex: 1;
+}
+
+.pref-group {
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  background: var(--card-bg);
+}
+
+.pref-group > .pref-row + .pref-row {
+  border-top: 1px solid var(--border);
+}
+
+.pref-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 50px;
+  padding: 6px 12px;
+}
+
+.pref-titles {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+
+.pref-subtitle {
+  color: var(--dim);
+  font-size: 0.87em;
+}
+
+.pref-heading {
+  margin: 0 0 6px;
+  font-size: 1em;
+  font-weight: 700;
+}
+
+.pref-suffix {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.spin {
+  width: 6em;
+  font: inherit;
+  color: inherit;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--view-bg);
+}
+
+.pref-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.pref-row input[type="radio"] {
+  margin: 0;
+}
