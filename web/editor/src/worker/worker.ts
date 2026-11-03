@@ -5,6 +5,7 @@ import init, {
   contains,
   delaysForFps,
   Editor,
+  estimateGifSize,
   fitCanvas,
   Frames,
   handleAt,
@@ -43,6 +44,7 @@ const ready = init().then(() => {
     orientedCorners,
     fitCanvas,
     delaysForFps,
+    estimateGifSize,
   });
 });
 

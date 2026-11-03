@@ -10,6 +10,7 @@
     "preview": "vp preview"
   },
   "devDependencies": {
+    "@ffmpeg/core": "0.12.10",
     "typescript": "~7.0.2",
     "vite": "catalog:",
     "vite-plus": "catalog:"

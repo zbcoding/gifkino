@@ -1184,6 +1184,28 @@ pub fn delays_for_fps_js(fps: f64, count: usize) -> Vec<u16> {
     delays_for_fps(fps, count)
 }
 
+/// The GIF size `total` frames like `samples` would export to, at the default
+/// settings: the desktop's `estimate_gif_size`, for a video not yet imported.
+/// `samples` is whole `width * height * 4` RGBA frames back to back, each
+/// played for `delay_cs`.
+#[wasm_bindgen(js_name = estimateGifSize)]
+pub fn estimate_gif_size(
+    width: u32,
+    height: u32,
+    samples: &[u8],
+    delay_cs: u16,
+    total: usize,
+) -> Result<usize, JsError> {
+    let frame_bytes = (width as usize * height as usize * 4).max(1);
+    let frames = samples
+        .chunks_exact(frame_bytes)
+        .filter_map(|rgba| RgbaImage::from_raw(width, height, rgba.to_vec()))
+        .map(|image| (image, delay_cs))
+        .collect();
+    gif::estimate_size(&Encodable { frames }, total, &ExportSettings::default())
+        .map_err(|e| error(format!("{e:#}")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

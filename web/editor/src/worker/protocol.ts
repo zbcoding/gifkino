@@ -6,6 +6,7 @@ import type {
   contains,
   delaysForFps,
   Editor,
+  estimateGifSize,
   fitCanvas,
   handleAt,
   orientedCorners,
@@ -84,6 +85,7 @@ export interface FreeFunctions {
   orientedCorners: typeof orientedCorners;
   fitCanvas: typeof fitCanvas;
   delaysForFps: typeof delaysForFps;
+  estimateGifSize: typeof estimateGifSize;
 }
 export type FreeFunction = keyof FreeFunctions;
 

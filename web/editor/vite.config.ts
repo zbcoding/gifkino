@@ -9,7 +9,10 @@ export default defineConfig({
   build: { target: "es2024", assetsInlineLimit: 0 },
   // The welcome page and favicon use the landing page's icon from ../public;
   // the canvas's rotate cursor is the desktop's, from the repo's resources/.
+  // About reads the version from the workspace Cargo.toml.
   server: { fs: { allow: ["../.."] } },
+  // ffmpeg.wasm's core is served as the file it ships as, not pre-bundled.
+  optimizeDeps: { exclude: ["@ffmpeg/core"] },
   fmt: {},
   lint: {
     jsPlugins: [{ name: "vite-plus", specifier: "vite-plus/oxlint-plugin" }],

@@ -24,7 +24,16 @@ export function frameBytes(w: number, h: number, frames: number): number {
 
 /** Desktop `resize_fits_budget`: the landing frames of a splice under the import budget. */
 export function spliceFits(w: number, h: number, frames: number): boolean {
-  return frameBytes(w, h, frames) <= Math.min(budgets.import, WASM_HEAP);
+  return frameBytes(w, h, frames) <= importBudget(false);
+}
+
+/**
+ * The budget a video import plans against. `ignoreLimit` (the import
+ * dialog's switch, desktop `NO_IMPORT_LIMIT`) lifts it as far as the wasm
+ * heap goes.
+ */
+export function importBudget(ignoreLimit: boolean): number {
+  return ignoreLimit ? WASM_HEAP : Math.min(budgets.import, WASM_HEAP);
 }
 
 /**

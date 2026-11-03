@@ -81,8 +81,11 @@ export interface Importer {
   /** Added to the file picker's `accept`. */
   accept: string;
   matches(file: File): boolean;
-  /** Decode or read `file` into frames; `report` drives the busy bar. */
-  load(file: File, report: (done: number, total: number | null) => void): Promise<FrameSource>;
+  /**
+   * Read `file` into frames; `null` when the user cancelled. Anything slower
+   * than reading the bytes runs under its own `withBusy`.
+   */
+  load(file: File): Promise<FrameSource | null>;
 }
 
 const builtinImporter: Importer = {
@@ -192,7 +195,7 @@ export class App {
     return value as MethodResult<M>;
   }
 
-  /** One of the module's free functions: `orientedCorners`, `handleAt`, `contains`, `fitCanvas`, `delaysForFps`. */
+  /** One of the module's free functions: `orientedCorners`, `handleAt`, `contains`, `fitCanvas`, `delaysForFps`, `estimateGifSize`. */
   async compute<F extends FreeFunction>(
     name: F,
     ...args: Parameters<FreeFunctions[F]>
@@ -217,20 +220,21 @@ export class App {
 
   /**
    * Read `file` through the first importer that takes it and stage its
-   * frames, under the import busy bar: the first half of `openFile`, and what
-   * "Add frames from file…" splices.
+   * frames under the import busy bar: the first half of `openFile`, and what
+   * "Add frames from file…" splices. `null`: the importer was cancelled.
    */
-  async stageFile(file: File): Promise<Staged> {
+  async stageFile(file: File): Promise<Staged | null> {
     const importer = this.importers.find((candidate) => candidate.matches(file)) ?? builtinImporter;
-    return this.withBusy(t("Importing… {done} frames"), async (report) => {
-      const source = await importer.load(file, report);
-      return this.stage(source, (decoded) => report(decoded, null));
-    });
+    const source = await importer.load(file);
+    if (!source) return null;
+    return this.withBusy(t("Importing… {done} frames"), (report) =>
+      this.stage(source, (decoded) => report(decoded, null)),
+    );
   }
 
   /** Replace the document with `file`. */
   async openFile(file: File): Promise<void> {
-    await this.stageFile(file);
+    if (!(await this.stageFile(file))) return;
     const { doc } = await this.request("open", {}, { snapshot: true });
     this.update((state) => opened(state, doc!, file.name));
   }
@@ -261,13 +265,17 @@ export class App {
     );
   }
 
-  /** Show the busy bar while `job` runs; `label` is a template over `{done}` and `{total}`. */
+  /**
+   * Show the busy bar while `job` runs; `label` is a template over `{done}`
+   * and `{total}`. `cancel` adds the bar's Cancel button.
+   */
   async withBusy<T>(
     label: string,
     job: (report: (done: number, total: number | null) => void) => Promise<T>,
+    cancel?: () => void,
   ): Promise<T> {
     const report = (done: number, total: number | null) =>
-      this.update({ busy: { label, done, total } });
+      this.update({ busy: { label, done, total, cancel } });
     report(0, null);
     try {
       return await job(report);

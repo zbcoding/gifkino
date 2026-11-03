@@ -12,6 +12,8 @@ export interface Busy {
   done: number;
   /** Unknown totals show a pulsing bar. */
   total: number | null;
+  /** Shows the busy bar's Cancel button (desktop `import_cancel`). */
+  cancel?: () => void;
 }
 
 export interface AppState {

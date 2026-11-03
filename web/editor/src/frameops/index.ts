@@ -364,6 +364,7 @@ export function install(app: App): void {
 async function addFrames(app: App, file: File, at: number): Promise<void> {
   if (count(app.state) === 0) return app.openFile(file);
   const staged = await app.stageFile(file);
+  if (!staged) return;
   const doc = app.state.doc!;
   at = Math.min(at, doc.frameCount);
   let fit: FitMode | null = "stretch";

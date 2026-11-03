@@ -72,7 +72,7 @@ interface ExportSettings { width?: number | null; speed?: number; colors?: numbe
 |---|---|
 | `Frames.fromGif(bytes, progress \| null)` | Every frame, full canvas, disposal applied, per-frame delays kept. `progress(decoded)` returning `false` stops the decode there and keeps what decoded. Throws on a broken or frameless GIF. |
 | `Frames.fromImage(bytes)` | One still (PNG, JPEG, BMP, TIFF, TGA, ICO, QOI, PNM), delay 10 cs. Throws if undecodable. |
-| `new Frames()` + `push(width, height, rgba, delayCs)` | Raw RGBA frames, e.g. video frames decoded with WebCodecs. `rgba` is `width*height*4` bytes or it throws. Use `delaysForFps(fps, count)` for the delays. |
+| `new Frames()` + `push(width, height, rgba, delayCs)` | Raw RGBA frames, e.g. video frames ffmpeg decoded. `rgba` is `width*height*4` bytes or it throws. Use `delaysForFps(fps, count)` for the delays. |
 | `length`, `width`, `height` | Count; the first frame's size (0 when empty). |
 
 ## Editor
@@ -210,9 +210,10 @@ Without a rasterizer, text draws nothing.
 | `orientedCorners(transform)` → `[x, y][]` | Grip positions on the image. |
 | `fitCanvas(fit, canvasW, canvasH, incomingW, incomingH)` → `[w, h]` | The canvas a splice under `fit` produces, for the fit question's labels. |
 | `delaysForFps(fps, count)` → `Uint16Array` | Per-frame delays for video frames, spreading the centisecond remainder so the total keeps time. |
+| `estimateGifSize(width, height, samples, delayCs, total)` → `number` | Bytes `total` frames like `samples` (whole RGBA frames back to back, each `delayCs`) export to at the default settings: the desktop's GIF size preview for a video not yet imported. Throws with no whole frame in `samples`. |
 
 ## Not here
 
-Video decoding (ffmpeg on the desktop; use WebCodecs and `Frames.push`), the
+Video decoding (ffmpeg on the desktop; the editor's `video/` slice runs ffmpeg.wasm and uses `Frames.push`), the
 gifsicle optimization pass, file dialogs, playback timing (advance the playhead
 by each frame's `delayCs * 10` ms), keybindings, and translations of the labels.

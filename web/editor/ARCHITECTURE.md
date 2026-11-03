@@ -65,8 +65,8 @@ field or a hook that more than one slice needs, and keep such changes small.
   current scope touches. Scope is `state.scope` (`frame` / `all` / `range`);
   `range` is `state.selection`, sorted indices the strip owns.
 - `state.selectedOverlay`, `state.activeTool` (a string the tool slice names)
-  and `state.busy` are shared; `app.withBusy(template, job)` drives the busy bar
-  (`{done}`/`{total}` placeholders).
+  and `state.busy` are shared; `app.withBusy(template, job, cancel?)` drives the busy bar
+  (`{done}`/`{total}` placeholders; `cancel` adds its Cancel button).
 - `app.composite(i)` / `app.thumbnail(i)` return `Picture`s
   (`new ImageData(p.data, p.width, p.height)`). Cache thumbnails by
   `doc.frames[i].key`.
@@ -76,7 +76,8 @@ field or a hook that more than one slice needs, and keep such changes small.
   `app.update((s) => edited(s, reply.doc!))`. `open` works the same way and is
   wrapped by `app.openFile(file)`. `app.stageFile(file)` is its first half: the
   file through the importers, staged under the import busy bar (what
-  `frameops` splices for "Add frames from file…").
+  `frameops` splices for "Add frames from file…"); `null` when the importer
+  was cancelled.
 - Any other worker operation: add it to `Ops` in `protocol.ts` and a handler in
   `serve.ts`.
 
@@ -89,7 +90,7 @@ field or a hook that more than one slice needs, and keep such changes small.
 | `commandButton(app, id, content, className)` (`ui/dom.ts`)                          | Button bound to a command: runs it, greys when disabled, tooltip with chord.                                                                                                                                                                                                                                                                                                                                         |
 | `app.registerPanel({ slot, id, order, element })`                                   | Mount UI. Slots: `rail` (tool column left of the canvas), `transport` (right end of the play row; scope toggle is order 0), `strip` (frame strip), `bands` (overlay bands, under the strip), `sidebar` (properties, above the doc info).                                                                                                                                                                             |
 | `app.registerCanvasLayer({ id, order, draw?, pointer? })`                           | Canvas overlay. `draw(ctx, view, state)` in CSS px; `pointer(event, phase, view)` returns `true` to take the event (highest `order` first; a taken `down` captures the pointer). `view.scale` is screen px per image px; `view.toImage(event.offsetX, event.offsetY)` / `view.toScreen(x, y)` convert. Call `app.redrawCanvas()` after changing what a layer draws without a state change; any state change redraws. |
-| `app.registerImporter({ accept, matches, load })`                                   | Open path for other file kinds (video): `load(file, report)` returns a `FrameSource` (`rgba` frames, transferred). Registered importers win over the built-in GIF/image one.                                                                                                                                                                                                                                         |
+| `app.registerImporter({ accept, matches, load })`                                   | Open path for other file kinds (video): `load(file)` returns a `FrameSource` (`rgba` frames, transferred), or `null` when the user cancelled. Anything slow (download, decode) runs under the importer's own `withBusy`. Registered importers win over the built-in GIF/image one.                                                                                                                                   |
 | `app.shortcutFor = (commandId) => chord \| null`                                    | Keybindings: tooltips and menu accels read it.                                                                                                                                                                                                                                                                                                                                                                       |
 | `app.modifiersFor = (modal) => Mods`                                                | Keybindings: the modifiers held during a canvas drag, by desktop `Modal::id` (`canvas-rotate`, `canvas-keep-aspect`, `canvas-from-center`; `MODALS` in `modals.ts`). Defaults Alt, Shift, Ctrl. The canvas reads it on every press and motion, the grip tooltips on every hover.                                                                                                                                     |
 | `app.toast(message, { undo? })`                                                     | Transient message. `undo: true` adds the Undo button an edit's toast carries (desktop `Msg::Toast`); leave it off for feedback with nothing to undo (`Msg::Notice`, e.g. "3 frames copied").                                                                                                                                                                                                                         |
@@ -159,6 +160,18 @@ Escape backs out of the crop tool, else drops the pick.
 | `zoom-to-selection`                                            | "Zoom this frame": the crop box blown up on the scope                       |
 | `optimize-crop`, `optimize-zoom-all`                           | Image ▸ Crop frames… / Zoom and resize all frames (needs a crop box)        |
 | `overlay-copy-all`, `overlay-copy-selected`, `overlay-delete`  | Band menu on the picked overlay: copy to every frame / to the scope, delete |
+
+## Video import (`video/`)
+
+The desktop's `pipeline/video.rs` and import dialog on ffmpeg.wasm's
+single-thread core. The first video import asks before downloading the core
+(~30 MB, a hashed asset under `/edit/assets/`), downloads it under the busy bar
+and compiles it once per page; `ffmpeg.worker.ts` instantiates it and runs
+ffprobe and ffmpeg there, the file mounted read-only (WORKERFS) and the RGBA
+frames streamed out of a device file as they are written. `plan.ts` is the
+desktop's plan arithmetic and trim parsing (`plan_for`, `read_trim`, …), so the
+dialog's preview is the decode it runs. Cancel terminates the worker; the next
+job starts a fresh one from the compiled module.
 
 ## Conventions
 

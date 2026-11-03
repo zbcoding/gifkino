@@ -74,12 +74,18 @@ export function createLayout(app: App): HTMLElement {
 function createBusyBar(app: App): HTMLElement {
   const bar = h("progress", { max: "1" });
   const label = h("span", {});
-  const row = h("div", { class: "busy" }, bar, label);
+  const cancel = h(
+    "button",
+    { class: "flat", onclick: () => app.state.busy?.cancel?.() },
+    t("Cancel"),
+  );
+  const row = h("div", { class: "busy" }, bar, label, cancel);
   const sync = () => {
     const { busy } = app.state;
     row.hidden = !busy;
     if (!busy) return;
     label.textContent = fill(busy.label, { done: busy.done, total: busy.total ?? "" });
+    cancel.hidden = !busy.cancel;
     // A bar without `value` is indeterminate: the pulsing kind.
     if (busy.total) bar.value = busy.done / busy.total;
     else bar.removeAttribute("value");
