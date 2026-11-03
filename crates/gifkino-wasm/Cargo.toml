@@ -1,0 +1,29 @@
+[package]
+name = "gifkino-wasm"
+version = "0.1.6"
+edition = "2024"
+description = "WebAssembly bindings that put gifkino-core behind the browser editor."
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+gifkino-core = { path = "../gifkino-core", features = ["serde"] }
+# The still-image formats the desktop app decodes as one frame.
+image = { version = "0.25.10", default-features = false, features = [
+    "png",
+    "jpeg",
+    "bmp",
+    "tiff",
+    "tga",
+    "ico",
+    "qoi",
+    "pnm",
+] }
+js-sys = "0.3.107"
+serde = { version = "1.0.228", features = ["derive"] }
+serde-wasm-bindgen = "0.6.5"
+# Pinned exactly: the generated glue must match the wasm-bindgen CLI that
+# build.sh runs.
+wasm-bindgen = "=0.2.130"

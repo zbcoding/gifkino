@@ -5,7 +5,7 @@ use cairo::{Context, Format, ImageSurface};
 use gtk4::pango;
 use image::RgbaImage;
 
-use crate::core::{TextAlign, TextOverlay};
+use gifkino_core::{TextAlign, TextOverlay};
 
 pub fn rasterize(overlay: &TextOverlay, w: u32, h: u32) -> RgbaImage {
     let (w, h) = (w.max(1), h.max(1));
@@ -105,8 +105,8 @@ fn unpremultiply(c: u8, a: u8) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::render::composite;
-    use crate::core::{Document, Frame, OverlayKind, Transform};
+    use gifkino_core::render::composite;
+    use gifkino_core::{Document, Frame, OverlayKind, Transform};
     use image::{Rgba, RgbaImage};
 
     #[test]

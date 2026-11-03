@@ -1,7 +1,7 @@
 //! Writes widgets from the model: `Component::update_view`'s body.
 
 use super::*;
-use crate::core::model::Overlay;
+use gifkino_core::model::Overlay;
 
 impl App {
     pub(super) fn sync_view(&self, widgets: &mut Widgets, sender: &ComponentSender<Self>) {

@@ -8,12 +8,12 @@ use super::model::{
     Document, Overlay, OverlayKind, Rgba8, Shape, ShapeOverlay, TextOverlay, Transform,
 };
 
-/// Text layout needs Pango, which lives in the UI layer. Core takes it as a
-/// parameter rather than owning a font stack.
+/// Text layout needs a font stack — Pango on the desktop, Canvas2D in the
+/// browser — which lives in the UI layer. Core takes it as a parameter rather
+/// than owning one.
 pub type TextRasterizer<'a> = &'a dyn Fn(&TextOverlay, u32, u32) -> RgbaImage;
 
-/// A stub rasterizer for headless tests.
-#[cfg(test)]
+/// A rasterizer that draws no text, for headless tests.
 pub fn no_text(_: &TextOverlay, w: u32, h: u32) -> RgbaImage {
     RgbaImage::new(w.max(1), h.max(1))
 }
@@ -222,7 +222,7 @@ fn put(img: &mut RgbaImage, x: u32, y: u32, color: Option<Rgba8>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::model::Frame;
+    use crate::model::Frame;
 
     fn red_rect() -> OverlayKind {
         OverlayKind::Shape(ShapeOverlay {

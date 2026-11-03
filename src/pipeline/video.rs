@@ -8,8 +8,8 @@ use std::process::{Command, Stdio};
 use anyhow::{Context, Result, bail};
 use image::RgbaImage;
 
-use crate::core::Frame;
-use crate::core::ops::delays_for_fps;
+use gifkino_core::Frame;
+use gifkino_core::ops::delays_for_fps;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct VideoInfo {

@@ -27,16 +27,11 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=n != 1;\n"
 
-#. Translators: Toast after an edit. {change} is a past-tense edit name such as "Frames deleted".
-#: src/core/history.rs:30
-msgid "{change} on {count} frames"
-msgstr "{change} on {count} frames"
-
 #: src/keymap.rs:125 src/ui/window/imports.rs:828
 msgid "Open"
 msgstr "Open"
 
-#: src/keymap.rs:126 src/ui/window/actions.rs:74 src/ui/window/build.rs:238 src/ui/window/view.rs:150
+#: src/keymap.rs:126 src/ui/window/actions.rs:73 src/ui/window/build.rs:238 src/ui/window/view.rs:150
 msgid "Export GIF"
 msgstr "Export GIF"
 
@@ -107,7 +102,7 @@ msgid "Copy frames"
 msgstr "Copy frames"
 
 #. Translators: Inserts the cut or copied frames after the frame on screen.
-#: src/keymap.rs:146 src/ui/window/strip.rs:328
+#: src/keymap.rs:146 src/ui/window/strip.rs:280
 msgid "Paste frames"
 msgstr "Paste frames"
 
@@ -207,80 +202,85 @@ msgstr "Brightness"
 msgid "Opacity"
 msgstr "Opacity"
 
-#: src/ui/window/actions.rs:163 src/ui/window/actions.rs:250
+#: src/ui/window/actions.rs:162 src/ui/window/actions.rs:249
 msgid "Frames deleted"
 msgstr "Frames deleted"
 
-#: src/ui/window/actions.rs:217
+#: src/ui/window/actions.rs:216
 msgid "Frames moved"
 msgstr "Frames moved"
 
-#: src/ui/window/actions.rs:251
+#: src/ui/window/actions.rs:250
 msgid "Frames cut"
 msgstr "Frames cut"
 
-#: src/ui/window/actions.rs:252
+#: src/ui/window/actions.rs:251
 msgid "Frames duplicated"
 msgstr "Frames duplicated"
 
-#: src/ui/window/actions.rs:253
+#: src/ui/window/actions.rs:252
 msgid "Frames reversed"
 msgstr "Frames reversed"
 
-#: src/ui/window/actions.rs:295
+#: src/ui/window/actions.rs:294
 msgid "Frames pasted"
 msgstr "Frames pasted"
 
-#: src/ui/window/actions.rs:337
+#: src/ui/window/actions.rs:336
 msgid "Overlay reordered"
 msgstr "Overlay reordered"
 
-#: src/ui/window/actions.rs:352
+#: src/ui/window/actions.rs:351
 msgid "Overlay deleted"
 msgstr "Overlay deleted"
 
-#: src/ui/window/actions.rs:401
+#: src/ui/window/actions.rs:400
 msgid "Text edited"
 msgstr "Text edited"
 
-#: src/ui/window/actions.rs:431
+#: src/ui/window/actions.rs:430
 msgid "Overlay restyled"
 msgstr "Overlay restyled"
 
-#: src/ui/window/actions.rs:457
+#: src/ui/window/actions.rs:456
 msgid "The overlay is on those frames already"
 msgstr "The overlay is on those frames already"
 
-#: src/ui/window/actions.rs:461
+#: src/ui/window/actions.rs:460
 msgid "Overlay copied"
 msgstr "Overlay copied"
 
-#: src/ui/window/actions.rs:673
+#: src/ui/window/actions.rs:632
 msgid "Overlay moved"
 msgstr "Overlay moved"
 
-#: src/ui/window/actions.rs:674
+#: src/ui/window/actions.rs:633
 msgid "Overlay rotated"
 msgstr "Overlay rotated"
 
-#: src/ui/window/actions.rs:675
+#: src/ui/window/actions.rs:634
 msgid "Overlay resized"
 msgstr "Overlay resized"
 
-#: src/ui/window/actions.rs:905
+#: src/ui/window/actions.rs:864
 msgid "Frame added"
 msgstr "Frame added"
 
-#: src/ui/window/actions.rs:907
+#: src/ui/window/actions.rs:866
 msgid "Frames added"
 msgstr "Frames added"
 
 #. Translators: Shown when resized RGBA frames would exceed the configured memory limit.
-#: src/ui/window/actions.rs:989 src/ui/window/dialogs.rs:288
+#: src/ui/window/actions.rs:937 src/ui/window/dialogs.rs:288
 msgid "That resize would use more memory than the configured limit."
 msgstr "That resize would use more memory than the configured limit."
 
-#: src/ui/window/actions.rs:1054 src/ui/window/actions.rs:1102
+#. Translators: Toast after an edit. {change} is a past-tense edit name such as "Frames deleted".
+#: src/ui/window/actions.rs:951
+msgid "{change} on {count} frames"
+msgstr "{change} on {count} frames"
+
+#: src/ui/window/actions.rs:1016 src/ui/window/actions.rs:1064
 msgid "The frame operation failed."
 msgstr "The frame operation failed."
 
@@ -377,7 +377,7 @@ msgstr "Outline"
 msgid "Stroke"
 msgstr "Stroke"
 
-#: src/ui/window/build.rs:928 src/ui/window/controls.rs:112 src/ui/window/strip.rs:288 src/ui/window/tests.rs:1634 src/ui/window/tests.rs:1647
+#: src/ui/window/build.rs:928 src/ui/window/controls.rs:95 src/ui/window/strip.rs:240 src/ui/window/tests.rs:1445 src/ui/window/tests.rs:1458
 msgid "Delete overlay"
 msgstr "Delete overlay"
 
@@ -433,7 +433,7 @@ msgstr "Crop and keep size"
 msgid "Crops this box on every frame in scope, in place, without scaling it up, and blanks the rest of each frame to transparent."
 msgstr "Crops this box on every frame in scope, in place, without scaling it up, and blanks the rest of each frame to transparent."
 
-#: src/ui/window/build.rs:1122 src/ui/window/controls.rs:195
+#: src/ui/window/build.rs:1122 src/ui/window/controls.rs:178
 msgid "Frame"
 msgstr "Frame"
 
@@ -508,7 +508,7 @@ msgid "Optimize"
 msgstr "Optimize"
 
 #. Translators: Canvas tooltip over an overlay's resize grip. Keep the line breaks.
-#: src/ui/window/canvas.rs:170
+#: src/ui/window/canvas.rs:64
 msgid ""
 "Drag to resize\n"
 "{aspect}: keep the aspect ratio\n"
@@ -521,7 +521,7 @@ msgstr ""
 "{rotate}+drag: rotate"
 
 #. Translators: Canvas tooltip over the body of an overlay. Keep the line break.
-#: src/ui/window/canvas.rs:186
+#: src/ui/window/canvas.rs:80
 msgid ""
 "Drag to move\n"
 "{rotate}+drag: rotate"
@@ -541,41 +541,41 @@ msgstr "Ellipse"
 msgid "Arrow"
 msgstr "Arrow"
 
-#: src/ui/window/controls.rs:68
+#: src/ui/window/controls.rs:51
 msgid "Text added"
 msgstr "Text added"
 
-#: src/ui/window/controls.rs:69
+#: src/ui/window/controls.rs:52
 msgid "Rectangle added"
 msgstr "Rectangle added"
 
-#: src/ui/window/controls.rs:70
+#: src/ui/window/controls.rs:53
 msgid "Ellipse added"
 msgstr "Ellipse added"
 
-#: src/ui/window/controls.rs:71
+#: src/ui/window/controls.rs:54
 msgid "Arrow added"
 msgstr "Arrow added"
 
-#: src/ui/window/controls.rs:98
+#: src/ui/window/controls.rs:81
 msgid "Move overlay up"
 msgstr "Move overlay up"
 
-#: src/ui/window/controls.rs:99
+#: src/ui/window/controls.rs:82
 msgid "Move overlay down"
 msgstr "Move overlay down"
 
-#: src/ui/window/controls.rs:200
+#: src/ui/window/controls.rs:183
 msgid "All {count} frames selected"
 msgstr "All {count} frames selected"
 
 #. Translators: Sidebar heading for a run of selected frames. Frame numbers are 1-based and inclusive.
-#: src/ui/window/controls.rs:208
+#: src/ui/window/controls.rs:191
 msgid "Frames {first}–{last} selected"
 msgstr "Frames {first}–{last} selected"
 
 #. Translators: Sidebar heading for a non-contiguous set of selected frames; {numbers} is a comma-separated, 1-based list.
-#: src/ui/window/controls.rs:222
+#: src/ui/window/controls.rs:205
 msgid "Frames {numbers} selected"
 msgstr "Frames {numbers} selected"
 
@@ -1035,40 +1035,40 @@ msgstr "{n} MB"
 msgid "{n} KB"
 msgstr "{n} KB"
 
-#: src/ui/window/mod.rs:649
+#: src/ui/window/mod.rs:647
 msgid "Resized"
 msgstr "Resized"
 
-#: src/ui/window/mod.rs:650
+#: src/ui/window/mod.rs:648
 msgid "Zoomed"
 msgstr "Zoomed"
 
-#: src/ui/window/mod.rs:655 src/ui/window/mod.rs:656
+#: src/ui/window/mod.rs:653 src/ui/window/mod.rs:654
 msgid "Cropped"
 msgstr "Cropped"
 
 #. Translators: History label after flipping frames.
-#: src/ui/window/mod.rs:658
+#: src/ui/window/mod.rs:656
 msgid "Frames mirrored"
 msgstr "Frames mirrored"
 
 #. Translators: History label after fading frames in from a solid color.
-#: src/ui/window/mod.rs:661
+#: src/ui/window/mod.rs:659
 msgid "Faded in"
 msgstr "Faded in"
 
 #. Translators: History label after fading frames out to a solid color.
-#: src/ui/window/mod.rs:663
+#: src/ui/window/mod.rs:661
 msgid "Faded out"
 msgstr "Faded out"
 
 #. Translators: History label after blending the animation's end into its start.
-#: src/ui/window/mod.rs:666
+#: src/ui/window/mod.rs:664
 msgid "Loop cross-faded"
 msgstr "Loop cross-faded"
 
 #. Translators: Past-tense edit name, used inside "{change} on {count} frames".
-#: src/ui/window/mod.rs:1059 src/ui/window/update.rs:439
+#: src/ui/window/mod.rs:1057 src/ui/window/update.rs:439
 msgid "Delay set"
 msgstr "Delay set"
 
@@ -1149,72 +1149,72 @@ msgstr "Saved {path}"
 msgid "Could not write: {error}"
 msgstr "Could not write: {error}"
 
-#: src/ui/window/strip.rs:295 src/ui/window/tests.rs:1630
+#: src/ui/window/strip.rs:247 src/ui/window/tests.rs:1441
 msgid "Copy overlay to all frames"
 msgstr "Copy overlay to all frames"
 
-#: src/ui/window/strip.rs:297 src/ui/window/tests.rs:1643
+#: src/ui/window/strip.rs:249 src/ui/window/tests.rs:1454
 msgid "Copy overlay to selected frames"
 msgstr "Copy overlay to selected frames"
 
-#: src/ui/window/strip.rs:333
+#: src/ui/window/strip.rs:285
 msgid "Set delay…"
 msgstr "Set delay…"
 
-#: src/ui/window/strip.rs:335
+#: src/ui/window/strip.rs:287
 msgid "Move earlier"
 msgstr "Move earlier"
 
-#: src/ui/window/strip.rs:336
+#: src/ui/window/strip.rs:288
 msgid "Move later"
 msgstr "Move later"
 
-#: src/ui/window/strip.rs:338
+#: src/ui/window/strip.rs:290
 msgid "Move to position…"
 msgstr "Move to position…"
 
-#: src/ui/window/strip.rs:341
+#: src/ui/window/strip.rs:293
 msgid "Insert frames from file…"
 msgstr "Insert frames from file…"
 
-#: src/ui/window/strip.rs:350
+#: src/ui/window/strip.rs:302
 msgid "Delete this frame"
 msgstr "Delete this frame"
 
-#: src/ui/window/strip.rs:351
+#: src/ui/window/strip.rs:303
 msgid "Duplicate this frame"
 msgstr "Duplicate this frame"
 
-#: src/ui/window/strip.rs:352
+#: src/ui/window/strip.rs:304
 msgid "Cut this frame"
 msgstr "Cut this frame"
 
-#: src/ui/window/strip.rs:353
+#: src/ui/window/strip.rs:305
 msgid "Copy this frame"
 msgstr "Copy this frame"
 
-#: src/ui/window/strip.rs:360
+#: src/ui/window/strip.rs:312
 msgid "Delete selected frames"
 msgstr "Delete selected frames"
 
-#: src/ui/window/strip.rs:361
+#: src/ui/window/strip.rs:313
 msgid "Duplicate selected frames"
 msgstr "Duplicate selected frames"
 
-#: src/ui/window/strip.rs:362
+#: src/ui/window/strip.rs:314
 msgid "Cut selected frames"
 msgstr "Cut selected frames"
 
-#: src/ui/window/strip.rs:363
+#: src/ui/window/strip.rs:315
 msgid "Copy selected frames"
 msgstr "Copy selected frames"
 
-#: src/ui/window/strip.rs:546
+#: src/ui/window/strip.rs:498
 msgid "Edited outside; overlays skip this frame"
 msgstr "Edited outside; overlays skip this frame"
 
 #. Translators: "cs" is centiseconds, the unit GIF stores frame delays in.
-#: src/ui/window/strip.rs:556
+#: src/ui/window/strip.rs:508
 msgid "Frame {number} · {delay} cs"
 msgstr "Frame {number} · {delay} cs"
 

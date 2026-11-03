@@ -293,18 +293,28 @@ this gif editor should import video to gif, gif editing, quick gif image frame e
 
 ## Quick Build & Run
 
-Rust + GTK4 + libadwaita. One crate, three modules: `core/` (document model,
-history, compositing), `pipeline/` (GIF and video I/O), `ui/` (window, Pango
-text). `cargo` resolves the Rust side; the GTK stack comes from the system or
-the flatpak runtime.
+Rust + GTK4 + libadwaita, as a Cargo workspace:
+
+- `crates/gifkino-core` — document model, history, frame-list and overlay
+  operations, compositing, overlay handles, and the GIF codec on bytes. No
+  files, processes or threads, so it builds for `wasm32-unknown-unknown`.
+- the desktop app at the root — `pipeline/` (file I/O, gifsicle, ffmpeg),
+  `ui/` (window, Pango text) — on top of `gifkino-core`.
+- `crates/gifkino-wasm` — the browser editor's bindings to `gifkino-core`;
+  `API.md` there is the JavaScript contract, `build.sh` writes the module to
+  `web/editor/src/wasm/`.
+
+`cargo` resolves the Rust side; the GTK stack comes from the system or the
+flatpak runtime.
 
 ```bash
-cargo run                  # welcome state
-cargo run -- path/to.gif   # open a GIF or video directly
-cargo test                 # whole suite, well under a minute
-cargo test core::          # model, history, frame-list math, compositing
-cargo test pipeline::      # GIF round-trip, ffmpeg probe, export settings
-cargo fmt && cargo clippy
+cargo run                      # welcome state
+cargo run -- path/to.gif       # open a GIF or video directly
+cargo test --workspace         # whole suite, well under a minute
+cargo test -p gifkino-core     # model, history, frame-list math, compositing, GIF codec
+cargo test pipeline::          # file export, gifsicle, ffmpeg probe
+cargo fmt --all && cargo clippy --workspace --all-targets
+crates/gifkino-wasm/build.sh   # the browser module
 ```
 
 Everything except `ui::text` runs headless, so the model and pipeline are

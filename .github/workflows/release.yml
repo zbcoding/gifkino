@@ -24,12 +24,12 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y libgtk-4-dev libadwaita-1-dev ffmpeg gifsicle
     - uses: dtolnay/rust-toolchain@stable
-    - run: cargo fmt --check
+    - run: cargo fmt --all --check
     # No clippy gate: the tree still has four warnings in ui/window.rs. Fix
     # those and add `cargo clippy --all-targets -- -D warnings`.
     # The video tests generate clips with lavfi and skip themselves when ffmpeg
     # is missing, which is why it is installed above.
-    - run: cargo test
+    - run: cargo test --workspace
 
   appimage:
     # Cargo.toml gates the bindings at GTK 4.14 / libadwaita 1.5, which is what

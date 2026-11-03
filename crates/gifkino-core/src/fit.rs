@@ -15,6 +15,11 @@ use super::ops::rebuilt;
 /// the incoming file's — and whether the side that loses is stretched to the
 /// winner's aspect ratio or scaled inside it with transparency around it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "camelCase")
+)]
 pub enum FitMode {
     /// Incoming frames stretched onto the canvas.
     Stretch,
@@ -221,7 +226,7 @@ impl Splice {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::{OverlayKind, Shape, ShapeOverlay, Transform};
+    use crate::{OverlayKind, Shape, ShapeOverlay, Transform};
 
     fn frame(w: u32, h: u32) -> Frame {
         Frame::new(RgbaImage::from_pixel(w, h, image::Rgba([9, 9, 9, 255])), 10)

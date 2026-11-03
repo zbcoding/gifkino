@@ -46,16 +46,11 @@ impl App {
         let settings = ExportSettings::default();
         // Composite on the main thread (Pango is not Send), encode off
         // it, exactly as the real export does.
-        let sample = Encodable::sample_document(
-            &self.editor.doc,
-            &rasterize,
-            &settings,
-            gif_pipeline::ESTIMATE_SAMPLES,
-        );
+        let sample =
+            Encodable::sample_document(&self.editor.doc, &rasterize, &settings, ESTIMATE_SAMPLES);
         let total = self.frame_count();
         sender.spawn_oneshot_command(move || {
-            let out =
-                gif_pipeline::estimate_size(&sample, total, &settings).map_err(|e| e.to_string());
+            let out = estimate_size(&sample, total, &settings).map_err(|e| e.to_string());
             Cmd::Estimated(rev, out)
         });
     }
@@ -565,12 +560,12 @@ impl App {
     /// Pointer motion with the button down: the drag in flight follows it,
     /// live and outside the history until `canvas_release`.
     pub(super) fn canvas_drag(&mut self, x: f32, y: f32, state: gdk::ModifierType) {
-        let keys = self.keymap.borrow();
-        let (keep_aspect, from_center) = (
-            keys.mods(Modal::KeepAspect).held(state),
-            keys.mods(Modal::FromCenter).held(state),
-        );
-        drop(keys);
+        let keymap = self.keymap.borrow();
+        let keys = DragKeys {
+            keep_aspect: keymap.mods(Modal::KeepAspect).held(state),
+            from_center: keymap.mods(Modal::FromCenter).held(state),
+        };
+        drop(keymap);
         let (image_w, image_h) = self.editor.doc.size();
         let image = (image_w as f32, image_h as f32);
         let snap_on = self.snap;
@@ -580,60 +575,27 @@ impl App {
             return;
         }
         drag.moved = true;
-        let mut guides = Guides::default();
-        match drag.mode {
+        let grip = match drag.mode {
             DragMode::CropRect => {
                 let (x0, y0) = drag.from;
                 self.crop_rect = Some((x0.min(x), y0.min(y), (x - x0).abs(), (y - y0).abs()));
                 return;
             }
-            DragMode::Move => {
-                let moved = Transform {
-                    x: drag.origin.x + dx,
-                    y: drag.origin.y + dy,
-                    ..drag.origin
-                };
-                (drag.current, guides) = if snap_on {
-                    snap::snap_box(moved, image, drag.snap_reach)
-                } else {
-                    (moved, guides)
-                };
-            }
-            DragMode::Resize(corner) => {
-                // Corner drags are simple only in the box's own frame,
-                // so both ends of the drag go through it first.
-                let (fx, fy) = drag.origin.to_local(drag.from.0, drag.from.1);
-                let (tx, ty) = drag.origin.to_local(x, y);
-                let (mut dx, mut dy) = (tx - fx, ty - fy);
-                // The dragged corner lands wherever the pointer takes
-                // it, from the centre or not, so that is the point to
-                // pull. ponytail: only an upright box without Shift
-                // snaps; a rotated corner or an aspect-locked one
-                // would need the guide solved back through the resize.
-                if snap_on && drag.origin.angle == 0.0 && !keep_aspect {
-                    let (cx, cy) = corners(drag.origin)[corner];
-                    let ((sx, sy), pulled) =
-                        snap::snap_point((cx + dx, cy + dy), image, drag.snap_reach);
-                    (dx, dy, guides) = (sx - cx, sy - cy, pulled);
-                }
-                let resized = resize_corner(drag.origin, corner, dx, dy, keep_aspect, from_center);
-                drag.current = pin_anchor(drag.origin, resized, corner, from_center);
-            }
-            DragMode::Rotate => {
-                let (cx, cy) = drag.origin.center();
-                let from = (drag.from.1 - cy).atan2(drag.from.0 - cx);
-                let now = (y - cy).atan2(x - cx);
-                let mut angle = drag.origin.angle + (now - from);
-                if keep_aspect {
-                    let step = std::f32::consts::TAU / ROTATE_STEPS;
-                    angle = (angle / step).round() * step;
-                }
-                drag.current = Transform {
-                    angle,
-                    ..drag.origin
-                };
-            }
-        }
+            DragMode::Move => Grip::Move,
+            DragMode::Resize(corner) => Grip::Resize(corner),
+            DragMode::Rotate => Grip::Rotate,
+        };
+        let snap_reach = snap_on.then_some(drag.snap_reach);
+        let (current, guides) = handles::drag(
+            grip,
+            drag.origin,
+            drag.from,
+            (x, y),
+            image,
+            snap_reach,
+            keys,
+        );
+        drag.current = current;
         // Live, and deliberately outside the history: one drag is one
         // undo step, committed when the button comes up.
         let (id, current) = (self.selected_overlay, drag.current);
@@ -711,7 +673,7 @@ impl App {
         total: usize,
     ) {
         if change.frames_touched >= total.max(1) {
-            sender.input(Msg::Toast(change.message()));
+            sender.input(Msg::Toast(change_message(change)));
         }
     }
     /// One crop, threaded like a resize or zoom: cropping copies the kept
@@ -919,7 +881,7 @@ impl App {
         self.after_edit();
         // Always toasted, unlike a scoped edit: the frames land off the
         // playhead's frame, and a grown canvas redrew every one of them.
-        sender.input(Msg::Toast(change.message()));
+        sender.input(Msg::Toast(change_message(&change)));
     }
 
     /// A decode finished: replace the document, or hand the frames to the
@@ -947,17 +909,6 @@ impl App {
             (_, ImportOutcome::Failed(e)) => sender.input(Msg::Toast(e)),
         }
     }
-}
-
-pub(super) fn normalize_canvas_rect(
-    (cw, ch): (u32, u32),
-    (x, y, w, h): (f32, f32, f32, f32),
-) -> Option<(u32, u32, u32, u32)> {
-    let left = x.floor().clamp(0.0, cw as f32) as u32;
-    let top = y.floor().clamp(0.0, ch as f32) as u32;
-    let right = (x + w).ceil().clamp(0.0, cw as f32) as u32;
-    let bottom = (y + h).ceil().clamp(0.0, ch as f32) as u32;
-    (right > left && bottom > top).then_some((left, top, right - left, bottom - top))
 }
 
 pub(super) fn resize_fits_budget(w: u32, h: u32, frames: usize, limit: usize) -> bool {
@@ -990,11 +941,25 @@ pub(super) fn toast_over_memory_limit(sender: &ComponentSender<App>) {
     sender.input(Msg::Toast(text.into()));
 }
 
-pub(super) fn crop_changes_canvas(
-    (cw, ch): (u32, u32),
-    (x, y, w, h): (u32, u32, u32, u32),
-) -> bool {
-    cw > 0 && ch > 0 && !(x == 0 && y == 0 && w >= cw && h >= ch)
+/// "Text added on 24 frames", or just the label when only one frame moved.
+///
+/// Translated here rather than where the edit happens: the label is a marked
+/// literal (`i18n::n`) chosen there, and this is the only place that knows
+/// whether the count belongs in the sentence.
+pub(super) fn change_message(change: &Change) -> String {
+    let label = lookup(&change.label);
+    if change.frames_touched > 1 {
+        fill(
+            // Translators: Toast after an edit. {change} is a past-tense edit name such as "Frames deleted".
+            t("{change} on {count} frames"),
+            &[
+                ("change", &label),
+                ("count", &change.frames_touched.to_string()),
+            ],
+        )
+    } else {
+        label
+    }
 }
 
 /// How often a worker may post progress. A fast job would otherwise post a

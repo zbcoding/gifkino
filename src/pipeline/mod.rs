@@ -6,7 +6,8 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
-use crate::core::Frame;
+use gifkino_core::Frame;
+use gifkino_core::gif::{ESTIMATE_SAMPLES, Encodable, ExportSettings, estimate_size};
 
 /// One entry point for everything openable. Existing GIFs go through the `gif`
 /// crate, still images through `image`, everything else through ffmpeg — so a
@@ -80,15 +81,15 @@ fn has_extension(path: &Path, want: &str) -> bool {
 /// Costs a few seconds and several ffmpeg spawns, so it belongs behind a button
 /// and off the main thread.
 pub fn estimate_gif_size(path: &Path, plan: &video::ImportPlan) -> Result<usize> {
-    let samples = video::sample_frames(path, plan, gif::ESTIMATE_SAMPLES)?;
+    let samples = video::sample_frames(path, plan, ESTIMATE_SAMPLES)?;
     let delay = (100.0 / plan.playback_fps().max(1.0))
         .round()
         .clamp(1.0, u16::MAX as f64) as u16;
-    let enc = gif::Encodable {
+    let enc = Encodable {
         frames: samples.into_iter().map(|img| (img, delay)).collect(),
     };
     let total = plan.frames().unwrap_or(plan.cap);
-    gif::estimate_size(&enc, total, &gif::ExportSettings::default())
+    estimate_size(&enc, total, &ExportSettings::default())
 }
 
 #[cfg(test)]
@@ -147,7 +148,7 @@ mod tests {
     /// frame is reading a lie.
     #[test]
     fn a_png_splices_into_a_decoded_gif_under_every_fit() {
-        use crate::core::{Document, FitMode, fit};
+        use gifkino_core::{Document, FitMode, fit};
 
         let gif_path =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/test-8-frames.gif");
@@ -218,15 +219,15 @@ mod tests {
         let _ = std::fs::remove_file(&path);
 
         let estimate = estimate.unwrap();
-        let document = crate::core::Document::from_frames(frames.unwrap());
+        let document = gifkino_core::Document::from_frames(frames.unwrap());
         assert_eq!(
             Some(document.frames.len()),
             plan.frames(),
             "the plan was run"
         );
-        let settings = gif::ExportSettings::default();
-        let actual = gif::encoded_size(
-            &gif::Encodable::from_document(&document, &crate::core::render::no_text, &settings),
+        let settings = ExportSettings::default();
+        let actual = gifkino_core::gif::encoded_size(
+            &Encodable::from_document(&document, &gifkino_core::render::no_text, &settings),
             &settings,
         )
         .unwrap();

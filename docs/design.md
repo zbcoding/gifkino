@@ -101,8 +101,9 @@ The flatpak carries the GNOME runtime, so which GTK it gets can change.
 The AppImage cannot carry glibc, so its build host matters. Ubuntu 24.04 has GTK 4.14, the baseline.
 Both builds also carry `ffmpeg`, `ffprobe` and `gifsicle`, since
 the GNOME runtime ships the libav* libraries but not the programs.
-Ubuntu does not install them at all, and `pipeline/video.rs` drives the programs over pipes. One
-crate to start, with `core/`, `pipeline/` and `ui/` modules.
+Ubuntu does not install them at all, and `pipeline/video.rs` drives the programs over pipes. The
+document core is its own crate, `gifkino-core`, so the browser editor runs it as WebAssembly; the
+desktop app adds `pipeline/` and `ui/` on top.
 
 ### Detachment
 

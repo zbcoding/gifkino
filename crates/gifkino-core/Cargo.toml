@@ -1,0 +1,18 @@
+[package]
+name = "gifkino-core"
+version = "0.1.6"
+edition = "2024"
+description = "Gifkino's document model, history, compositing and GIF codec, shared by the desktop app and the browser editor."
+
+[features]
+# JSON-shaped (de)serialization of the model, for the browser bindings.
+serde = ["dep:serde"]
+
+[dependencies]
+anyhow = "1.0.104"
+color_quant = "2.0.0"
+gif = "0.14.2"
+# No format features: decoding still images is the caller's business, and
+# everything here only needs `imageops`.
+image = { version = "0.25.10", default-features = false }
+serde = { version = "1.0.228", features = ["derive"], optional = true }

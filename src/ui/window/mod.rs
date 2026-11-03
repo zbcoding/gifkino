@@ -19,23 +19,27 @@ use gtk4 as gtk;
 use libadwaita as adw;
 use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt};
 
-use crate::core::fit::{self, Splice};
-use crate::core::model::Rgba8;
-use crate::core::render::{self, TextRasterizer};
-use crate::core::snap::{self, Guides};
-use crate::core::{
-    Axis, Change, Document, Editor, Fade, FitMode, Frame, OverlayId, OverlayKind, Scope, Shape,
-    ShapeOverlay, TextAlign, TextOverlay, Transform,
-};
 use crate::i18n::{fill, lookup, n, t, tn};
 use crate::keymap::{Action, Chord, Keymap, MODALS, Modal, Mods};
 use crate::pipeline::caps::Caps;
-use crate::pipeline::gif::{Encodable, ExportSettings};
 use crate::pipeline::video::{self, ImportOptions, ImportPlan, Trim, VideoInfo};
 use crate::pipeline::{self as pipeline, gif as gif_pipeline, import_any};
 use crate::settings::Settings;
 use crate::ui::color::ColorPick;
 use crate::ui::text::rasterize;
+use gifkino_core::fit::{self, Splice};
+use gifkino_core::gif::{ESTIMATE_SAMPLES, Encodable, ExportSettings, estimate_size};
+use gifkino_core::handles::{self, DragKeys, Grip, contains, handle_at, oriented_corners};
+use gifkino_core::model::{DEFAULT_SHAPE_COLOUR, Rgba8, fresh_overlay, overlay_edit_span};
+use gifkino_core::ops::{
+    crop_changes_canvas, move_target_for_set, normalize_canvas_rect, selection_nudge_gap,
+};
+use gifkino_core::render::{self, TextRasterizer};
+use gifkino_core::snap::Guides;
+use gifkino_core::{
+    Axis, Change, Document, Editor, Fade, FitMode, Frame, OverlayId, OverlayKind, Scope, Shape,
+    ShapeOverlay, TextAlign, TextOverlay, Transform,
+};
 
 mod actions;
 mod build;
@@ -62,7 +66,7 @@ use strip::*;
 /// The box a thumbnail is fitted into (`core::model::THUMB_BOX`) — the widest
 /// and tallest a strip cell can be at 1x, and the fallback cell width while
 /// there is no document to read a real thumbnail size off.
-const THUMB_BOX: i32 = crate::core::model::THUMB_BOX as i32;
+const THUMB_BOX: i32 = gifkino_core::model::THUMB_BOX as i32;
 const THUMB_SPACING: i32 = 4;
 /// Timeline-strip thumbnail zoom bounds and the per-step multiplier shared by
 /// the Ctrl+wheel handler and the Ctrl+Up/Down shortcuts.
@@ -94,9 +98,6 @@ const BAND_H: f64 = 18.0;
 /// import lands. The file menu's Add frames has no frame under the pointer to
 /// aim at, unlike a frame's own context menu.
 const AT_END: usize = usize::MAX;
-/// The colour a new shape is filled with, and the colour buttons fall back
-/// to while a shape has no fill or stroke of its own.
-const DEFAULT_SHAPE_COLOUR: Rgba8 = [255, 60, 60, 255];
 
 pub const CSS: &str = "
 .canvas-frame { border: 1px solid alpha(currentColor, 0.15); }
@@ -140,9 +141,6 @@ const HANDLE_PX: f64 = 9.5;
 /// size whatever the zoom (`Pinta.Tools/Handles/MoveHandle.cs`).
 const HANDLE_R: f64 = 4.5;
 const HANDLE_FILL: (f64, f64, f64) = (0.10, 0.30, 1.0);
-/// Rotation constrains to this many steps of a full turn, as Impasto's
-/// transform tool does.
-const ROTATE_STEPS: f32 = 32.0;
 /// How near, in widget pixels, a dragged overlay must come to a canvas edge
 /// or centre line to snap onto it. Impasto's `CANVAS_GUIDE_TOLERANCE`.
 const SNAP_PX: f64 = 8.0;
@@ -430,9 +428,9 @@ impl Msg {
 pub enum OverlayProp {
     Font(String),
     TextSize(f32),
-    Fill(Option<crate::core::model::Rgba8>),
-    Stroke(Option<(crate::core::model::Rgba8, f32)>),
-    Outline(Option<(crate::core::model::Rgba8, f32)>),
+    Fill(Option<gifkino_core::model::Rgba8>),
+    Stroke(Option<(gifkino_core::model::Rgba8, f32)>),
+    Outline(Option<(gifkino_core::model::Rgba8, f32)>),
     Align(TextAlign),
     Antialias(bool),
 }

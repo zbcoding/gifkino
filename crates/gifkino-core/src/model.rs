@@ -95,6 +95,7 @@ impl fmt::Debug for Frame {
 /// own notes call that a rewrite rather than a polish item — cheap here, so
 /// carry the angle from the first commit.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Transform {
     pub x: f32,
     pub y: f32,
@@ -156,6 +157,11 @@ fn spin(x: f32, y: f32, (cx, cy): (f32, f32), angle: f32) -> (f32, f32) {
 /// Pango carries justification as a flag beside the alignment, but for a
 /// caption box the four are one choice, so they are one enum here.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "camelCase")
+)]
 pub enum TextAlign {
     Left,
     #[default]
@@ -165,6 +171,11 @@ pub enum TextAlign {
 }
 
 #[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(default, rename_all = "camelCase")
+)]
 pub struct TextOverlay {
     pub text: String,
     pub font: String,
@@ -195,6 +206,11 @@ impl Default for TextOverlay {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "camelCase")
+)]
 pub enum Shape {
     Rect,
     Ellipse,
@@ -202,6 +218,11 @@ pub enum Shape {
 }
 
 #[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "camelCase")
+)]
 pub struct ShapeOverlay {
     pub shape: Shape,
     pub fill: Option<Rgba8>,
@@ -210,15 +231,53 @@ pub struct ShapeOverlay {
 }
 
 #[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(tag = "type", rename_all = "camelCase")
+)]
 pub enum OverlayKind {
     Text(TextOverlay),
     Shape(ShapeOverlay),
 }
 
+/// The colour a new shape is filled with, and the colour a UI's colour
+/// buttons fall back to while a shape has no fill or stroke of its own.
+pub const DEFAULT_SHAPE_COLOUR: Rgba8 = [255, 60, 60, 255];
+
+/// A fresh overlay for a `w × h` canvas and where it sits: text (`shape` of
+/// `None`) as a caption along the bottom, a shape over the middle quarter.
+pub fn fresh_overlay(shape: Option<Shape>, (w, h): (u32, u32)) -> (OverlayKind, Transform) {
+    let (w, h) = (w as f32, h as f32);
+    let Some(shape) = shape else {
+        let text = TextOverlay {
+            text: "Text".into(),
+            size_px: (h / 8.0).max(12.0),
+            ..Default::default()
+        };
+        let transform = Transform::at(w * 0.1, h * 0.72, w * 0.8, h * 0.2);
+        return (OverlayKind::Text(text), transform);
+    };
+    // Every new shape arrives filled and unstroked: an outlined rectangle is
+    // the rarer annotation, and the stroke width is one spin away.
+    let kind = OverlayKind::Shape(ShapeOverlay {
+        shape,
+        fill: Some(DEFAULT_SHAPE_COLOUR),
+        stroke: None,
+    });
+    (kind, Transform::at(w * 0.25, h * 0.25, w * 0.5, h * 0.5))
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct OverlayId(pub u32);
 
 #[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize),
+    serde(rename_all = "camelCase")
+)]
 pub struct Overlay {
     pub id: OverlayId,
     pub name: String,
@@ -261,6 +320,25 @@ impl Scope {
             _ => 0..0,
         }
     }
+}
+
+/// The frames an overlay edit lands on: where the scope reaches into the
+/// overlay's own range. When the scope does not reach the frame on screen, the
+/// frame on screen wins — an edit must land where the user is looking, never
+/// somewhere they cannot see. An empty result is the caller's no-op.
+pub fn overlay_edit_span(
+    overlay: Range<usize>,
+    scope: Range<usize>,
+    playhead: usize,
+) -> Range<usize> {
+    let span = overlay.start.max(scope.start)..overlay.end.min(scope.end);
+    if span.is_empty() {
+        return 0..0;
+    }
+    if !span.contains(&playhead) && overlay.contains(&playhead) {
+        return playhead..playhead + 1;
+    }
+    span
 }
 
 /// `indices` below `len`, sorted and deduplicated.
@@ -728,5 +806,22 @@ mod tests {
             .iter()
             .map(|o| (o.name.as_str(), o.range.clone(), o.transform))
             .collect()
+    }
+
+    /// An overlay edit lands where the scope reaches into the overlay's own
+    /// range; when the scope does not reach the frame on screen, that frame
+    /// wins. This is what makes a one-frame drag stay a one-frame drag.
+    #[test]
+    fn an_overlay_edit_lands_where_the_scope_reaches() {
+        // All-frames scope over a full-range overlay: everything, in place.
+        assert_eq!(overlay_edit_span(0..10, 0..10, 3), 0..10);
+        // This-frame scope inside the overlay: the one frame.
+        assert_eq!(overlay_edit_span(0..10, 4..5, 4), 4..5);
+        // A range scope reaching partway: the overlap.
+        assert_eq!(overlay_edit_span(0..10, 5..20, 6), 5..10);
+        // Scope elsewhere, playhead still on the overlay: the frame on screen.
+        assert_eq!(overlay_edit_span(0..10, 7..9, 2), 2..3);
+        // Scope elsewhere and the overlay nowhere near: nothing to edit.
+        assert_eq!(overlay_edit_span(7..9, 0..2, 5), 0..0);
     }
 }

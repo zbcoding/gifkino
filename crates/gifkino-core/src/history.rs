@@ -9,34 +9,17 @@ use super::model::Document;
 
 const LIMIT: usize = 200;
 
-/// What an edit did, for the toast that names the scope.
+/// What an edit did, for the toast that names the scope. `label` is the
+/// untranslated msgid the caller chose; the UI translates it on display.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize),
+    serde(rename_all = "camelCase")
+)]
 pub struct Change {
     pub label: String,
     pub frames_touched: usize,
-}
-
-impl Change {
-    /// "Text added on 24 frames", or just the label when only one frame moved.
-    ///
-    /// Translated here rather than at the toast: the label is a marked literal
-    /// (`i18n::n`) chosen where the edit happens, and this is the only place
-    /// that knows whether the count belongs in the sentence.
-    pub fn message(&self) -> String {
-        let label = crate::i18n::lookup(&self.label);
-        if self.frames_touched > 1 {
-            crate::i18n::fill(
-                // Translators: Toast after an edit. {change} is a past-tense edit name such as "Frames deleted".
-                crate::i18n::t("{change} on {count} frames"),
-                &[
-                    ("change", &label),
-                    ("count", &self.frames_touched.to_string()),
-                ],
-            )
-        } else {
-            label
-        }
-    }
 }
 
 pub struct Editor {
@@ -117,7 +100,7 @@ mod tests {
     use image::RgbaImage;
 
     use super::*;
-    use crate::core::model::{Frame, OverlayKind, Shape, ShapeOverlay, TextOverlay, Transform};
+    use crate::model::{Frame, OverlayKind, Shape, ShapeOverlay, TextOverlay, Transform};
 
     /// Deterministic noise; a real generator is a dependency for no gain here.
     struct Lcg(u64);
@@ -346,19 +329,5 @@ mod tests {
             Some(moved),
             "redo lands back on the piece with its own transform"
         );
-    }
-
-    #[test]
-    fn toast_names_the_scope() {
-        let c = Change {
-            label: "Text added".into(),
-            frames_touched: 24,
-        };
-        assert_eq!(c.message(), "Text added on 24 frames");
-        let c = Change {
-            label: "Text added".into(),
-            frames_touched: 1,
-        };
-        assert_eq!(c.message(), "Text added");
     }
 }

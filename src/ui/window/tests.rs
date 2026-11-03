@@ -1,6 +1,8 @@
 use super::view::{fps_of, timecode};
 use super::*;
 use crate::pipeline::video::VideoInfo;
+use gifkino_core::handles::ROTATE_STEPS;
+use gifkino_core::snap;
 
 fn doc(frames: usize) -> Document {
     Document::from_frames(
@@ -662,87 +664,6 @@ fn band_hit_test_follows_strip_zoom() {
     );
 }
 
-/// The divider shown while dragging promises the frames will land right
-/// next to a specific neighbor; `move_target_for_set` is what turns that
-/// promise into the post-removal index `Document::move_frames_to` needs.
-#[test]
-fn move_target_for_set_lands_where_the_divider_promised() {
-    // Dragging frame 0 to the gap right after itself is a no-op.
-    assert_eq!(move_target_for_set(&[0], 1), 0);
-    // Forward, past several frames still in the way after 0 moves out.
-    assert_eq!(move_target_for_set(&[0], 3), 2);
-    // Backward: nothing before the target gap moved, so it is the
-    // final index outright.
-    assert_eq!(move_target_for_set(&[3], 1), 1);
-    // Past the last frame of 5.
-    assert_eq!(move_target_for_set(&[0], 5), 4);
-    // A gappy selection of three: the gap sits before all of them, so
-    // the whole run slides down by three.
-    assert_eq!(move_target_for_set(&[2, 5, 7], 1), 1);
-    // …and after two of them: the run lands two earlier than the gap.
-    assert_eq!(move_target_for_set(&[2, 5, 7], 6), 4);
-}
-
-/// End-to-end through the real `Document::move_frames_to`: whatever gap
-/// the divider is drawn at, the dragged frames end up adjacent to
-/// exactly the neighbor the divider promised, dragging either direction
-/// and as a multi-frame selection.
-#[test]
-fn move_target_for_set_round_trips_through_move_frames_to() {
-    let ids_at = |d: &Document| -> Vec<u8> {
-        d.frames
-            .iter()
-            .map(|f| f.pixels.get_pixel(0, 0)[0])
-            .collect()
-    };
-
-    // [0,1,2,3,4], drag 0 to the gap before 3 (gap 3): lands just before it.
-    let mut d = doc(5);
-    d.move_frames_to(&[0], move_target_for_set(&[0], 3));
-    assert_eq!(ids_at(&d), vec![1, 2, 0, 3, 4]);
-
-    // Same document, drag 3 to the gap before 1 (gap 1): lands just before it.
-    let mut d = doc(5);
-    d.move_frames_to(&[3], move_target_for_set(&[3], 1));
-    assert_eq!(ids_at(&d), vec![0, 3, 1, 2, 4]);
-
-    // Drag 0 to the gap past the last frame: lands at the very end.
-    let mut d = doc(5);
-    d.move_frames_to(&[0], move_target_for_set(&[0], 5));
-    assert_eq!(ids_at(&d), vec![1, 2, 3, 4, 0]);
-
-    // A three-frame selection dropped between frames 1 and 2.
-    let mut d = doc(8);
-    d.move_frames_to(&[2, 5, 7], move_target_for_set(&[2, 5, 7], 2));
-    assert_eq!(ids_at(&d), vec![0, 1, 2, 5, 7, 3, 4, 6]);
-}
-
-/// "Move earlier"/"Move later" swaps the selection with the one
-/// unselected frame beside it: the gap aims just before (or after) that
-/// neighbour, and refuses at either edge of the timeline.
-#[test]
-fn selection_nudge_gap_swaps_with_the_beside_neighbour() {
-    // Contiguous run 2..5 of 8: earlier aims before frame 1.
-    assert_eq!(selection_nudge_gap(&[2, 3, 4], true, 8), Some(1));
-    // Later aims past frame 4, the neighbour after the run.
-    assert_eq!(selection_nudge_gap(&[2, 3, 4], false, 8), Some(6));
-    // A single frame nudges exactly like the old move-by-one.
-    assert_eq!(selection_nudge_gap(&[3], true, 8), Some(2));
-    assert_eq!(selection_nudge_gap(&[3], false, 8), Some(5));
-    // Already at an edge: nothing to swap with.
-    assert_eq!(selection_nudge_gap(&[0, 1], true, 8), None);
-    assert_eq!(selection_nudge_gap(&[6, 7], false, 8), None);
-    // Every frame selected: the nudge would be a no-op anyway.
-    assert_eq!(
-        selection_nudge_gap(&(0..8).collect::<Vec<_>>(), true, 8),
-        None
-    );
-    assert_eq!(
-        selection_nudge_gap(&(0..8).collect::<Vec<_>>(), false, 8),
-        None
-    );
-}
-
 /// The full drag path at model level: the selection moves as one run,
 /// follows itself to its new home, and a drag in place does nothing.
 #[test]
@@ -962,21 +883,18 @@ fn bands_pack_side_by_side_when_their_frames_do_not_overlap() {
     assert!(pack_rows(&[]).is_empty());
 }
 
-/// An overlay edit lands where the scope reaches into the overlay's own
-/// range; when the scope does not reach the frame on screen, that frame
-/// wins. This is what makes a one-frame drag stay a one-frame drag.
 #[test]
-fn an_overlay_edit_lands_where_the_scope_reaches() {
-    // All-frames scope over a full-range overlay: everything, in place.
-    assert_eq!(overlay_edit_span(0..10, 0..10, 3), 0..10);
-    // This-frame scope inside the overlay: the one frame.
-    assert_eq!(overlay_edit_span(0..10, 4..5, 4), 4..5);
-    // A range scope reaching partway: the overlap.
-    assert_eq!(overlay_edit_span(0..10, 5..20, 6), 5..10);
-    // Scope elsewhere, playhead still on the overlay: the frame on screen.
-    assert_eq!(overlay_edit_span(0..10, 7..9, 2), 2..3);
-    // Scope elsewhere and the overlay nowhere near: nothing to edit.
-    assert_eq!(overlay_edit_span(7..9, 0..2, 5), 0..0);
+fn toast_names_the_scope() {
+    let c = Change {
+        label: "Text added".into(),
+        frames_touched: 24,
+    };
+    assert_eq!(change_message(&c), "Text added on 24 frames");
+    let c = Change {
+        label: "Text added".into(),
+        frames_touched: 1,
+    };
+    assert_eq!(change_message(&c), "Text added");
 }
 
 /// The canvas maps widget pixels to image pixels; every gesture and every
@@ -1000,89 +918,6 @@ fn the_canvas_mapping_centres_and_never_enlarges() {
     // Degenerate sizes must not divide by zero or hand back a NaN.
     let (scale, ..) = canvas_map((400.0, 300.0), (0.0, 0.0));
     assert!(scale.is_finite() && scale > 0.0);
-}
-
-#[test]
-fn handles_sit_on_the_corners_and_resizing_pins_the_opposite_one() {
-    let t = Transform::at(10.0, 20.0, 100.0, 50.0);
-    assert!(contains(t, 10.0, 20.0) && contains(t, 110.0, 70.0));
-    assert!(!contains(t, 9.0, 20.0));
-
-    assert_eq!(handle_at(t, 10.0, 20.0, 4.0), Some(0), "top left");
-    assert_eq!(handle_at(t, 110.0, 70.0, 4.0), Some(3), "bottom right");
-    assert_eq!(
-        handle_at(t, 60.0, 45.0, 4.0),
-        None,
-        "the middle is a move, not a resize"
-    );
-
-    // Dragging the top left by (5, 5) moves the origin and shrinks the box;
-    // the bottom right corner does not budge.
-    let dragged = resize_corner(t, 0, 5.0, 5.0, false, false);
-    assert_eq!((dragged.x, dragged.y), (15.0, 25.0));
-    assert_eq!(
-        (dragged.x + dragged.w, dragged.y + dragged.h),
-        (110.0, 70.0)
-    );
-
-    let dragged = resize_corner(t, 3, -20.0, -10.0, false, false);
-    assert_eq!((dragged.x, dragged.y), (10.0, 20.0), "the origin is pinned");
-    assert_eq!((dragged.w, dragged.h), (80.0, 40.0));
-}
-
-/// The two modifiers Impasto's grip hint promises. Shift takes the larger
-/// of the two scale factors; Ctrl pins the centre instead of a corner.
-#[test]
-fn shift_keeps_the_aspect_ratio_and_ctrl_resizes_about_the_center() {
-    let t = Transform::at(0.0, 0.0, 100.0, 50.0);
-
-    // The x drag doubles the width, the y drag would only grow the height
-    // by a tenth, so the aspect clamp takes the doubling for both.
-    let square = resize_corner(t, 3, 100.0, 5.0, true, false);
-    assert_eq!((square.w, square.h), (200.0, 100.0));
-    assert_eq!(
-        (square.x, square.y),
-        (0.0, 0.0),
-        "the origin is still pinned"
-    );
-
-    // From the centre the drag counts on both sides, and the centre holds.
-    let centred = resize_corner(t, 3, 25.0, 10.0, false, true);
-    assert_eq!((centred.w, centred.h), (150.0, 70.0));
-    assert_eq!(centred.center(), t.center());
-
-    // Dragging a corner past its opposite flips rather than clamping.
-    let flipped = resize_corner(t, 3, -150.0, 0.0, false, false);
-    assert!(flipped.w < 0.0, "{flipped:?}");
-}
-
-/// A rotated overlay has to be grabbed where it looks, and a grip drag has
-/// to leave the opposite corner on the pixel it was already on.
-#[test]
-fn a_rotated_overlay_is_hit_and_resized_in_its_own_frame() {
-    let mut t = Transform::at(10.0, 45.0, 80.0, 10.0);
-    t.angle = std::f32::consts::FRAC_PI_2; // a quarter turn: wide becomes tall
-
-    // The un-rotated box covers (10, 45); after the turn that point is
-    // outside it and the box reaches up and down through the centre.
-    let (cx, cy) = t.center();
-    assert!(contains(t, cx, cy - 30.0), "tall after the turn");
-    assert!(!contains(t, cx - 30.0, cy), "no longer wide");
-
-    // The bottom-right grip is where the drawing puts it.
-    let grip = oriented_corners(t)[3];
-    assert_eq!(handle_at(t, grip.0, grip.1, 2.0), Some(3));
-
-    // Drag it and the top-left grip stays on its pixel.
-    let anchor_before = oriented_corners(t)[0];
-    let resized = pin_anchor(t, resize_corner(t, 3, 20.0, 6.0, false, false), 3, false);
-    let anchor_after = oriented_corners(resized)[0];
-    assert!(
-        (anchor_before.0 - anchor_after.0).abs() < 0.01
-            && (anchor_before.1 - anchor_after.1).abs() < 0.01,
-        "{anchor_before:?} vs {anchor_after:?}"
-    );
-    assert_eq!(resized.angle, t.angle, "a resize is not a rotation");
 }
 
 /// Regression: the shortcuts controller ran in the bubble phase, so the
@@ -1397,30 +1232,6 @@ fn crop_completion_shifts_active_canvas_work_by_the_kept_origin() {
     assert_eq!(crop, Some((6.0, 14.0, 30.0, 40.0)));
 }
 
-#[test]
-fn full_canvas_crop_is_not_an_edit() {
-    assert!(!crop_changes_canvas((100, 80), (0, 0, 100, 80)));
-    assert!(!crop_changes_canvas((100, 80), (0, 0, 500, 500)));
-    assert!(crop_changes_canvas((100, 80), (1, 0, 99, 80)));
-    assert!(crop_changes_canvas((100, 80), (0, 0, 99, 80)));
-    assert!(!crop_changes_canvas((0, 0), (0, 0, 1, 1)));
-}
-
-#[test]
-fn canvas_rects_intersect_the_image_before_rounding() {
-    assert_eq!(
-        normalize_canvas_rect((100, 80), (-20.0, -10.0, 50.0, 30.0)),
-        Some((0, 0, 30, 20))
-    );
-    assert_eq!(
-        normalize_canvas_rect((100, 80), (10.2, 20.2, 5.2, 4.2)),
-        Some((10, 20, 6, 5))
-    );
-    assert_eq!(
-        normalize_canvas_rect((100, 80), (-20.0, 0.0, 10.0, 10.0)),
-        None
-    );
-}
 #[test]
 fn resize_budget_uses_checked_rgba_size() {
     assert!(resize_fits_budget(100, 100, 10, 400_000));

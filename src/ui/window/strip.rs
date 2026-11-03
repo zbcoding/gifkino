@@ -19,25 +19,6 @@ pub(super) fn run_between(anchor: usize, frame: usize) -> Vec<usize> {
     (anchor.min(frame)..=anchor.max(frame)).collect()
 }
 
-/// The frames an overlay edit lands on: where the scope reaches into the
-/// overlay's own range. When the scope does not reach the frame on screen, the
-/// frame on screen wins — an edit must land where the user is looking, never
-/// somewhere they cannot see. An empty result is the caller's no-op.
-pub(super) fn overlay_edit_span(
-    overlay: Range<usize>,
-    scope: Range<usize>,
-    playhead: usize,
-) -> Range<usize> {
-    let span = overlay.start.max(scope.start)..overlay.end.min(scope.end);
-    if span.is_empty() {
-        return 0..0;
-    }
-    if !span.contains(&playhead) && overlay.contains(&playhead) {
-        return playhead..playhead + 1;
-    }
-    span
-}
-
 /// One thumbnail dimension at `zoom`, rounded to whole pixels the way the
 /// widget will be sized, never off to nothing.
 pub(super) fn zoomed(px: u32, zoom: f64) -> i32 {
@@ -170,35 +151,6 @@ pub(super) fn thumb_children(strip: &gtk::Box) -> impl Iterator<Item = gtk::Widg
         }
         None
     })
-}
-
-/// A move removes the picked frames, which shifts every later index down,
-/// then inserts at `to` — so where the run actually lands depends on how
-/// many picked frames sat before the gap. `gap` names a position between
-/// frames as shown before the move (`count` is past the last); this is the
-/// `to` that puts the run exactly there once `picked` is gone from the
-/// list, matching what the divider promised. `picked` must be sorted.
-pub(super) fn move_target_for_set(picked: &[usize], gap: usize) -> usize {
-    gap - picked.iter().filter(|&&p| p < gap).count()
-}
-
-/// The gap "nudge the whole selection one slot earlier/later" aims at: just
-/// before the unselected frame preceding it, or just after the one
-/// following it — swapping the block with that neighbour. `None` when the
-/// selection already sits against that edge, or names every frame and
-/// leaves nothing to swap with. `picked` must be sorted.
-pub(super) fn selection_nudge_gap(
-    picked: &[usize],
-    earlier: bool,
-    frame_count: usize,
-) -> Option<usize> {
-    let first = *picked.first()?;
-    let last = *picked.last()?;
-    if earlier {
-        (first > 0).then(|| first - 1)
-    } else {
-        (last + 1 < frame_count).then(|| last + 2)
-    }
 }
 
 /// Which gap between thumbnails `x` (strip-local) is nearest: `0` is before

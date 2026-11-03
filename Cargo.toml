@@ -3,11 +3,13 @@ name = "gifkino"
 version = "0.1.6"
 edition = "2024"
 
+[workspace]
+members = ["crates/gifkino-core", "crates/gifkino-wasm"]
+
 [dependencies]
 anyhow = "1.0.104"
 cairo-rs = "0.22.0"
-color_quant = "2.0.0"
-gif = "0.14.2"
+gifkino-core = { path = "crates/gifkino-core" }
 # GNOME 46 runtime baseline: FileDialog (4.10), Picture content-fit (4.8).
 gtk4 = { version = "0.11.4", features = ["v4_14"] }
 image = { version = "0.25.10", default-features = false, features = [
@@ -24,3 +26,10 @@ image = { version = "0.25.10", default-features = false, features = [
 libadwaita = { version = "0.9.2", features = ["v1_5"] }
 pangocairo = "0.22.8"
 relm4 = { version = "0.11.0", features = ["libadwaita"] }
+
+# The browser module (crates/gifkino-wasm/build.sh): whole-program LTO trims
+# the download, and the desktop build never pays its link time.
+[profile.wasm-release]
+inherits = "release"
+lto = true
+codegen-units = 1

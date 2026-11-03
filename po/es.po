@@ -27,13 +27,6 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=n != 1;\n"
 
-#. Translators: Toast after an edit. {change} is a past-tense edit name such as "Frames deleted".
-#. AI-generated translation; human review requested.
-#: src/core/history.rs:30
-#, fuzzy
-msgid "{change} on {count} frames"
-msgstr "{change} en {count} fotogramas"
-
 #. AI-generated translation; human review requested.
 #: src/keymap.rs:125 src/ui/window/imports.rs:828
 #, fuzzy
@@ -41,7 +34,7 @@ msgid "Open"
 msgstr "Abrir"
 
 #. AI-generated translation; human review requested.
-#: src/keymap.rs:126 src/ui/window/actions.rs:74 src/ui/window/build.rs:238 src/ui/window/view.rs:150
+#: src/keymap.rs:126 src/ui/window/actions.rs:73 src/ui/window/build.rs:238 src/ui/window/view.rs:150
 #, fuzzy
 msgid "Export GIF"
 msgstr "Exportar GIF"
@@ -146,7 +139,7 @@ msgstr "Copiar fotogramas"
 
 #. Translators: Inserts the cut or copied frames after the frame on screen.
 #. AI-generated translation; human review requested.
-#: src/keymap.rs:146 src/ui/window/strip.rs:328
+#: src/keymap.rs:146 src/ui/window/strip.rs:280
 #, fuzzy
 msgid "Paste frames"
 msgstr "Pegar fotogramas"
@@ -290,116 +283,123 @@ msgid "Opacity"
 msgstr "Opacidad"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/actions.rs:163 src/ui/window/actions.rs:250
+#: src/ui/window/actions.rs:162 src/ui/window/actions.rs:249
 #, fuzzy
 msgid "Frames deleted"
 msgstr "Fotogramas eliminados"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/actions.rs:217
+#: src/ui/window/actions.rs:216
 #, fuzzy
 msgid "Frames moved"
 msgstr "Fotogramas movidos"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/actions.rs:251
+#: src/ui/window/actions.rs:250
 #, fuzzy
 msgid "Frames cut"
 msgstr "Fotogramas cortados"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/actions.rs:252
+#: src/ui/window/actions.rs:251
 #, fuzzy
 msgid "Frames duplicated"
 msgstr "Fotogramas duplicados"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/actions.rs:253
+#: src/ui/window/actions.rs:252
 #, fuzzy
 msgid "Frames reversed"
 msgstr "Fotogramas invertidos"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/actions.rs:295
+#: src/ui/window/actions.rs:294
 #, fuzzy
 msgid "Frames pasted"
 msgstr "Fotogramas pegados"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/actions.rs:337
+#: src/ui/window/actions.rs:336
 #, fuzzy
 msgid "Overlay reordered"
 msgstr "Superposición reordenada"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/actions.rs:352
+#: src/ui/window/actions.rs:351
 #, fuzzy
 msgid "Overlay deleted"
 msgstr "Superposición eliminada"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/actions.rs:401
+#: src/ui/window/actions.rs:400
 #, fuzzy
 msgid "Text edited"
 msgstr "Texto editado"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/actions.rs:431
+#: src/ui/window/actions.rs:430
 #, fuzzy
 msgid "Overlay restyled"
 msgstr "Estilo de superposición cambiado"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/actions.rs:457
+#: src/ui/window/actions.rs:456
 #, fuzzy
 msgid "The overlay is on those frames already"
 msgstr "La superposición ya está en esos fotogramas"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/actions.rs:461
+#: src/ui/window/actions.rs:460
 #, fuzzy
 msgid "Overlay copied"
 msgstr "Superposición copiada"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/actions.rs:673
+#: src/ui/window/actions.rs:632
 #, fuzzy
 msgid "Overlay moved"
 msgstr "Superposición movida"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/actions.rs:674
+#: src/ui/window/actions.rs:633
 #, fuzzy
 msgid "Overlay rotated"
 msgstr "Superposición rotada"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/actions.rs:675
+#: src/ui/window/actions.rs:634
 #, fuzzy
 msgid "Overlay resized"
 msgstr "Superposición redimensionada"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/actions.rs:905
+#: src/ui/window/actions.rs:864
 #, fuzzy
 msgid "Frame added"
 msgstr "Fotograma añadido"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/actions.rs:907
+#: src/ui/window/actions.rs:866
 #, fuzzy
 msgid "Frames added"
 msgstr "Fotogramas añadidos"
 
 #. Translators: Shown when resized RGBA frames would exceed the configured memory limit.
 #. AI-generated translation; human review requested.
-#: src/ui/window/actions.rs:989 src/ui/window/dialogs.rs:288
+#: src/ui/window/actions.rs:937 src/ui/window/dialogs.rs:288
 #, fuzzy
 msgid "That resize would use more memory than the configured limit."
 msgstr "Ese redimensionado usaría más memoria que el límite configurado."
 
+#. Translators: Toast after an edit. {change} is a past-tense edit name such as "Frames deleted".
 #. AI-generated translation; human review requested.
-#: src/ui/window/actions.rs:1054 src/ui/window/actions.rs:1102
+#: src/ui/window/actions.rs:951
+#, fuzzy
+msgid "{change} on {count} frames"
+msgstr "{change} en {count} fotogramas"
+
+#. AI-generated translation; human review requested.
+#: src/ui/window/actions.rs:1016 src/ui/window/actions.rs:1064
 #, fuzzy
 msgid "The frame operation failed."
 msgstr "Falló la operación con fotogramas."
@@ -542,7 +542,7 @@ msgid "Stroke"
 msgstr "Trazo"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:928 src/ui/window/controls.rs:112 src/ui/window/strip.rs:288 src/ui/window/tests.rs:1634 src/ui/window/tests.rs:1647
+#: src/ui/window/build.rs:928 src/ui/window/controls.rs:95 src/ui/window/strip.rs:240 src/ui/window/tests.rs:1445 src/ui/window/tests.rs:1458
 #, fuzzy
 msgid "Delete overlay"
 msgstr "Eliminar superposición"
@@ -624,7 +624,7 @@ msgid "Crops this box on every frame in scope, in place, without scaling it up, 
 msgstr "Recorta este cuadro en cada fotograma del ámbito, en su sitio, sin escalarlo, y deja el resto de cada fotograma transparente."
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:1122 src/ui/window/controls.rs:195
+#: src/ui/window/build.rs:1122 src/ui/window/controls.rs:178
 #, fuzzy
 msgid "Frame"
 msgstr "Fotograma"
@@ -735,7 +735,7 @@ msgstr "Optimizar"
 
 #. Translators: Canvas tooltip over an overlay's resize grip. Keep the line breaks.
 #. AI-generated translation; human review requested.
-#: src/ui/window/canvas.rs:170
+#: src/ui/window/canvas.rs:64
 #, fuzzy
 msgid ""
 "Drag to resize\n"
@@ -750,7 +750,7 @@ msgstr ""
 
 #. Translators: Canvas tooltip over the body of an overlay. Keep the line break.
 #. AI-generated translation; human review requested.
-#: src/ui/window/canvas.rs:186
+#: src/ui/window/canvas.rs:80
 #, fuzzy
 msgid ""
 "Drag to move\n"
@@ -778,57 +778,57 @@ msgid "Arrow"
 msgstr "Flecha"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/controls.rs:68
+#: src/ui/window/controls.rs:51
 #, fuzzy
 msgid "Text added"
 msgstr "Texto añadido"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/controls.rs:69
+#: src/ui/window/controls.rs:52
 #, fuzzy
 msgid "Rectangle added"
 msgstr "Rectángulo añadido"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/controls.rs:70
+#: src/ui/window/controls.rs:53
 #, fuzzy
 msgid "Ellipse added"
 msgstr "Elipse añadida"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/controls.rs:71
+#: src/ui/window/controls.rs:54
 #, fuzzy
 msgid "Arrow added"
 msgstr "Flecha añadida"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/controls.rs:98
+#: src/ui/window/controls.rs:81
 #, fuzzy
 msgid "Move overlay up"
 msgstr "Subir superposición"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/controls.rs:99
+#: src/ui/window/controls.rs:82
 #, fuzzy
 msgid "Move overlay down"
 msgstr "Bajar superposición"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/controls.rs:200
+#: src/ui/window/controls.rs:183
 #, fuzzy
 msgid "All {count} frames selected"
 msgstr "Los {count} fotogramas seleccionados"
 
 #. Translators: Sidebar heading for a run of selected frames. Frame numbers are 1-based and inclusive.
 #. AI-generated translation; human review requested.
-#: src/ui/window/controls.rs:208
+#: src/ui/window/controls.rs:191
 #, fuzzy
 msgid "Frames {first}–{last} selected"
 msgstr "Fotogramas {first}–{last} seleccionados"
 
 #. Translators: Sidebar heading for a non-contiguous set of selected frames; {numbers} is a comma-separated, 1-based list.
 #. AI-generated translation; human review requested.
-#: src/ui/window/controls.rs:222
+#: src/ui/window/controls.rs:205
 #, fuzzy
 msgid "Frames {numbers} selected"
 msgstr "Fotogramas {numbers} seleccionados"
@@ -1500,54 +1500,54 @@ msgid "{n} KB"
 msgstr "{n} KB"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/mod.rs:649
+#: src/ui/window/mod.rs:647
 #, fuzzy
 msgid "Resized"
 msgstr "Redimensionado"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/mod.rs:650
+#: src/ui/window/mod.rs:648
 #, fuzzy
 msgid "Zoomed"
 msgstr "Ampliado"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/mod.rs:655 src/ui/window/mod.rs:656
+#: src/ui/window/mod.rs:653 src/ui/window/mod.rs:654
 #, fuzzy
 msgid "Cropped"
 msgstr "Recortado"
 
 #. Translators: History label after flipping frames.
 #. AI-generated translation; human review requested.
-#: src/ui/window/mod.rs:658
+#: src/ui/window/mod.rs:656
 #, fuzzy
 msgid "Frames mirrored"
 msgstr "Fotogramas reflejados"
 
 #. Translators: History label after fading frames in from a solid color.
 #. AI-generated translation; human review requested.
-#: src/ui/window/mod.rs:661
+#: src/ui/window/mod.rs:659
 #, fuzzy
 msgid "Faded in"
 msgstr "Fundido de entrada aplicado"
 
 #. Translators: History label after fading frames out to a solid color.
 #. AI-generated translation; human review requested.
-#: src/ui/window/mod.rs:663
+#: src/ui/window/mod.rs:661
 #, fuzzy
 msgid "Faded out"
 msgstr "Fundido de salida aplicado"
 
 #. Translators: History label after blending the animation's end into its start.
 #. AI-generated translation; human review requested.
-#: src/ui/window/mod.rs:666
+#: src/ui/window/mod.rs:664
 #, fuzzy
 msgid "Loop cross-faded"
 msgstr "Fundido cruzado del bucle aplicado"
 
 #. Translators: Past-tense edit name, used inside "{change} on {count} frames".
 #. AI-generated translation; human review requested.
-#: src/ui/window/mod.rs:1059 src/ui/window/update.rs:439
+#: src/ui/window/mod.rs:1057 src/ui/window/update.rs:439
 #, fuzzy
 msgid "Delay set"
 msgstr "Retardo establecido"
@@ -1668,104 +1668,104 @@ msgid "Could not write: {error}"
 msgstr "No se pudo escribir: {error}"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/strip.rs:295 src/ui/window/tests.rs:1630
+#: src/ui/window/strip.rs:247 src/ui/window/tests.rs:1441
 #, fuzzy
 msgid "Copy overlay to all frames"
 msgstr "Copiar superposición a todos los fotogramas"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/strip.rs:297 src/ui/window/tests.rs:1643
+#: src/ui/window/strip.rs:249 src/ui/window/tests.rs:1454
 #, fuzzy
 msgid "Copy overlay to selected frames"
 msgstr "Copiar superposición a los fotogramas seleccionados"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/strip.rs:333
+#: src/ui/window/strip.rs:285
 #, fuzzy
 msgid "Set delay…"
 msgstr "Establecer retardo…"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/strip.rs:335
+#: src/ui/window/strip.rs:287
 #, fuzzy
 msgid "Move earlier"
 msgstr "Mover antes"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/strip.rs:336
+#: src/ui/window/strip.rs:288
 #, fuzzy
 msgid "Move later"
 msgstr "Mover después"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/strip.rs:338
+#: src/ui/window/strip.rs:290
 #, fuzzy
 msgid "Move to position…"
 msgstr "Mover a la posición…"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/strip.rs:341
+#: src/ui/window/strip.rs:293
 #, fuzzy
 msgid "Insert frames from file…"
 msgstr "Insertar fotogramas desde un archivo…"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/strip.rs:350
+#: src/ui/window/strip.rs:302
 #, fuzzy
 msgid "Delete this frame"
 msgstr "Eliminar este fotograma"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/strip.rs:351
+#: src/ui/window/strip.rs:303
 #, fuzzy
 msgid "Duplicate this frame"
 msgstr "Duplicar este fotograma"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/strip.rs:352
+#: src/ui/window/strip.rs:304
 #, fuzzy
 msgid "Cut this frame"
 msgstr "Cortar este fotograma"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/strip.rs:353
+#: src/ui/window/strip.rs:305
 #, fuzzy
 msgid "Copy this frame"
 msgstr "Copiar este fotograma"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/strip.rs:360
+#: src/ui/window/strip.rs:312
 #, fuzzy
 msgid "Delete selected frames"
 msgstr "Eliminar los fotogramas seleccionados"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/strip.rs:361
+#: src/ui/window/strip.rs:313
 #, fuzzy
 msgid "Duplicate selected frames"
 msgstr "Duplicar los fotogramas seleccionados"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/strip.rs:362
+#: src/ui/window/strip.rs:314
 #, fuzzy
 msgid "Cut selected frames"
 msgstr "Cortar los fotogramas seleccionados"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/strip.rs:363
+#: src/ui/window/strip.rs:315
 #, fuzzy
 msgid "Copy selected frames"
 msgstr "Copiar los fotogramas seleccionados"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/strip.rs:546
+#: src/ui/window/strip.rs:498
 #, fuzzy
 msgid "Edited outside; overlays skip this frame"
 msgstr "Editado externamente; las superposiciones omiten este fotograma"
 
 #. Translators: "cs" is centiseconds, the unit GIF stores frame delays in.
 #. AI-generated translation; human review requested.
-#: src/ui/window/strip.rs:556
+#: src/ui/window/strip.rs:508
 #, fuzzy
 msgid "Frame {number} · {delay} cs"
 msgstr "Fotograma {number} · {delay} cs"

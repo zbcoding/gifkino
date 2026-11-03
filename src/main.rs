@@ -1,4 +1,3 @@
-mod core;
 mod desktop;
 mod i18n;
 mod keymap;

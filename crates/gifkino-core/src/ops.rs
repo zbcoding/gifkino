@@ -22,6 +22,11 @@ enum DroppedDelay {
 /// A mirror's axis: `Horizontal` swaps left and right, `Vertical` top and
 /// bottom.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "camelCase")
+)]
 pub enum Axis {
     Horizontal,
     Vertical,
@@ -30,6 +35,11 @@ pub enum Axis {
 /// Which end of a run of frames is the solid colour: a fade in starts on it,
 /// a fade out ends on it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "camelCase")
+)]
 pub enum Fade {
     In,
     Out,
@@ -826,10 +836,55 @@ pub fn delays_for_fps(fps: f64, count: usize) -> Vec<u16> {
     delays
 }
 
+/// A move removes the picked frames, which shifts every later index down,
+/// then inserts at `to` — so where the run actually lands depends on how
+/// many picked frames sat before the gap. `gap` names a position between
+/// frames as shown before the move (`count` is past the last); this is the
+/// `to` that puts the run exactly there once `picked` is gone from the
+/// list, matching what the divider promised. `picked` must be sorted.
+pub fn move_target_for_set(picked: &[usize], gap: usize) -> usize {
+    gap - picked.iter().filter(|&&p| p < gap).count()
+}
+
+/// The gap "nudge the whole selection one slot earlier/later" aims at: just
+/// before the unselected frame preceding it, or just after the one
+/// following it — swapping the block with that neighbour. `None` when the
+/// selection already sits against that edge, or names every frame and
+/// leaves nothing to swap with. `picked` must be sorted.
+pub fn selection_nudge_gap(picked: &[usize], earlier: bool, frame_count: usize) -> Option<usize> {
+    let first = *picked.first()?;
+    let last = *picked.last()?;
+    if earlier {
+        (first > 0).then(|| first - 1)
+    } else {
+        (last + 1 < frame_count).then(|| last + 2)
+    }
+}
+
+/// A box drawn on the canvas in image pixels, as whole pixels on a `cw`×`ch`
+/// canvas: intersected with the image first, then widened outward to whole
+/// pixels. `None` when nothing of it is on the image.
+pub fn normalize_canvas_rect(
+    (cw, ch): (u32, u32),
+    (x, y, w, h): (f32, f32, f32, f32),
+) -> Option<(u32, u32, u32, u32)> {
+    let left = x.floor().clamp(0.0, cw as f32) as u32;
+    let top = y.floor().clamp(0.0, ch as f32) as u32;
+    let right = (x + w).ceil().clamp(0.0, cw as f32) as u32;
+    let bottom = (y + h).ceil().clamp(0.0, ch as f32) as u32;
+    (right > left && bottom > top).then_some((left, top, right - left, bottom - top))
+}
+
+/// Whether cropping a `cw`×`ch` canvas to `(x, y, w, h)` would change it. A
+/// full-canvas crop is not an edit, so it must not cost an undo step.
+pub fn crop_changes_canvas((cw, ch): (u32, u32), (x, y, w, h): (u32, u32, u32, u32)) -> bool {
+    cw > 0 && ch > 0 && !(x == 0 && y == 0 && w >= cw && h >= ch)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::model::{Frame, OverlayKind, Shape, ShapeOverlay, Transform};
+    use crate::model::{Frame, OverlayKind, Shape, ShapeOverlay, Transform};
 
     fn doc(n: usize, delay: u16) -> Document {
         Document::from_frames(
@@ -1653,7 +1708,7 @@ mod tests {
         assert_eq!((t.x, t.y), (10.0, 10.0), "same pixel, new origin");
         assert_eq!(
             d.frames[0].thumb.width(),
-            crate::core::model::THUMB_BOX,
+            crate::model::THUMB_BOX,
             "thumbnail redrawn"
         );
     }
@@ -1794,7 +1849,7 @@ mod tests {
         let id = d.add_overlay("a", shape(), Transform::at(10.0, 20.0, 40.0, 40.0), 0..3);
         let caption = d.add_overlay(
             "t",
-            OverlayKind::Text(crate::core::TextOverlay::default()),
+            OverlayKind::Text(crate::TextOverlay::default()),
             Transform::at(0.0, 0.0, 8.0, 8.0),
             0..3,
         );
@@ -1956,6 +2011,122 @@ mod tests {
             empty
                 .shrunk_frames(&[0], 0, 0, 10, 10, |_, _| {})
                 .is_empty()
+        );
+    }
+
+    /// The divider shown while dragging promises the frames will land right
+    /// next to a specific neighbor; `move_target_for_set` is what turns that
+    /// promise into the post-removal index `Document::move_frames_to` needs.
+    #[test]
+    fn move_target_for_set_lands_where_the_divider_promised() {
+        // Dragging frame 0 to the gap right after itself is a no-op.
+        assert_eq!(move_target_for_set(&[0], 1), 0);
+        // Forward, past several frames still in the way after 0 moves out.
+        assert_eq!(move_target_for_set(&[0], 3), 2);
+        // Backward: nothing before the target gap moved, so it is the
+        // final index outright.
+        assert_eq!(move_target_for_set(&[3], 1), 1);
+        // Past the last frame of 5.
+        assert_eq!(move_target_for_set(&[0], 5), 4);
+        // A gappy selection of three: the gap sits before all of them, so
+        // the whole run slides down by three.
+        assert_eq!(move_target_for_set(&[2, 5, 7], 1), 1);
+        // …and after two of them: the run lands two earlier than the gap.
+        assert_eq!(move_target_for_set(&[2, 5, 7], 6), 4);
+    }
+
+    /// End to end through the real `Document::move_frames_to`: whatever gap
+    /// the divider is drawn at, the dragged frames end up adjacent to
+    /// exactly the neighbor the divider promised, dragging either direction
+    /// and as a multi-frame selection.
+    #[test]
+    fn move_target_for_set_round_trips_through_move_frames_to() {
+        let numbered = |n: usize| {
+            Document::from_frames(
+                (0..n)
+                    .map(|i| {
+                        let px = image::Rgba([i as u8, 0, 0, 255]);
+                        Frame::new(RgbaImage::from_pixel(8, 8, px), 5)
+                    })
+                    .collect(),
+            )
+        };
+        let ids_at = |d: &Document| -> Vec<u8> {
+            d.frames
+                .iter()
+                .map(|f| f.pixels.get_pixel(0, 0)[0])
+                .collect()
+        };
+
+        // [0,1,2,3,4], drag 0 to the gap before 3 (gap 3): lands just before it.
+        let mut d = numbered(5);
+        d.move_frames_to(&[0], move_target_for_set(&[0], 3));
+        assert_eq!(ids_at(&d), vec![1, 2, 0, 3, 4]);
+
+        // Same document, drag 3 to the gap before 1 (gap 1): lands just before it.
+        let mut d = numbered(5);
+        d.move_frames_to(&[3], move_target_for_set(&[3], 1));
+        assert_eq!(ids_at(&d), vec![0, 3, 1, 2, 4]);
+
+        // Drag 0 to the gap past the last frame: lands at the very end.
+        let mut d = numbered(5);
+        d.move_frames_to(&[0], move_target_for_set(&[0], 5));
+        assert_eq!(ids_at(&d), vec![1, 2, 3, 4, 0]);
+
+        // A three-frame selection dropped between frames 1 and 2.
+        let mut d = numbered(8);
+        d.move_frames_to(&[2, 5, 7], move_target_for_set(&[2, 5, 7], 2));
+        assert_eq!(ids_at(&d), vec![0, 1, 2, 5, 7, 3, 4, 6]);
+    }
+
+    /// "Move earlier"/"Move later" swaps the selection with the one
+    /// unselected frame beside it: the gap aims just before (or after) that
+    /// neighbour, and refuses at either edge of the timeline.
+    #[test]
+    fn selection_nudge_gap_swaps_with_the_beside_neighbour() {
+        // Contiguous run 2..5 of 8: earlier aims before frame 1.
+        assert_eq!(selection_nudge_gap(&[2, 3, 4], true, 8), Some(1));
+        // Later aims past frame 4, the neighbour after the run.
+        assert_eq!(selection_nudge_gap(&[2, 3, 4], false, 8), Some(6));
+        // A single frame nudges exactly like the old move-by-one.
+        assert_eq!(selection_nudge_gap(&[3], true, 8), Some(2));
+        assert_eq!(selection_nudge_gap(&[3], false, 8), Some(5));
+        // Already at an edge: nothing to swap with.
+        assert_eq!(selection_nudge_gap(&[0, 1], true, 8), None);
+        assert_eq!(selection_nudge_gap(&[6, 7], false, 8), None);
+        // Every frame selected: the nudge would be a no-op anyway.
+        assert_eq!(
+            selection_nudge_gap(&(0..8).collect::<Vec<_>>(), true, 8),
+            None
+        );
+        assert_eq!(
+            selection_nudge_gap(&(0..8).collect::<Vec<_>>(), false, 8),
+            None
+        );
+    }
+
+    #[test]
+    fn full_canvas_crop_is_not_an_edit() {
+        assert!(!crop_changes_canvas((100, 80), (0, 0, 100, 80)));
+        assert!(!crop_changes_canvas((100, 80), (0, 0, 500, 500)));
+        assert!(crop_changes_canvas((100, 80), (1, 0, 99, 80)));
+        assert!(crop_changes_canvas((100, 80), (0, 0, 99, 80)));
+        assert!(!crop_changes_canvas((0, 0), (0, 0, 1, 1)));
+    }
+
+    #[test]
+    fn canvas_rects_intersect_the_image_before_rounding() {
+        assert_eq!(
+            normalize_canvas_rect((100, 80), (-20.0, -10.0, 50.0, 30.0)),
+            Some((0, 0, 30, 20))
+        );
+        assert_eq!(
+            normalize_canvas_rect((100, 80), (10.2, 20.2, 5.2, 4.2)),
+            Some((10, 20, 6, 5))
+        );
+        assert_eq!(
+            normalize_canvas_rect((100, 80), (-20.0, 0.0, 10.0, 10.0)),
+            None
         );
     }
 }

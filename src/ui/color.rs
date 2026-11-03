@@ -16,8 +16,8 @@ use std::rc::Rc;
 use gtk::prelude::*;
 use gtk4 as gtk;
 
-use crate::core::model::Rgba8;
 use crate::i18n::t;
+use gifkino_core::model::Rgba8;
 
 /// Side of the hue/saturation wheel. It is the widest thing in the popover,
 /// so it sets the popover's width and every other row is laid out under it.

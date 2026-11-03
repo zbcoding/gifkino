@@ -8,6 +8,11 @@ use super::model::Transform;
 /// One of the three guides along an axis: the leading edge, the centre line,
 /// or the trailing edge of the image.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize),
+    serde(rename_all = "camelCase")
+)]
 pub enum Guide {
     Start,
     Center,
@@ -30,6 +35,7 @@ impl Guide {
 /// The guide a drag is resting on along each axis, if any: `x` names a
 /// vertical line, `y` a horizontal one.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Guides {
     pub x: Option<Guide>,
     pub y: Option<Guide>,

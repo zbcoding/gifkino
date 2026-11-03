@@ -1404,10 +1404,10 @@ pub(super) fn connect_pair(
     colour: &ColorPick,
     width: &gtk::SpinButton,
     sync: &Rc<Cell<bool>>,
-    emit: impl Fn(Option<(crate::core::model::Rgba8, f32)>) + Clone + 'static,
+    emit: impl Fn(Option<(gifkino_core::model::Rgba8, f32)>) + Clone + 'static,
 ) {
     let pair =
-        |colour: crate::core::model::Rgba8, w: &gtk::SpinButton| Some((colour, w.value() as f32));
+        |colour: gifkino_core::model::Rgba8, w: &gtk::SpinButton| Some((colour, w.value() as f32));
     {
         let (w, emit) = (width.clone(), emit.clone());
         colour.connect_changed(move |colour| emit(pair(colour, &w)));
