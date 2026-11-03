@@ -1,0 +1,86 @@
+/* The frame strip and the overlay bands under it. */
+
+.strip-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.strip {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 4px; /* geometry.ts THUMB_SPACING */
+  width: max-content;
+}
+
+.thumb {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  border-top: 3px solid transparent;
+  padding-top: 2px;
+  user-select: none;
+}
+
+.thumb.in-scope {
+  border-top-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.thumb.playhead {
+  border-top-color: var(--accent);
+}
+
+.thumb.selected {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.thumb-picture {
+  display: block;
+}
+
+.thumb-number {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8em;
+  font-variant-numeric: tabular-nums;
+  color: var(--dim);
+}
+
+.thumb-badge {
+  display: inline-grid;
+}
+
+/* The drag-reorder divider, over the thumbnails: same accent as the playhead. */
+.drop-divider {
+  position: absolute;
+  top: 5px; /* the cell's border and padding */
+  width: 3px; /* strip.ts DIVIDER_W */
+  background: var(--accent);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.bands-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.bands-scroll {
+  align-self: stretch;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.bands {
+  display: block;
+}
+
+.bands-expander {
+  min-height: 0;
+  padding: 2px 6px;
+  font-size: 0.8em;
+}

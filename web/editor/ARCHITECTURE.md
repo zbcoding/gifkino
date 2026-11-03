@@ -28,7 +28,7 @@ vp run build     # wasm + bundle → dist/; ../build.sh assembles the site
 | `playback.ts`        | Play/pause on per-frame delays.                                                                   |
 | `core.ts`            | The shell's own commands: open, export, undo, redo, play-pause; scope toggle; drop; unload guard. |
 | `ui/`                | Layout, header + menus, canvas view, transport, doc info, DOM helpers.                            |
-| `i18n.ts`            | `t(msgid)` / `fill(template, values)`; msgids are the desktop's.                                  |
+| `i18n.ts`            | `t(msgid)` / `tn(one, many, count)` / `fill(template, values)`; msgids are the desktop's.         |
 | `slices.ts`          | The list of slice installers.                                                                     |
 
 ## Adding a slice
@@ -124,6 +124,17 @@ configurable there.
 Export settings: the desktop has no export settings UI (Export GIF… writes
 `ExportSettings::default()`), so there is none here; an export slice adding
 gifsicle options owns that dialog.
+
+## Strip and bands (`strip/`)
+
+The frame strip (slot `strip`) and overlay bands (slot `bands`) of desktop
+`strip.rs`. Clicks, Shift/Ctrl+clicks, band picks and drag-reorder set
+`playhead`, `selection`, `scope` and `selectedOverlay`; the Shift+click anchor
+is the strip's own and restarts at the first selected frame when another slice
+replaces the selection. The right-click menus run the frame-op commands above
+and the overlay slice's `overlay-copy-all`, `overlay-copy-selected`,
+`overlay-delete`. Keyboard-only commands: `select-all`, `strip-zoom-in`,
+`strip-zoom-out`, `strip-zoom-reset` (Ctrl+wheel over the strip zooms too).
 
 ## Conventions
 

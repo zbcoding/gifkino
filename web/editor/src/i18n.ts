@@ -11,3 +11,11 @@ export function fill(template: string, values: Record<string, string | number>):
     name in values ? String(values[name]) : whole,
   );
 }
+
+/**
+ * Desktop `tn`: pick between two msgids by `count`. Right for languages with
+ * one plural form; Slavic ones need a real Plural-Forms evaluator.
+ */
+export function tn(one: string, many: string, count: number): string {
+  return t(count === 1 ? one : many);
+}

@@ -3,5 +3,6 @@
 
 import type { App } from "./app";
 import { install as frameops } from "./frameops";
+import { install as strip } from "./strip";
 
-export const slices: ((app: App) => void)[] = [frameops];
+export const slices: ((app: App) => void)[] = [frameops, strip];

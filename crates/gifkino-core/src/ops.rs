@@ -381,7 +381,16 @@ impl Document {
         // lookup would grab whichever of the two sits first. `slots[i]` is
         // the original index of the frame now at `i`, moved hop for hop.
         let mut slots: Vec<usize> = (0..self.frames.len()).collect();
-        for (cursor, &original) in (to..).zip(&picked) {
+        // Picked frame `k` lands at `to + k`. A hop pulls its frame out from
+        // in front of every later target, shifting them one place back, so
+        // frames moving later must hop last-first and frames moving earlier
+        // first-last. `p - k` never falls along a sorted pick, so the frames
+        // moving later are a prefix of it.
+        let later = (0..picked.len())
+            .take_while(|&k| picked[k] < to + k)
+            .count();
+        for k in (0..later).rev().chain(later..picked.len()) {
+            let (original, cursor) = (picked[k], to + k);
             let Some(at) = slots.iter().position(|&s| s == original) else {
                 continue;
             };
@@ -1242,6 +1251,34 @@ mod tests {
             vec![0, 2, 5, 7, 1, 3, 4, 6],
             "the picked frames keep their order and land together; the rest close up"
         );
+    }
+
+    /// Dragging a run to the right: each hop used to pull its frame out from
+    /// in front of the targets still to come, so the run came out
+    /// interleaved with the frames it passed (`0 1 4 2 5 3 6 7`).
+    #[test]
+    fn move_frames_to_later_keeps_the_run_together() {
+        let mut d = doc_distinct(8);
+        d.move_frames_to(&[1, 2, 3], 3);
+        assert_eq!(order(&d), vec![0, 4, 5, 1, 2, 3, 6, 7]);
+    }
+
+    /// Every pick of six frames to every target, earlier, later or both at
+    /// once, against the definition: the rest with the pick spliced in at `to`.
+    #[test]
+    fn move_frames_to_matches_the_splice_for_every_pick_and_target() {
+        let n = 6;
+        for mask in 1u32..(1 << n) {
+            let picked: Vec<usize> = (0..n).filter(|i| mask & (1 << i) != 0).collect();
+            let rest: Vec<u8> = (0..n as u8).filter(|&i| !picked.contains(&(i as usize))).collect();
+            for to in 0..=rest.len() {
+                let mut want = rest.clone();
+                want.splice(to..to, picked.iter().map(|&p| p as u8));
+                let mut d = doc_distinct(n);
+                d.move_frames_to(&picked, to);
+                assert_eq!(order(&d), want, "{picked:?} to {to}");
+            }
+        }
     }
 
     #[test]
