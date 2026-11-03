@@ -1,0 +1,382 @@
+/* Adwaita-like look, light and dark, after the desktop window. */
+:root {
+  color-scheme: light dark;
+  --accent: #3584e4;
+  --accent-fg: #fff;
+  --window-bg: #fafafb;
+  --view-bg: #fff;
+  --header-bg: #ebebed;
+  --sidebar-bg: #ebebed;
+  --card-bg: rgb(0 0 0 / 0.05);
+  --button-bg: rgb(0 0 0 / 0.08);
+  --button-hover: rgb(0 0 0 / 0.12);
+  --border: rgb(0 0 0 / 0.12);
+  --fg: rgb(0 0 6 / 0.8);
+  --dim: rgb(0 0 6 / 0.55);
+  --checker-a: #e8e8e8;
+  --checker-b: #fff;
+  --popover-bg: #fff;
+  font-family: "Cantarell", "Inter", system-ui, sans-serif;
+  font-size: 15px;
+  color: var(--fg);
+  background: var(--window-bg);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --window-bg: #222226;
+    --view-bg: #1d1d20;
+    --header-bg: #2e2e32;
+    --sidebar-bg: #2e2e32;
+    --card-bg: rgb(255 255 255 / 0.08);
+    --button-bg: rgb(255 255 255 / 0.1);
+    --button-hover: rgb(255 255 255 / 0.15);
+    --border: rgb(255 255 255 / 0.1);
+    --fg: #fff;
+    --dim: rgb(255 255 255 / 0.55);
+    --checker-a: #2a2a2e;
+    --checker-b: #38383c;
+    --popover-bg: #36363a;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: var(--button-bg);
+  border: none;
+  border-radius: 6px;
+  padding: 5px 10px;
+  min-height: 34px;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: var(--button-hover);
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+button.flat {
+  background: transparent;
+}
+
+button.flat:hover:not(:disabled) {
+  background: var(--button-bg);
+}
+
+button.suggested {
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-weight: 700;
+}
+
+button.suggested:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent), white 10%);
+}
+
+button.pill {
+  border-radius: 999px;
+  padding: 10px 32px;
+}
+
+button.icon-button {
+  display: inline-grid;
+  place-items: center;
+  min-width: 34px;
+  padding: 0;
+}
+
+button.active {
+  background: var(--button-hover);
+  font-weight: 700;
+}
+
+.icon {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+.linked {
+  display: inline-flex;
+}
+
+.linked > button {
+  border-radius: 0;
+}
+
+.linked > button:first-child {
+  border-radius: 6px 0 0 6px;
+}
+
+.linked > button:last-child,
+.linked > button:has(+ [hidden]) {
+  border-radius: 0 6px 6px 0;
+}
+
+.window {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* Header bar */
+.headerbar {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  background: var(--header-bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.header-start,
+.header-end {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.header-end {
+  justify-content: flex-end;
+}
+
+.menubar {
+  display: flex;
+}
+
+.header-title {
+  text-align: center;
+  line-height: 1.25;
+  min-width: 0;
+}
+
+.title-main {
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subtitle {
+  font-size: 0.85em;
+  color: var(--dim);
+}
+
+.menu-popover {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  min-width: 200px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--popover-bg);
+  color: var(--fg);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.3);
+}
+
+.menu-section + .menu-section,
+.menu-popover hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 6px 0;
+  padding-top: 0;
+}
+
+.menu-section + .menu-section {
+  padding-top: 6px;
+}
+
+.menu-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  width: 100%;
+  text-align: start;
+  background: transparent;
+}
+
+.accel {
+  color: var(--dim);
+}
+
+/* Busy bar */
+.busy {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 12px;
+  background: var(--header-bg);
+  font-size: 0.9em;
+}
+
+.busy progress {
+  flex: 1;
+  accent-color: var(--accent);
+}
+
+/* Content */
+.content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.welcome {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  text-align: center;
+}
+
+.welcome h1 {
+  margin: 12px 0 0;
+  font-size: 2em;
+}
+
+.welcome p {
+  margin: 0 0 18px;
+}
+
+.editor {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+}
+
+.editor-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.canvas-row {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.slot-rail:not(:empty) {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+  border-right: 1px solid var(--border);
+}
+
+.canvas-area {
+  flex: 1;
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--view-bg);
+}
+
+.canvas-area .frame {
+  position: absolute;
+  background: repeating-conic-gradient(var(--checker-a) 0 25%, var(--checker-b) 0 50%) 0 0 / 16px
+    16px;
+}
+
+.canvas-area .overlay-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+.footer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.transport {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.transport .spacer {
+  flex: 1;
+}
+
+.time {
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.slot-transport {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sidebar {
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  overflow-y: auto;
+  background: var(--sidebar-bg);
+  border-left: 1px solid var(--border);
+}
+
+.slot-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.doc-info {
+  color: var(--dim);
+  line-height: 1.5;
+}
+
+/* Toasts */
+.toasts {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  translate: -50% 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
+  padding: 10px 20px;
+  border-radius: 999px;
+  background: rgb(30 30 30 / 0.9);
+  color: #fff;
+}

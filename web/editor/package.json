@@ -1,0 +1,24 @@
+{
+  "name": "gifkino-editor",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "wasm": "../../crates/gifkino-wasm/build.sh",
+    "dev": "vp run wasm && vp dev",
+    "build": "vp run wasm && vp build",
+    "preview": "vp preview"
+  },
+  "devDependencies": {
+    "typescript": "~7.0.2",
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "12.16.1",
+      "onFail": "download"
+    }
+  }
+}

@@ -1,6 +1,6 @@
 # Website on the Internet Computer
 
-Static landing page served by the certified-assets canister (`@dfinity/static-site` recipe). `public/` is uploaded as-is; `_headers` sets the security and cache headers.
+The certified-assets canister (`@dfinity/static-site` recipe) serves `dist/`, which `build.sh` assembles on every `icp deploy`: the landing page from `public/` at `/`, the browser editor from `editor/` at `/edit/` (`editor/ARCHITECTURE.md`). `public/_headers` sets the security and cache headers for the whole site. Building needs `vp` (Vite+) on `PATH` plus the wasm toolchain `crates/gifkino-wasm/build.sh` names.
 
 ```bash
 cd web

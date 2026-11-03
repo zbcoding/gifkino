@@ -3,4 +3,6 @@ canisters:
     recipe:
       type: "@dfinity/static-site@v0.4.2"
       configuration:
-        dir: public
+        build:
+          - ./build.sh
+        dir: dist

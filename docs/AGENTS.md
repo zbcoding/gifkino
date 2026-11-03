@@ -303,6 +303,9 @@ Rust + GTK4 + libadwaita, as a Cargo workspace:
 - `crates/gifkino-wasm` — the browser editor's bindings to `gifkino-core`;
   `API.md` there is the JavaScript contract, `build.sh` writes the module to
   `web/editor/src/wasm/`.
+- `web/editor` — the browser editor (TypeScript, Vite+) on that module;
+  `ARCHITECTURE.md` there is its layout and slice contract, `vp check` and
+  `vp test` its checks. `web/` is the site it ships in.
 
 `cargo` resolves the Rust side; the GTK stack comes from the system or the
 flatpak runtime.
