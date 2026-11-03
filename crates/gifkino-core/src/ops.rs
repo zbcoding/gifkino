@@ -1270,7 +1270,9 @@ mod tests {
         let n = 6;
         for mask in 1u32..(1 << n) {
             let picked: Vec<usize> = (0..n).filter(|i| mask & (1 << i) != 0).collect();
-            let rest: Vec<u8> = (0..n as u8).filter(|&i| !picked.contains(&(i as usize))).collect();
+            let rest: Vec<u8> = (0..n as u8)
+                .filter(|&i| !picked.contains(&(i as usize)))
+                .collect();
             for to in 0..=rest.len() {
                 let mut want = rest.clone();
                 want.splice(to..to, picked.iter().map(|&p| p as u8));

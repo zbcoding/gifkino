@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Browser editor
+
+- Gifkino runs in the browser at `/edit/` on the project website, hosted on
+  the Internet Computer. It shares the desktop's document core, compiled to
+  WebAssembly, so edits, undo labels and exports match the desktop.
+- Video import downloads ffmpeg (~30 MB) on first use, after asking.
+  Export runs gifsicle `-O3` in the browser.
+- Keybindings and settings are kept in browser storage, in the desktop's
+  file formats; import and export of `keybindings.conf` are upload and
+  download.
+
+### Fixes
+
+- Moving a run of two or more frames later in the strip interleaved them
+  with the frames they passed. They now move as a block.
+
 ### Translations
 
 - Spanish (`es`) and Brazilian Portuguese (`pt_BR`). Both are AI

@@ -4,6 +4,7 @@ The certified-assets canister (`@dfinity/static-site` recipe) serves `dist/`, wh
 
 ```bash
 cd web
+export ICP_CLI_PLUGIN_COMPUTE_LIMIT_SECS=900   # brotli on the 32 MB ffmpeg core takes ~2 min; default limit is 60 s
 icp network start -d   # local
 icp deploy             # http://frontend.local.localhost:8000
 icp network stop

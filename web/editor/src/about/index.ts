@@ -42,7 +42,6 @@ function showAbout(): void {
     t("Licenses"),
     factRow("Gifkino", "MIT"),
     factRow("FFmpeg (ffmpeg.wasm core)", "GPL-2.0-or-later"),
-    factRow("ffmpeg.wasm", "MIT"),
     factRow("Gifsicle", "GPL-2.0"),
   );
   licenses.append(h("p", { class: "pref-description" }, "© 2026 zbcoding"));

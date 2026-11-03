@@ -1228,7 +1228,15 @@ mod tests {
         };
         assert_eq!(editor.overlay_edit_count(id.0, &[0, 1, 2, 3, 4, 5], 2), 3);
         assert_eq!(editor.overlay_edit_count(id.0, &[2], 2), 1);
-        assert_eq!(editor.overlay_edit_count(id.0, &[1, 2], 3), 1, "the frame on screen");
-        assert_eq!(editor.overlay_edit_count(id.0, &[5], 2), 0, "nowhere to land");
+        assert_eq!(
+            editor.overlay_edit_count(id.0, &[1, 2], 3),
+            1,
+            "the frame on screen"
+        );
+        assert_eq!(
+            editor.overlay_edit_count(id.0, &[5], 2),
+            0,
+            "nowhere to land"
+        );
     }
 }
