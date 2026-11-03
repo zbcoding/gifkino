@@ -13,6 +13,7 @@ import type {
   MethodArgs,
   MethodResult,
   Picture,
+  Staged,
 } from "./worker/protocol";
 import type { Change, ExportSettings } from "./wasm/gifkino_wasm.js";
 
@@ -209,15 +210,24 @@ export class App {
     return (await this.request("stage", { source }, options)).value;
   }
 
-  /** Replace the document with `file`, through the first importer that takes it. */
-  async openFile(file: File): Promise<void> {
+  /**
+   * Read `file` through the first importer that takes it and stage its
+   * frames, under the import busy bar: the first half of `openFile`, and what
+   * "Add frames from file…" splices.
+   */
+  async stageFile(file: File): Promise<Staged> {
     const importer = this.importers.find((candidate) => candidate.matches(file)) ?? builtinImporter;
-    await this.withBusy(t("Importing… {done} frames"), async (report) => {
+    return this.withBusy(t("Importing… {done} frames"), async (report) => {
       const source = await importer.load(file, report);
-      await this.stage(source, (decoded) => report(decoded, null));
-      const { doc } = await this.request("open", {}, { snapshot: true });
-      this.update((state) => opened(state, doc!, file.name));
+      return this.stage(source, (decoded) => report(decoded, null));
     });
+  }
+
+  /** Replace the document with `file`. */
+  async openFile(file: File): Promise<void> {
+    await this.stageFile(file);
+    const { doc } = await this.request("open", {}, { snapshot: true });
+    this.update((state) => opened(state, doc!, file.name));
   }
 
   /** Every importer's `accept`, for the file picker. */
