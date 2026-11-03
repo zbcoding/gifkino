@@ -32,7 +32,7 @@ machine that has none of them installed.
   so it needs Ubuntu 24.04, Debian 13, Fedora 40 or newer. `chmod +x` it and
   run it.
 
-The same editor also runs in the browser at `/edit/` on the project website
+The same editor also runs in the browser — [**try it online**](https://qeotg-2yaaa-aaaab-qhpka-cai.icp0.io/edit/)
 (source and deploy steps in [`web/`](web/AGENTS.md)). Video import there
 downloads ffmpeg (about 30 MB) the first time, after asking.
 
