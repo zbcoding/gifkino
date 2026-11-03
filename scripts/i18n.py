@@ -4,7 +4,7 @@
 Impasto drives this with `make updatepotfiles` and `make updatepot`; there is no
 Makefile here, so the same two jobs live in one script:
 
-    scripts/i18n.py potfiles   # rescan src/ and rewrite po/POTFILES.in
+    scripts/i18n.py potfiles   # rescan the sources and rewrite po/POTFILES.in
     scripts/i18n.py pot        # rewrite po/messages.pot from the marked strings
     scripts/i18n.py merge      # fold the template into every po/LINGUAS locale
     scripts/i18n.py check      # report untranslated and stale entries
@@ -35,6 +35,9 @@ NOTE = re.compile(r'//\s*Translators:\s*(.*)')
 # line ending in a bare `t(` has to be joined with the next one or the msgid
 # disappears from the template.
 OPEN_MARKER = re.compile(r'\b(?:i18n::)?(?:tn|t|n)\(\s*$')
+# A formatter also breaks a long `tn(` call after each argument; the first
+# msgid and its comma wait for the second.
+OPEN_PLURAL = re.compile(r'\btn\(\s*"(?:[^"\\]|\\.)*"\s*,\s*$')
 
 
 def logical_lines(text):
@@ -53,7 +56,7 @@ def logical_lines(text):
         if pending is None:
             start = i
         continued = body.endswith("\\") and (pending is not None or '"' in line)
-        if continued or OPEN_MARKER.search(current):
+        if continued or OPEN_MARKER.search(current) or OPEN_PLURAL.search(current):
             pending = current
         else:
             out.append((start, current))
@@ -63,13 +66,20 @@ def logical_lines(text):
     return out
 
 
-def rust_sources():
+# The browser editor (web/editor) shows the same msgids through its own
+# `t("…")` / `n("…")`, and its own strings share these catalogs.
+SOURCES = [("src", ".rs"), ("web/editor/src", ".ts")]
+SKIP_DIRS = {"target", "wasm", "node_modules"}
+
+
+def sources():
     out = []
-    for base, dirs, files in os.walk(os.path.join(ROOT, "src")):
-        dirs[:] = [d for d in dirs if d not in {"target"}]
-        for name in sorted(files):
-            if name.endswith(".rs"):
-                out.append(os.path.relpath(os.path.join(base, name), ROOT))
+    for root, ext in SOURCES:
+        for base, dirs, files in os.walk(os.path.join(ROOT, root)):
+            dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+            for name in sorted(files):
+                if name.endswith(ext) and not name.endswith(".test.ts"):
+                    out.append(os.path.relpath(os.path.join(base, name), ROOT))
     return sorted(out)
 
 
@@ -77,7 +87,7 @@ def potfiles():
     """Files that contain at least one marked string."""
     keep = [
         p
-        for p in rust_sources()
+        for p in sources()
         if any(MARKER.search(line) for _, line in logical_lines(read(p)))
     ]
     body = (
@@ -144,14 +154,17 @@ def extract():
             if not ids:
                 continue
             # A `// Translators:` comment applies to the marked strings on the
-            # next code line, which is where translators expect to find it.
+            # next code line, which is where translators expect to find it —
+            # through a bare call opener such as `fill(`, which a formatter
+            # puts between the comment and the marker.
             note = None
             for back in range(index - 1, max(index - 4, -1), -1):
                 hit = NOTE.search(lines[back][1])
                 if hit:
                     note = hit.group(1).strip()
                     break
-                if lines[back][1].strip() and not lines[back][1].strip().startswith("//"):
+                code = lines[back][1].strip()
+                if code and not code.startswith("//") and not code.endswith("("):
                     break
             for msgid in dict.fromkeys(ids):
                 entry = found.setdefault(msgid, {"refs": [], "notes": []})
@@ -349,6 +362,10 @@ def selftest():
     # the string is still open, so they join too.
     long = logical_lines('t(\n    "one \\\n     two \\\n     three",\n)\n')
     assert long[0] == (1, 't("one two three",'), long
+
+    # A plural broken after each argument still yields both msgids.
+    plural = logical_lines('tn(\n    "one row",\n    "many rows",\n    n,\n)\n')
+    assert PLURAL.search(plural[0][1]), plural
 
     # A call that merely ends in a word ending with t or n is not a marker.
     assert not OPEN_MARKER.search("    let img = RgbaImage::new("), "new("

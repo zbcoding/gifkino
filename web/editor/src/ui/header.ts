@@ -47,6 +47,7 @@ export function createHeader(app: App): HTMLElement {
     "button",
     {
       class: "flat icon-button",
+      // Translators: Tooltip of the ☰ button holding Open, Export, Settings and About.
       title: t("Main menu"),
       onclick: () => openMenu(hamburger, ["file", "app"]),
     },

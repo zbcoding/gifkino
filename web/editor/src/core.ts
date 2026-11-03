@@ -2,7 +2,7 @@
 // the scope toggle. Registered the same way a slice registers its own.
 
 import type { App } from "./app";
-import { fill, t } from "./i18n";
+import { fill, n, t } from "./i18n";
 import { togglePlay } from "./playback";
 import type { AppState } from "./state";
 import { h } from "./ui/dom";
@@ -13,7 +13,6 @@ const loaded = (state: AppState) => idle(state) && (state.doc?.frameCount ?? 0) 
 
 /** Desktop `sync_tooltips`: "Undo Frames deleted", or plain "Undo" with nothing to undo. */
 function historyTip(template: string, bare: string, label: string | null): string {
-  // Translators: {change} is the name of the edit, e.g. "Frames deleted".
   return label ? fill(t(template), { change: t(label) }) : t(bare);
 }
 
@@ -48,14 +47,16 @@ export function installCore(app: App): void {
     id: "undo",
     label: "Undo",
     enabled: (state) => idle(state) && !!state.doc?.canUndo,
-    tooltip: (state) => historyTip("Undo {change}", "Undo", state.doc?.undoLabel ?? null),
+    // Translators: Undo button tooltip. {change} is the name of the edit, e.g. "Frames deleted".
+    tooltip: (state) => historyTip(n("Undo {change}"), "Undo", state.doc?.undoLabel ?? null),
     run: () => app.dispatch("undo"),
   });
   app.registerCommand({
     id: "redo",
     label: "Redo",
     enabled: (state) => idle(state) && !!state.doc?.canRedo,
-    tooltip: (state) => historyTip("Redo {change}", "Redo", state.doc?.redoLabel ?? null),
+    // Translators: Redo button tooltip. {change} is the name of the edit, e.g. "Frames deleted".
+    tooltip: (state) => historyTip(n("Redo {change}"), "Redo", state.doc?.redoLabel ?? null),
     run: () => app.dispatch("redo"),
   });
   app.registerCommand({
@@ -86,6 +87,7 @@ async function openFile(app: App, file: File): Promise<void> {
     await app.openFile(file);
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
+    // Translators: Toast when a file will not open. {name} is the file name, {reason} the error.
     app.toast(fill(t("Could not open {name}: {reason}"), { name: file.name, reason }));
   }
 }

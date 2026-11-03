@@ -93,6 +93,7 @@ export function install(app: App): void {
     if (!file) return;
     addFrames(app, file, importAt).catch((error: unknown) => {
       const reason = error instanceof Error ? error.message : String(error);
+      // Translators: Toast when a file will not open. {name} is the file name, {reason} the error.
       app.toast(fill(t("Could not open {name}: {reason}"), { name: file.name, reason }));
     });
   });

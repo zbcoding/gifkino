@@ -29,7 +29,9 @@ vp run build     # wasm + bundle → dist/; ../build.sh assembles the site
 | `core.ts`            | The shell's own commands: open, export, undo, redo, play-pause; scope toggle; drop; unload guard.    |
 | `gifsicle/`          | gifsicle built for WASI (`build.sh`; the `.wasm` is committed) and run on stdin/stdout by `wasi.ts`. |
 | `ui/`                | Layout, header + menus, canvas view, transport, doc info, DOM helpers.                               |
-| `i18n.ts`            | `t(msgid)` / `tn(one, many, count)` / `fill(template, values)`; msgids are the desktop's.            |
+| `i18n.ts`            | `t` / `n` / `tn` / `fill`; parses po/*.po (bundled as assets) like desktop `i18n.rs`; `setLanguage`. |
+| `keys/`              | Keymap (desktop `keymap.rs`), global shortcuts, the Ctrl+? shortcuts window / keybinding editor.     |
+| `settings/`          | Desktop settings.conf (language, memory budgets) and its dialog.                                     |
 | `modals.ts`          | Canvas drag modifiers (desktop `keymap::Modal`/`Mods`): ids, defaults, `modsHeld`, `modsLabel`.      |
 | `slices.ts`          | The list of slice installers.                                                                        |
 
@@ -91,13 +93,13 @@ field or a hook that more than one slice needs, and keep such changes small.
 | `app.registerPanel({ slot, id, order, element })`                                   | Mount UI. Slots: `rail` (tool column left of the canvas), `transport` (right end of the play row; scope toggle is order 0), `strip` (frame strip), `bands` (overlay bands, under the strip), `sidebar` (properties, above the doc info).                                                                                                                                                                             |
 | `app.registerCanvasLayer({ id, order, draw?, pointer? })`                           | Canvas overlay. `draw(ctx, view, state)` in CSS px; `pointer(event, phase, view)` returns `true` to take the event (highest `order` first; a taken `down` captures the pointer). `view.scale` is screen px per image px; `view.toImage(event.offsetX, event.offsetY)` / `view.toScreen(x, y)` convert. Call `app.redrawCanvas()` after changing what a layer draws without a state change; any state change redraws. |
 | `app.registerImporter({ accept, matches, load })`                                   | Open path for other file kinds (video): `load(file)` returns a `FrameSource` (`rgba` frames, transferred), or `null` when the user cancelled. Anything slow (download, decode) runs under the importer's own `withBusy`. Registered importers win over the built-in GIF/image one.                                                                                                                                   |
-| `app.shortcutFor = (commandId) => chord \| null`                                    | Keybindings: tooltips and menu accels read it.                                                                                                                                                                                                                                                                                                                                                                       |
-| `app.modifiersFor = (modal) => Mods`                                                | Keybindings: the modifiers held during a canvas drag, by desktop `Modal::id` (`canvas-rotate`, `canvas-keep-aspect`, `canvas-from-center`; `MODALS` in `modals.ts`). Defaults Alt, Shift, Ctrl. The canvas reads it on every press and motion, the grip tooltips on every hover.                                                                                                                                     |
+| `app.shortcutFor = (commandId) => chord \| null`                                    | Set by `keys/`: the first chord bound to the keymap action with that id (keymap action ids are command ids). Read it when rendering, inside a store subscriber: a rebind runs `app.update({})`, so hints rebuilt there move with it.                                                                                                                                                                                 |
+| `app.modifiersFor = (modal) => Mods`                                                | Set by `keys/`: the modifiers held during a canvas drag, by desktop `Modal::id` (`canvas-rotate`, `canvas-keep-aspect`, `canvas-from-center`; `MODALS` in `modals.ts`). Defaults Alt, Shift, Ctrl. The canvas reads it on every press and motion, the grip tooltips on every hover.                                                                                                                                  |
 | `app.toast(message, { undo? })`                                                     | Transient message. `undo: true` adds the Undo button an edit's toast carries (desktop `Msg::Toast`); leave it off for feedback with nothing to undo (`Msg::Notice`, e.g. "3 frames copied").                                                                                                                                                                                                                         |
 | `app.toastChange(change, total?)`                                                   | Desktop `toast_if_document_wide`: toasts "{change} on {count} frames" with Undo when `change.framesTouched >= total` (the frame count before the edit); without `total` always (a splice). `undefined` change: nothing.                                                                                                                                                                                              |
 | `alertDialog({ title, body, content, responses, close, default })` (`ui/dialog.ts`) | `adw::AlertDialog` as a modal `<dialog>`; `.answer` resolves with the response id, `.setEnabled(id, on)`.                                                                                                                                                                                                                                                                                                            |
 | `ui/prefs.ts`                                                                       | Libadwaita rows for the sidebar and dialogs: `group(title, ...rows)` (`groupTitle` to retitle), `actionRow(title, suffix, subtitle?)` (`setSubtitle`), `suffix(...)`, `spin(min, max, step, value)`, `radioRows(options)`.                                                                                                                                                                                           |
-| `t()`, `fill()`                                                                     | Wrap every user-visible string; use the desktop's msgid when one exists.                                                                                                                                                                                                                                                                                                                                             |
+| `t()`, `fill()`, `n()`                                                              | Wrap every user-visible string in a literal `t("…")` (or `n("…")` where it is translated later), so `scripts/i18n.py` extracts it into po/; use the desktop's msgid when one exists. A language switch retranslates built text in place (text nodes, `title`, `placeholder`, `aria-label`); a string filled with values has to be rebuilt in a store subscriber.                                                     |
 | `globalThis.gifkino`                                                                | The `App`, for console debugging.                                                                                                                                                                                                                                                                                                                                                                                    |
 
 ## Frame-op commands (`frameops/`)
@@ -122,8 +124,8 @@ keymap actions / `win.*` actions. Scope-based ones act on `framesInScope`.
 
 Memory guard: `frameops/budget.ts` holds the desktop's budgets
 (`max_import_bytes`, `max_oper_bytes`, `max_total_bytes`) and refuses a resize
-or splice over them before the worker is asked; a settings slice can make them
-configurable there.
+or splice over them before the worker is asked; the settings dialog writes
+`budgets`, and the wasm heap caps them whatever they say.
 
 Export: `app.exportGif(settings)` encodes in the editor worker, then runs
 `gifsicle -O3` (plus `--lossy` when `settings.lossy` > 0) over the file in a
@@ -172,6 +174,22 @@ frames streamed out of a device file as they are written. `plan.ts` is the
 desktop's plan arithmetic and trim parsing (`plan_for`, `read_trim`, …), so the
 dialog's preview is the decode it runs. Cancel terminates the worker; the next
 job starts a fresh one from the compiled module.
+
+## Keys, settings, translations (`keys/`, `settings/`, `i18n.ts`)
+
+One capture-phase `keydown` listener on the window runs the command whose id
+is the keymap action the chord fires (desktop `install_shortcuts`); tools
+sharing a key cycle. It stands aside while a text field, a `<select>` or a
+dialog has focus, and for Cmd chords. `show-shortcuts` (Ctrl+?, ☰) opens the
+shortcuts window, which is the keybinding editor; `settings` (☰) opens the
+settings dialog. Both save as they change, to localStorage under
+`gifkino/keybindings.conf` and `gifkino/settings.conf`, in the desktop's file
+formats, so the keybindings file imports and exports between the two.
+
+The catalog loads in `main.ts` before any slice installs: the `language`
+setting, else the first of `navigator.languages` with a catalog (`de-DE` →
+`de`). Fuzzy entries are used. New strings: `scripts/i18n.py merge`, then
+translate them in every po/ catalog (AGENTS.md, Translation & Localization).
 
 ## Conventions
 

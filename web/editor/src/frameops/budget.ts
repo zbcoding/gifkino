@@ -5,16 +5,19 @@
 const MIB = 1024 * 1024;
 
 /** Desktop `Settings` defaults: `max_import_bytes`, `max_oper_bytes`, `max_total_bytes`. */
-export const budgets = {
+export const DEFAULT_BUDGETS = {
   import: 4096 * MIB,
   oper: 4096 * MIB,
   total: 8192 * MIB,
 };
 
+/** The budgets in force: the settings dialog (`settings/`) writes them. */
+export const budgets = { ...DEFAULT_BUDGETS };
+
 // ponytail: wasm32's 4 GiB address space holds the old frames, the new ones
 // and everything else, so the desktop's 8 GiB total can never be reached
 // here; capping old + new at 4 GiB keeps a refused resize a toast instead of
-// a dead worker. A settings slice that makes the budgets editable keeps this.
+// a dead worker, whatever the settings say.
 const WASM_HEAP = 4096 * MIB;
 
 /** RGBA bytes `frames` frames of `w × h` hold: desktop `resize_bytes`. */

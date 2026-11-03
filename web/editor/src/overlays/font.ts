@@ -65,11 +65,13 @@ export function fontField(onChange: (description: string) => void): FontField {
   const search = h("input", {
     type: "search",
     class: "font-search",
+    // Translators: Placeholder of the search field in the font picker.
     placeholder: t("Search font name"),
   });
   const list = h("div", { class: "font-list", role: "listbox" });
   const faceSelect = h("select", { class: "font-face" });
   const preview = h("div", { class: "font-preview" }, SAMPLE);
+  // Translators: Font picker button that applies the highlighted font.
   const select = h("button", { type: "button", class: "suggested" }, t("Select"));
   const cancel = h("button", { type: "button" }, t("Cancel"));
   const popover = h(

@@ -658,3 +658,41 @@ a.link-row:hover {
   color: var(--dim);
   font-size: 0.87em;
 }
+
+/* Shortcuts window (keys/dialog.ts) and settings (settings/index.ts) */
+.alert-dialog:has(.shortcuts-editor) {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.shortcuts-editor,
+.settings-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.shortcuts-editor {
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
+}
+
+/* The list scrolls; the dialog's first focus lands on it, and a ring around the whole list says nothing. */
+.shortcuts-editor:focus {
+  outline: none;
+}
+
+/* `adw::PreferencesGroup` description, under the group's title. */
+.group-description {
+  margin: -4px 0 6px;
+  color: var(--dim);
+  font-size: 0.87em;
+}
+
+.bind-button {
+  min-width: 150px;
+}
+
+/* Desktop `bind-conflict` (`@error_color`): a chord another action also uses. */
+.bind-button.bind-conflict {
+  color: #e01b24;
+}

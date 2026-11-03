@@ -589,6 +589,7 @@ pub(super) fn delay_scope_dialog(
     } else {
         adw::ActionRow::builder()
             .title(fill(
+                // Translators: Frame delay dialog row: the selected frames the new delay applies to.
                 tn(
                     "{count} selected frame",
                     "{count} selected frames",

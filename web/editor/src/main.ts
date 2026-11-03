@@ -1,14 +1,19 @@
 import "./style.css";
 import { App } from "./app";
 import { installCore } from "./core";
+import { setLanguage } from "./i18n";
 import { startPlayback } from "./playback";
 import { createClient } from "./rpc";
 import type { Port } from "./rpc";
 import { slices } from "./slices";
+import { loadSettings } from "./settings/conf";
 import { createLayout } from "./ui/layout";
 
 const worker = new Worker(new URL("./worker/worker.ts", import.meta.url), { type: "module" });
 const app = new App(createClient(worker as Port));
+
+// The catalog loads before anything is built, so every `t()` below reads it.
+await setLanguage(loadSettings().language);
 
 installCore(app);
 for (const install of slices) install(app);

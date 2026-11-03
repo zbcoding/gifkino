@@ -328,7 +328,7 @@ async function optimized(gif: Uint8Array<ArrayBuffer>, lossy: number) {
   }
 }
 
-function download(blob: Blob, name: string): void {
+export function download(blob: Blob, name: string): void {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;

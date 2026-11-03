@@ -189,7 +189,9 @@ If `semble` is not on `$PATH`, use `uvx --from "semble[mcp]" semble` in its plac
 
 ## Translation & Localization
 
-Standard gettext `.po` catalogs in `po/`, with Rust string literals as msgids.
+Standard gettext `.po` catalogs in `po/`, with string literals as msgids — the
+desktop's Rust and the browser editor's TypeScript (`web/editor/src`) share
+one set of catalogs and mark strings the same way.
 The app parses the `.po` directly at startup — there is no `msgfmt` step and no
 `.mo`. Compiling to `.mo` only ever bought lookup speed, which a few hundred
 strings do not need, and it would cost a build step plus an install prefix this
@@ -215,7 +217,7 @@ app does not have yet.
 Workflow — one script, since there is no Makefile:
 
 ```bash
-scripts/i18n.py potfiles   # rescan src/ and rewrite po/POTFILES.in
+scripts/i18n.py potfiles   # rescan src/ and web/editor/src, rewrite po/POTFILES.in
 scripts/i18n.py pot        # rewrite po/messages.pot from the marked strings
 scripts/i18n.py merge      # fold the template into every po/LINGUAS locale
 scripts/i18n.py check      # what is untranslated, unreviewed, or obsolete
@@ -230,7 +232,9 @@ Locale comes from the `language` key in `settings.conf`, then `LANGUAGE`,
 `LC_ALL`, `LC_MESSAGES`, `LANG`. `de_DE` falls back to `de.po`. Set
 `GIFKINO_PO_DIR` to point at a catalog directory while testing; otherwise the
 source tree's `po/` is found by walking up from the executable, so `cargo run`
-picks up an edit with no install.
+picks up an edit with no install. The browser editor bundles `po/*.po` as build
+assets and reads the same `language` key from its own settings.conf (in
+localStorage), then `navigator.languages`.
 
 - AI-generated translations must be marked in each PO entry with `#. AI-generated translation; human review requested.`
 - Add a descriptive `#. Translators: ...` note immediately above the AI-generated marker, so the entry reads `Translators` note, then AI-generated marker, then `msgid`/`msgstr`, and carry a `#, fuzzy` flag so review tools treat the entry as unfinished
