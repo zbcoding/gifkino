@@ -19,3 +19,6 @@ __pycache__/
 /repo/
 *.AppImage
 *.flatpak
+
+# icp-cli build cache (keep web/.icp/data/: mainnet canister IDs)
+/web/.icp/cache/

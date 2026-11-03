@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gifkino — GIF editor for Linux</title>
+  <meta name="description" content="Edit animated GIFs. Import videos as resized GIF animations, add text, arrows and shapes, then export optimized GIFs.">
+  <link rel="icon" href="/images/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <img src="/images/icon.svg" alt="" width="64" height="64">
+    <h1>Gifkino</h1>
+    <p class="tagline">Edit animated GIFs. Import videos as resized GIF animations, add text, arrows and shapes, then export optimized GIFs with an updating size.</p>
+    <p class="actions">
+      <a class="button" href="https://github.com/zbcoding/gifkino/releases/latest">Download for Linux</a>
+      <a href="https://github.com/zbcoding/gifkino">Source on GitHub</a>
+    </p>
+  </header>
+
+  <main>
+    <img class="screenshot" src="/images/screenshot.png" width="1707" height="1138"
+         alt="The Gifkino window: an 8-frame GIF on the canvas with a text overlay, the frame strip and overlay bands below, and the frame and overlay properties on the right">
+
+    <h2>Features</h2>
+    <ul>
+      <li><strong>Open videos, GIFs and images</strong>, with automatic resizing on import for large files.</li>
+      <li><strong>Overlays scoped to frame ranges:</strong> text, shapes (rect, ellipse, arrow) and images, placed on the frames you pick.</li>
+      <li><strong>Frame list editing:</strong> reorder, duplicate, delete, retime, cut/copy/paste, drop one frame in every N, and smart-drop the frames that move the least.</li>
+      <li><strong>Frame effects:</strong> mirror, fade in or out, and cross-fade the end into the start for a seamless loop.</li>
+      <li><strong>Translated UI.</strong></li>
+      <li><strong>Optimized GIF export.</strong></li>
+    </ul>
+
+    <h2>Install</h2>
+    <p>Both builds are self-contained and carry the ffmpeg, ffprobe and gifsicle programs the editor uses.</p>
+    <ul>
+      <li><strong>Flatpak</strong> brings its own GTK and runs anywhere Flatpak does: <code>flatpak install --bundle Gifkino.flatpak</code></li>
+      <li><strong>AppImage</strong> needs glibc 2.39 or newer (Ubuntu 24.04, Debian 13, Fedora 40). <code>chmod +x</code> it and run it.</li>
+    </ul>
+  </main>
+
+  <footer>
+    <p>MIT licensed. Hosted on the <a href="https://internetcomputer.org">Internet Computer</a>.</p>
+  </footer>
+</body>
+</html>
