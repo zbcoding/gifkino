@@ -424,7 +424,7 @@ msgid "Keyboard shortcuts…"
 msgstr "キーボードショートカット…"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:250 src/ui/window/dialogs.rs:62 web/editor/src/about/index.ts:82
+#: src/ui/window/build.rs:250 src/ui/window/dialogs.rs:62 web/editor/src/about/index.ts:81
 #, fuzzy
 msgid "About"
 msgstr "このアプリについて"
@@ -815,51 +815,51 @@ msgid "{count} frames selected"
 msgstr "{count} フレームを選択中"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:83 web/editor/src/about/index.ts:60
+#: src/ui/window/dialogs.rs:83 web/editor/src/about/index.ts:59
 #, fuzzy
 msgid "Details"
 msgstr "詳細"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:84 web/editor/src/about/index.ts:61
+#: src/ui/window/dialogs.rs:84 web/editor/src/about/index.ts:60
 #, fuzzy
 msgid "Version"
 msgstr "バージョン"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:86 web/editor/src/about/index.ts:62
+#: src/ui/window/dialogs.rs:86 web/editor/src/about/index.ts:61
 #, fuzzy
 msgid "Repository"
 msgstr "リポジトリ"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:93 web/editor/src/about/index.ts:65
+#: src/ui/window/dialogs.rs:93 web/editor/src/about/index.ts:64
 #, fuzzy
 msgid "Feedback"
 msgstr "フィードバック"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:96 web/editor/src/about/index.ts:67
+#: src/ui/window/dialogs.rs:96 web/editor/src/about/index.ts:66
 #, fuzzy
 msgid "Report an issue on GitHub"
 msgstr "GitHub で問題を報告"
 
 #. Translators: Why this is the first of the two feedback rows.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:98 web/editor/src/about/index.ts:69
+#: src/ui/window/dialogs.rs:98 web/editor/src/about/index.ts:68
 #, fuzzy
 msgid "Tracked and answered. Needs a GitHub account."
 msgstr "記録され、回答されます。GitHub アカウントが必要です。"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:102 web/editor/src/about/index.ts:73
+#: src/ui/window/dialogs.rs:102 web/editor/src/about/index.ts:72
 #, fuzzy
 msgid "Quick feedback form"
 msgstr "簡単なフィードバックフォーム"
 
 #. Translators: The second feedback row, for a user with no account.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:104 web/editor/src/about/index.ts:75
+#: src/ui/window/dialogs.rs:104 web/editor/src/about/index.ts:74
 #, fuzzy
 msgid "About a minute, no account needed."
 msgstr "1分程度、アカウントは不要です。"
@@ -915,7 +915,7 @@ msgid "frames"
 msgstr "フレーム"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:188 src/ui/window/dialogs.rs:431 src/ui/window/dialogs.rs:543 src/ui/window/dialogs.rs:605 src/ui/window/dialogs.rs:650 src/ui/window/dialogs.rs:736 src/ui/window/dialogs.rs:794 src/ui/window/dialogs.rs:833 src/ui/window/imports.rs:83 src/ui/window/imports.rs:905 web/editor/src/frameops/dialogs.ts:14 web/editor/src/overlays/crop.ts:170 web/editor/src/overlays/font.ts:76 web/editor/src/ui/layout.ts:80 web/editor/src/video/dialog.ts:101 web/editor/src/video/ffmpeg.ts:33
+#: src/ui/window/dialogs.rs:188 src/ui/window/dialogs.rs:431 src/ui/window/dialogs.rs:543 src/ui/window/dialogs.rs:605 src/ui/window/dialogs.rs:650 src/ui/window/dialogs.rs:736 src/ui/window/dialogs.rs:794 src/ui/window/dialogs.rs:833 src/ui/window/imports.rs:83 src/ui/window/imports.rs:905 web/editor/src/frameops/dialogs.ts:14 web/editor/src/overlays/crop.ts:170 web/editor/src/overlays/font.ts:76 web/editor/src/ui/layout.ts:80 web/editor/src/video/dialog.ts:101 web/editor/src/video/ffmpeg.ts:47
 #, fuzzy
 msgid "Cancel"
 msgstr "キャンセル"
@@ -1081,7 +1081,7 @@ msgstr "まずストリップでフェードするフレームを選択してく
 
 #. Translators: Dismisses a dialog that only explains something.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:700 src/ui/window/dialogs.rs:770 web/editor/src/about/index.ts:85 web/editor/src/frameops/dialogs.ts:20 web/editor/src/keys/dialog.ts:152 web/editor/src/settings/index.ts:109
+#: src/ui/window/dialogs.rs:700 src/ui/window/dialogs.rs:770 web/editor/src/about/index.ts:84 web/editor/src/frameops/dialogs.ts:20 web/editor/src/keys/dialog.ts:152 web/editor/src/settings/index.ts:109
 #, fuzzy
 msgid "Close"
 msgstr "閉じる"
@@ -2097,40 +2097,48 @@ msgstr "メインメニュー"
 
 #. Translators: Title of the question asked before the first video import downloads ffmpeg.
 #. AI-generated translation; human review requested.
-#: web/editor/src/video/ffmpeg.ts:28
+#: web/editor/src/video/ffmpeg.ts:38
 #, fuzzy
 msgid "Download ffmpeg?"
 msgstr "ffmpeg をダウンロードしますか?"
 
+#. Translators: Body of the question before the first ffmpeg download. jsDelivr is a CDN's name; {version} is a version number such as 0.12.10.
 #. AI-generated translation; human review requested.
-#: web/editor/src/video/ffmpeg.ts:29
+#: web/editor/src/video/ffmpeg.ts:41
 #, fuzzy
-msgid "Importing video needs ffmpeg, about 30 MB. It downloads in the background once, then this browser keeps it."
-msgstr "動画のインポートには ffmpeg (約 30 MB) が必要です。バックグラウンドで一度だけダウンロードされ、以後はこのブラウザーに保存されます。"
+msgid "Importing video needs ffmpeg, about 30 MB. It downloads once from the jsDelivr CDN, then this browser keeps it. The download is checked against the official ffmpeg.wasm {version} package and is not used unless it matches."
+msgstr "動画のインポートには ffmpeg (約 30 MB) が必要です。jsDelivr CDN から一度だけダウンロードされ、以後はこのブラウザーに保存されます。ダウンロードしたファイルは公式の ffmpeg.wasm {version} パッケージと照合され、一致しない場合は使用されません。"
 
 #. Translators: Button that starts the ffmpeg download.
 #. AI-generated translation; human review requested.
-#: web/editor/src/video/ffmpeg.ts:35
+#: web/editor/src/video/ffmpeg.ts:49
 #, fuzzy
 msgid "Download"
 msgstr "ダウンロード"
 
+#. Translators: Error when the ffmpeg file a CDN served failed its checksum check.
 #. AI-generated translation; human review requested.
-#: web/editor/src/video/ffmpeg.ts:57
+#: web/editor/src/video/ffmpeg.ts:87
+#, fuzzy
+msgid "The downloaded ffmpeg did not match the official package, so it was not used."
+msgstr "ダウンロードした ffmpeg が公式パッケージと一致しなかったため、使用しませんでした。"
+
+#. AI-generated translation; human review requested.
+#: web/editor/src/video/ffmpeg.ts:88
 #, fuzzy
 msgid "Could not download ffmpeg: {reason}"
 msgstr "ffmpeg をダウンロードできませんでした: {reason}"
 
 #. Translators: Progress of the ffmpeg download; both values are megabytes.
 #. AI-generated translation; human review requested.
-#: web/editor/src/video/ffmpeg.ts:63
+#: web/editor/src/video/ffmpeg.ts:105
 #, fuzzy
 msgid "Downloading ffmpeg… {done} / {total} MB"
 msgstr "ffmpeg をダウンロード中… {done} / {total} MB"
 
 #. Translators: Progress of the ffmpeg download when its size is unknown, in megabytes.
 #. AI-generated translation; human review requested.
-#: web/editor/src/video/ffmpeg.ts:65
+#: web/editor/src/video/ffmpeg.ts:107
 #, fuzzy
 msgid "Downloading ffmpeg… {done} MB"
 msgstr "ffmpeg をダウンロード中… {done} MB"

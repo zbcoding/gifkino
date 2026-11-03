@@ -34,7 +34,8 @@ machine that has none of them installed.
 
 The same editor also runs in the browser — [**try it online**](https://qeotg-2yaaa-aaaab-qhpka-cai.icp0.io/edit/)
 (source and deploy steps in [`web/`](web/AGENTS.md)). Video import there
-downloads ffmpeg (about 30 MB) the first time, after asking.
+downloads ffmpeg (about 30 MB) from the jsDelivr CDN the first time, after
+asking, and checks it against the official package before using it.
 
 ## Build from source
 

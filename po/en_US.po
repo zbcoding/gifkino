@@ -305,7 +305,7 @@ msgstr "Add frames from file…"
 msgid "Keyboard shortcuts…"
 msgstr "Keyboard shortcuts…"
 
-#: src/ui/window/build.rs:250 src/ui/window/dialogs.rs:62 web/editor/src/about/index.ts:82
+#: src/ui/window/build.rs:250 src/ui/window/dialogs.rs:62 web/editor/src/about/index.ts:81
 msgid "About"
 msgstr "About"
 
@@ -592,37 +592,37 @@ msgstr "{count} frame selected"
 msgid "{count} frames selected"
 msgstr "{count} frames selected"
 
-#: src/ui/window/dialogs.rs:83 web/editor/src/about/index.ts:60
+#: src/ui/window/dialogs.rs:83 web/editor/src/about/index.ts:59
 msgid "Details"
 msgstr "Details"
 
-#: src/ui/window/dialogs.rs:84 web/editor/src/about/index.ts:61
+#: src/ui/window/dialogs.rs:84 web/editor/src/about/index.ts:60
 msgid "Version"
 msgstr "Version"
 
-#: src/ui/window/dialogs.rs:86 web/editor/src/about/index.ts:62
+#: src/ui/window/dialogs.rs:86 web/editor/src/about/index.ts:61
 msgid "Repository"
 msgstr "Repository"
 
-#: src/ui/window/dialogs.rs:93 web/editor/src/about/index.ts:65
+#: src/ui/window/dialogs.rs:93 web/editor/src/about/index.ts:64
 msgid "Feedback"
 msgstr "Feedback"
 
-#: src/ui/window/dialogs.rs:96 web/editor/src/about/index.ts:67
+#: src/ui/window/dialogs.rs:96 web/editor/src/about/index.ts:66
 msgid "Report an issue on GitHub"
 msgstr "Report an issue on GitHub"
 
 #. Translators: Why this is the first of the two feedback rows.
-#: src/ui/window/dialogs.rs:98 web/editor/src/about/index.ts:69
+#: src/ui/window/dialogs.rs:98 web/editor/src/about/index.ts:68
 msgid "Tracked and answered. Needs a GitHub account."
 msgstr "Tracked and answered. Needs a GitHub account."
 
-#: src/ui/window/dialogs.rs:102 web/editor/src/about/index.ts:73
+#: src/ui/window/dialogs.rs:102 web/editor/src/about/index.ts:72
 msgid "Quick feedback form"
 msgstr "Quick feedback form"
 
 #. Translators: The second feedback row, for a user with no account.
-#: src/ui/window/dialogs.rs:104 web/editor/src/about/index.ts:75
+#: src/ui/window/dialogs.rs:104 web/editor/src/about/index.ts:74
 msgid "About a minute, no account needed."
 msgstr "About a minute, no account needed."
 
@@ -660,7 +660,7 @@ msgstr "Remove this share of frames"
 msgid "frames"
 msgstr "frames"
 
-#: src/ui/window/dialogs.rs:188 src/ui/window/dialogs.rs:431 src/ui/window/dialogs.rs:543 src/ui/window/dialogs.rs:605 src/ui/window/dialogs.rs:650 src/ui/window/dialogs.rs:736 src/ui/window/dialogs.rs:794 src/ui/window/dialogs.rs:833 src/ui/window/imports.rs:83 src/ui/window/imports.rs:905 web/editor/src/frameops/dialogs.ts:14 web/editor/src/overlays/crop.ts:170 web/editor/src/overlays/font.ts:76 web/editor/src/ui/layout.ts:80 web/editor/src/video/dialog.ts:101 web/editor/src/video/ffmpeg.ts:33
+#: src/ui/window/dialogs.rs:188 src/ui/window/dialogs.rs:431 src/ui/window/dialogs.rs:543 src/ui/window/dialogs.rs:605 src/ui/window/dialogs.rs:650 src/ui/window/dialogs.rs:736 src/ui/window/dialogs.rs:794 src/ui/window/dialogs.rs:833 src/ui/window/imports.rs:83 src/ui/window/imports.rs:905 web/editor/src/frameops/dialogs.ts:14 web/editor/src/overlays/crop.ts:170 web/editor/src/overlays/font.ts:76 web/editor/src/ui/layout.ts:80 web/editor/src/video/dialog.ts:101 web/editor/src/video/ffmpeg.ts:47
 msgid "Cancel"
 msgstr "Cancel"
 
@@ -776,7 +776,7 @@ msgid "Select the frames to fade across in the strip first: Shift+click for a ru
 msgstr "Select the frames to fade across in the strip first: Shift+click for a run, or pick All frames."
 
 #. Translators: Dismisses a dialog that only explains something.
-#: src/ui/window/dialogs.rs:700 src/ui/window/dialogs.rs:770 web/editor/src/about/index.ts:85 web/editor/src/frameops/dialogs.ts:20 web/editor/src/keys/dialog.ts:152 web/editor/src/settings/index.ts:109
+#: src/ui/window/dialogs.rs:700 src/ui/window/dialogs.rs:770 web/editor/src/about/index.ts:84 web/editor/src/frameops/dialogs.ts:20 web/editor/src/keys/dialog.ts:152 web/editor/src/settings/index.ts:109
 msgid "Close"
 msgstr "Close"
 
@@ -1482,29 +1482,35 @@ msgid "Main menu"
 msgstr "Main menu"
 
 #. Translators: Title of the question asked before the first video import downloads ffmpeg.
-#: web/editor/src/video/ffmpeg.ts:28
+#: web/editor/src/video/ffmpeg.ts:38
 msgid "Download ffmpeg?"
 msgstr "Download ffmpeg?"
 
-#: web/editor/src/video/ffmpeg.ts:29
-msgid "Importing video needs ffmpeg, about 30 MB. It downloads in the background once, then this browser keeps it."
-msgstr "Importing video needs ffmpeg, about 30 MB. It downloads in the background once, then this browser keeps it."
+#. Translators: Body of the question before the first ffmpeg download. jsDelivr is a CDN's name; {version} is a version number such as 0.12.10.
+#: web/editor/src/video/ffmpeg.ts:41
+msgid "Importing video needs ffmpeg, about 30 MB. It downloads once from the jsDelivr CDN, then this browser keeps it. The download is checked against the official ffmpeg.wasm {version} package and is not used unless it matches."
+msgstr "Importing video needs ffmpeg, about 30 MB. It downloads once from the jsDelivr CDN, then this browser keeps it. The download is checked against the official ffmpeg.wasm {version} package and is not used unless it matches."
 
 #. Translators: Button that starts the ffmpeg download.
-#: web/editor/src/video/ffmpeg.ts:35
+#: web/editor/src/video/ffmpeg.ts:49
 msgid "Download"
 msgstr "Download"
 
-#: web/editor/src/video/ffmpeg.ts:57
+#. Translators: Error when the ffmpeg file a CDN served failed its checksum check.
+#: web/editor/src/video/ffmpeg.ts:87
+msgid "The downloaded ffmpeg did not match the official package, so it was not used."
+msgstr "The downloaded ffmpeg did not match the official package, so it was not used."
+
+#: web/editor/src/video/ffmpeg.ts:88
 msgid "Could not download ffmpeg: {reason}"
 msgstr "Could not download ffmpeg: {reason}"
 
 #. Translators: Progress of the ffmpeg download; both values are megabytes.
-#: web/editor/src/video/ffmpeg.ts:63
+#: web/editor/src/video/ffmpeg.ts:105
 msgid "Downloading ffmpeg… {done} / {total} MB"
 msgstr "Downloading ffmpeg… {done} / {total} MB"
 
 #. Translators: Progress of the ffmpeg download when its size is unknown, in megabytes.
-#: web/editor/src/video/ffmpeg.ts:65
+#: web/editor/src/video/ffmpeg.ts:107
 msgid "Downloading ffmpeg… {done} MB"
 msgstr "Downloading ffmpeg… {done} MB"

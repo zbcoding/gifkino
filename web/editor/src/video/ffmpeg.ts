@@ -1,8 +1,12 @@
 // ffmpeg on the page's side: asked for once, downloaded once per session
 // under the busy bar, then driven in `ffmpeg.worker.ts`. The desktop finds
 // ffmpeg at startup (`pipeline/caps.rs`); here it is fetched on first use.
+//
+// The 30 MB core comes from a public npm CDN rather than this site's own
+// canister, which would pay to store it. It is the same file as the
+// `@ffmpeg/core` installed for the build: `vite.config.ts` takes the version
+// and SHA-256 from that copy, and bytes that hash differently are never compiled.
 
-import wasmURL from "@ffmpeg/core/wasm?url";
 import type { App } from "../app";
 import { fill, t } from "../i18n";
 import { alertDialog } from "../ui/dialog";
@@ -10,6 +14,12 @@ import type { FfmpegReply, FfmpegRequest } from "./ffmpeg-protocol";
 import { INPUT_DIR } from "./ffmpeg-protocol";
 
 const MB = 1024 * 1024;
+
+/** Where the core is fetched from, in order; each must be in the CSP's `connect-src` (public/_headers). */
+const CORE_URLS = [
+  `https://cdn.jsdelivr.net/npm/@ffmpeg/core@${__FFMPEG_CORE_VERSION__}/dist/esm/ffmpeg-core.wasm`,
+  `https://unpkg.com/@ffmpeg/core@${__FFMPEG_CORE_VERSION__}/dist/esm/ffmpeg-core.wasm`,
+];
 
 /** Thrown out of a decode the user cancelled. */
 export class Cancelled extends Error {}
@@ -26,8 +36,12 @@ export async function loadFfmpeg(app: App): Promise<boolean> {
   const answer = await alertDialog({
     // Translators: Title of the question asked before the first video import downloads ffmpeg.
     title: t("Download ffmpeg?"),
-    body: t(
-      "Importing video needs ffmpeg, about 30 MB. It downloads in the background once, then this browser keeps it.",
+    body: fill(
+      // Translators: Body of the question before the first ffmpeg download. jsDelivr is a CDN's name; {version} is a version number such as 0.12.10.
+      t(
+        "Importing video needs ffmpeg, about 30 MB. It downloads once from the jsDelivr CDN, then this browser keeps it. The download is checked against the official ffmpeg.wasm {version} package and is not used unless it matches.",
+      ),
+      { version: __FFMPEG_CORE_VERSION__ },
     ),
     responses: [
       { id: "cancel", label: t("Cancel") },
@@ -49,13 +63,41 @@ export async function loadFfmpeg(app: App): Promise<boolean> {
   }
 }
 
-/** The core's bytes, with the busy bar counting megabytes. */
+/**
+ * The core's bytes from the first mirror that serves the genuine file. A
+ * mirror that fails or serves anything else is skipped; the error names the
+ * mismatch if any mirror had one, since that is the one worth reporting.
+ */
 async function download(app: App, abort: AbortController): Promise<Uint8Array<ArrayBuffer>> {
-  const response = await fetch(wasmURL, { signal: abort.signal });
+  let reason = "";
+  let mismatch = false;
+  for (const url of CORE_URLS) {
+    try {
+      const bytes = await downloadFrom(app, url, abort);
+      if ((await sha256(bytes)) === __FFMPEG_CORE_SHA256__) return bytes;
+      mismatch = true;
+    } catch (error) {
+      if (abort.signal.aborted) throw error;
+      reason = error instanceof Error ? error.message : String(error);
+    }
+  }
+  throw new Error(
+    mismatch
+      ? // Translators: Error when the ffmpeg file a CDN served failed its checksum check.
+        t("The downloaded ffmpeg did not match the official package, so it was not used.")
+      : fill(t("Could not download ffmpeg: {reason}"), { reason }),
+  );
+}
+
+/** `url`'s bytes, with the busy bar counting megabytes. */
+async function downloadFrom(
+  app: App,
+  url: string,
+  abort: AbortController,
+): Promise<Uint8Array<ArrayBuffer>> {
+  const response = await fetch(url, { signal: abort.signal });
   if (!response.ok || !response.body) {
-    throw new Error(
-      fill(t("Could not download ffmpeg: {reason}"), { reason: response.statusText }),
-    );
+    throw new Error(`${new URL(url).host}: ${response.status} ${response.statusText}`);
   }
   const length = Number(response.headers.get("Content-Length")) || null;
   const label = length
@@ -88,6 +130,12 @@ async function download(app: App, abort: AbortController): Promise<Uint8Array<Ar
     at += chunk.length;
   }
   return bytes;
+}
+
+/** `bytes`' SHA-256, lowercase hex. */
+async function sha256(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 /** Where `file` reads inside the worker. */

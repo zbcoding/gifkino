@@ -436,7 +436,7 @@ msgid "Keyboard shortcuts…"
 msgstr "Atajos de teclado…"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:250 src/ui/window/dialogs.rs:62 web/editor/src/about/index.ts:82
+#: src/ui/window/build.rs:250 src/ui/window/dialogs.rs:62 web/editor/src/about/index.ts:81
 #, fuzzy
 msgid "About"
 msgstr "Acerca de"
@@ -851,51 +851,51 @@ msgid "{count} frames selected"
 msgstr "{count} fotogramas seleccionados"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:83 web/editor/src/about/index.ts:60
+#: src/ui/window/dialogs.rs:83 web/editor/src/about/index.ts:59
 #, fuzzy
 msgid "Details"
 msgstr "Detalles"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:84 web/editor/src/about/index.ts:61
+#: src/ui/window/dialogs.rs:84 web/editor/src/about/index.ts:60
 #, fuzzy
 msgid "Version"
 msgstr "Versión"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:86 web/editor/src/about/index.ts:62
+#: src/ui/window/dialogs.rs:86 web/editor/src/about/index.ts:61
 #, fuzzy
 msgid "Repository"
 msgstr "Repositorio"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:93 web/editor/src/about/index.ts:65
+#: src/ui/window/dialogs.rs:93 web/editor/src/about/index.ts:64
 #, fuzzy
 msgid "Feedback"
 msgstr "Comentarios"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:96 web/editor/src/about/index.ts:67
+#: src/ui/window/dialogs.rs:96 web/editor/src/about/index.ts:66
 #, fuzzy
 msgid "Report an issue on GitHub"
 msgstr "Informar de un problema en GitHub"
 
 #. Translators: Why this is the first of the two feedback rows.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:98 web/editor/src/about/index.ts:69
+#: src/ui/window/dialogs.rs:98 web/editor/src/about/index.ts:68
 #, fuzzy
 msgid "Tracked and answered. Needs a GitHub account."
 msgstr "Con seguimiento y respuesta. Requiere una cuenta de GitHub."
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:102 web/editor/src/about/index.ts:73
+#: src/ui/window/dialogs.rs:102 web/editor/src/about/index.ts:72
 #, fuzzy
 msgid "Quick feedback form"
 msgstr "Formulario de comentarios rápido"
 
 #. Translators: The second feedback row, for a user with no account.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:104 web/editor/src/about/index.ts:75
+#: src/ui/window/dialogs.rs:104 web/editor/src/about/index.ts:74
 #, fuzzy
 msgid "About a minute, no account needed."
 msgstr "Aproximadamente un minuto, sin necesidad de cuenta."
@@ -951,7 +951,7 @@ msgid "frames"
 msgstr "fotogramas"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:188 src/ui/window/dialogs.rs:431 src/ui/window/dialogs.rs:543 src/ui/window/dialogs.rs:605 src/ui/window/dialogs.rs:650 src/ui/window/dialogs.rs:736 src/ui/window/dialogs.rs:794 src/ui/window/dialogs.rs:833 src/ui/window/imports.rs:83 src/ui/window/imports.rs:905 web/editor/src/frameops/dialogs.ts:14 web/editor/src/overlays/crop.ts:170 web/editor/src/overlays/font.ts:76 web/editor/src/ui/layout.ts:80 web/editor/src/video/dialog.ts:101 web/editor/src/video/ffmpeg.ts:33
+#: src/ui/window/dialogs.rs:188 src/ui/window/dialogs.rs:431 src/ui/window/dialogs.rs:543 src/ui/window/dialogs.rs:605 src/ui/window/dialogs.rs:650 src/ui/window/dialogs.rs:736 src/ui/window/dialogs.rs:794 src/ui/window/dialogs.rs:833 src/ui/window/imports.rs:83 src/ui/window/imports.rs:905 web/editor/src/frameops/dialogs.ts:14 web/editor/src/overlays/crop.ts:170 web/editor/src/overlays/font.ts:76 web/editor/src/ui/layout.ts:80 web/editor/src/video/dialog.ts:101 web/editor/src/video/ffmpeg.ts:47
 #, fuzzy
 msgid "Cancel"
 msgstr "Cancelar"
@@ -1117,7 +1117,7 @@ msgstr "Primero seleccione en la tira los fotogramas del fundido: Shift+clic par
 
 #. Translators: Dismisses a dialog that only explains something.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:700 src/ui/window/dialogs.rs:770 web/editor/src/about/index.ts:85 web/editor/src/frameops/dialogs.ts:20 web/editor/src/keys/dialog.ts:152 web/editor/src/settings/index.ts:109
+#: src/ui/window/dialogs.rs:700 src/ui/window/dialogs.rs:770 web/editor/src/about/index.ts:84 web/editor/src/frameops/dialogs.ts:20 web/editor/src/keys/dialog.ts:152 web/editor/src/settings/index.ts:109
 #, fuzzy
 msgid "Close"
 msgstr "Cerrar"
@@ -2145,40 +2145,48 @@ msgstr "Menú principal"
 
 #. Translators: Title of the question asked before the first video import downloads ffmpeg.
 #. AI-generated translation; human review requested.
-#: web/editor/src/video/ffmpeg.ts:28
+#: web/editor/src/video/ffmpeg.ts:38
 #, fuzzy
 msgid "Download ffmpeg?"
 msgstr "¿Descargar ffmpeg?"
 
+#. Translators: Body of the question before the first ffmpeg download. jsDelivr is a CDN's name; {version} is a version number such as 0.12.10.
 #. AI-generated translation; human review requested.
-#: web/editor/src/video/ffmpeg.ts:29
+#: web/editor/src/video/ffmpeg.ts:41
 #, fuzzy
-msgid "Importing video needs ffmpeg, about 30 MB. It downloads in the background once, then this browser keeps it."
-msgstr "Importar vídeo requiere ffmpeg, unos 30 MB. Se descarga una vez en segundo plano y después este navegador lo conserva."
+msgid "Importing video needs ffmpeg, about 30 MB. It downloads once from the jsDelivr CDN, then this browser keeps it. The download is checked against the official ffmpeg.wasm {version} package and is not used unless it matches."
+msgstr "Importar vídeo requiere ffmpeg, unos 30 MB. Se descarga una vez desde la CDN jsDelivr y después este navegador lo conserva. La descarga se comprueba con el paquete oficial ffmpeg.wasm {version} y solo se usa si coincide."
 
 #. Translators: Button that starts the ffmpeg download.
 #. AI-generated translation; human review requested.
-#: web/editor/src/video/ffmpeg.ts:35
+#: web/editor/src/video/ffmpeg.ts:49
 #, fuzzy
 msgid "Download"
 msgstr "Descargar"
 
+#. Translators: Error when the ffmpeg file a CDN served failed its checksum check.
 #. AI-generated translation; human review requested.
-#: web/editor/src/video/ffmpeg.ts:57
+#: web/editor/src/video/ffmpeg.ts:87
+#, fuzzy
+msgid "The downloaded ffmpeg did not match the official package, so it was not used."
+msgstr "El ffmpeg descargado no coincidía con el paquete oficial, así que no se usó."
+
+#. AI-generated translation; human review requested.
+#: web/editor/src/video/ffmpeg.ts:88
 #, fuzzy
 msgid "Could not download ffmpeg: {reason}"
 msgstr "No se pudo descargar ffmpeg: {reason}"
 
 #. Translators: Progress of the ffmpeg download; both values are megabytes.
 #. AI-generated translation; human review requested.
-#: web/editor/src/video/ffmpeg.ts:63
+#: web/editor/src/video/ffmpeg.ts:105
 #, fuzzy
 msgid "Downloading ffmpeg… {done} / {total} MB"
 msgstr "Descargando ffmpeg… {done} / {total} MB"
 
 #. Translators: Progress of the ffmpeg download when its size is unknown, in megabytes.
 #. AI-generated translation; human review requested.
-#: web/editor/src/video/ffmpeg.ts:65
+#: web/editor/src/video/ffmpeg.ts:107
 #, fuzzy
 msgid "Downloading ffmpeg… {done} MB"
 msgstr "Descargando ffmpeg… {done} MB"

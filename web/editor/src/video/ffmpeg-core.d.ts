@@ -21,3 +21,7 @@ declare module "@ffmpeg/core" {
 
   export default function createFFmpegCore(options: object): Promise<Core>;
 }
+
+/** The installed `@ffmpeg/core`'s version and its wasm's SHA-256 (hex), set by `vite.config.ts`. */
+declare const __FFMPEG_CORE_VERSION__: string;
+declare const __FFMPEG_CORE_SHA256__: string;

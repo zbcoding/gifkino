@@ -167,8 +167,12 @@ Escape backs out of the crop tool, else drops the pick.
 
 The desktop's `pipeline/video.rs` and import dialog on ffmpeg.wasm's
 single-thread core. The first video import asks before downloading the core
-(~30 MB, a hashed asset under `/edit/assets/`), downloads it under the busy bar
-and compiles it once per page; `ffmpeg.worker.ts` instantiates it and runs
+(~30 MB) from jsDelivr, or unpkg if that fails, rather than from the canister,
+which would pay to store it. `vite.config.ts` pins the URL to the installed
+`@ffmpeg/core`'s version and bakes in its wasm's SHA-256; a download that hashes
+differently is discarded, and the glue's own reference to the wasm is stripped
+so the build does not ship it. The core downloads under the busy bar
+and compiles once per page; `ffmpeg.worker.ts` instantiates it and runs
 ffprobe and ffmpeg there, the file mounted read-only (WORKERFS) and the RGBA
 frames streamed out of a device file as they are written. `plan.ts` is the
 desktop's plan arithmetic and trim parsing (`plan_for`, `read_trim`, …), so the
