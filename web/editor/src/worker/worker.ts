@@ -2,6 +2,7 @@
 // can take seconds, so the page never runs them on its own thread.
 
 import init, {
+  contains,
   delaysForFps,
   Editor,
   fitCanvas,
@@ -36,7 +37,13 @@ const decode: Decode = (source, progress) => {
 const ready = init().then(() => {
   const editor = new Editor();
   editor.setTextRasterizer(rasterizeText);
-  return createHandler(editor, decode, { handleAt, orientedCorners, fitCanvas, delaysForFps });
+  return createHandler(editor, decode, {
+    handleAt,
+    contains,
+    orientedCorners,
+    fitCanvas,
+    delaysForFps,
+  });
 });
 
 const post: Post = (response, transfer = []) => self.postMessage(response, { transfer });

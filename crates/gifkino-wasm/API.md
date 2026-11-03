@@ -151,6 +151,7 @@ pass 4 GiB loses the module, so apply a budget before calling.
 | `restyleOverlay(id, kind, frames, playhead)` → `OverlayEdit` | Replace the kind's fields (font, size, colours, outline, align, antialias; fill, stroke). Same value or other type → `undefined`. A playhead off the overlay counts as its first frame; desktop seeks there first | Overlay restyled |
 | `copyOverlayTo(id, frames)` | Onto those of `frames` it does not cover, one piece per run; none → `undefined` (desktop says "The overlay is on those frames already") | Overlay copied |
 | `overlayAt(frame, x, y)` → `number \| undefined` | Topmost visible overlay under the point, rotation honoured | |
+| `overlayEditCount(id, frames, playhead)` → `number` | How many frames a scoped edit (below) of `id` lands on; the desktop shows "Applies to {count} selected frames" under the overlay editor when it is more than one | |
 
 **Scoped overlay edits.** `editText`, `restyleOverlay` and `commitOverlayDrag`
 land where `frames` reaches into the overlay's range; when that misses the
@@ -205,6 +206,7 @@ Without a rasterizer, text draws nothing.
 | Function | |
 |---|---|
 | `handleAt(transform, x, y, grab)` → `number \| undefined` | Corner grip within `grab` of the point. |
+| `contains(transform, x, y)` → `boolean` | Whether the point lies inside the box, rotation honoured: desktop's test for "on the selected overlay". |
 | `orientedCorners(transform)` → `[x, y][]` | Grip positions on the image. |
 | `fitCanvas(fit, canvasW, canvasH, incomingW, incomingH)` → `[w, h]` | The canvas a splice under `fit` produces, for the fit question's labels. |
 | `delaysForFps(fps, count)` → `Uint16Array` | Per-frame delays for video frames, spreading the centisecond remainder so the total keeps time. |

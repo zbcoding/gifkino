@@ -3,6 +3,7 @@
 
 import type {
   Change,
+  contains,
   delaysForFps,
   Editor,
   fitCanvas,
@@ -79,6 +80,7 @@ export type EditorMethod = {
 /** The module's free functions (geometry and timing helpers), callable through `compute`. */
 export interface FreeFunctions {
   handleAt: typeof handleAt;
+  contains: typeof contains;
   orientedCorners: typeof orientedCorners;
   fitCanvas: typeof fitCanvas;
   delaysForFps: typeof delaysForFps;

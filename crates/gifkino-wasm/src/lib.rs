@@ -990,6 +990,14 @@ impl Editor {
             .map(|o| o.id.0)
     }
 
+    /// How many frames a scoped edit of overlay `id` (`editText`,
+    /// `restyleOverlay`, `commitOverlayDrag`) would land on: the desktop's
+    /// "Applies to {count} selected frames" under the overlay editor.
+    #[wasm_bindgen(js_name = overlayEditCount)]
+    pub fn overlay_edit_count(&self, id: u32, frames: &[u32], playhead: usize) -> usize {
+        self.edit_span(OverlayId(id), frames, playhead).len()
+    }
+
     /// Where a canvas drag has taken `origin`: see `handles::drag`. `from`
     /// and `to` are the press and the pointer in image pixels; `snapReach`
     /// is the snap distance in image pixels, `null` with snapping off.
@@ -1132,6 +1140,17 @@ pub fn handle_at(
     Ok(handles::handle_at(transform, x, y, grab))
 }
 
+/// Whether `(x, y)` lies inside `transform`'s box, rotation honoured.
+#[wasm_bindgen]
+pub fn contains(
+    #[wasm_bindgen(unchecked_param_type = "Transform")] transform: JsValue,
+    x: f32,
+    y: f32,
+) -> Result<bool, JsError> {
+    let transform: Transform = from_js(transform)?;
+    Ok(handles::contains(transform, x, y))
+}
+
 /// Where `transform`'s four grips sit on the image, rotation included: TL,
 /// TR, BL, BR.
 #[wasm_bindgen(js_name = orientedCorners, unchecked_return_type = "[number, number][]")]
@@ -1163,4 +1182,31 @@ pub fn fit_canvas(
 #[wasm_bindgen(js_name = delaysForFps)]
 pub fn delays_for_fps_js(fps: f64, count: usize) -> Vec<u16> {
     delays_for_fps(fps, count)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The overlay editor's "Applies to {count} selected frames" has to name
+    /// the frames the edit really lands on: a scope reaching past the overlay
+    /// is clipped to it, one that touches the overlay but not the frame on
+    /// screen falls back to that frame alone, and one missing it is nothing.
+    #[test]
+    fn edit_count_is_where_the_scope_meets_the_overlay() {
+        let mut doc = Document::default();
+        doc.frames = (0..6)
+            .map(|_| Frame::new(RgbaImage::new(4, 4), 10))
+            .collect();
+        let (kind, transform) = fresh_overlay(Some(Shape::Rect), (4, 4));
+        let id = doc.add_overlay_over("Rectangle", kind, transform, &[1, 2, 3])[0];
+        let editor = Editor {
+            history: gifkino_core::Editor::new(doc),
+            ..Editor::default()
+        };
+        assert_eq!(editor.overlay_edit_count(id.0, &[0, 1, 2, 3, 4, 5], 2), 3);
+        assert_eq!(editor.overlay_edit_count(id.0, &[2], 2), 1);
+        assert_eq!(editor.overlay_edit_count(id.0, &[1, 2], 3), 1, "the frame on screen");
+        assert_eq!(editor.overlay_edit_count(id.0, &[5], 2), 0, "nowhere to land");
+    }
 }

@@ -24,11 +24,11 @@ export function h<K extends keyof HTMLElementTagNameMap>(
   return element;
 }
 
-/** An inline SVG icon from a 16×16 path, coloured by `currentColor`. */
-export function icon(path: string): SVGSVGElement {
+/** An inline SVG icon from a path (16×16 unless `viewBox` says otherwise), coloured by `currentColor`. */
+export function icon(path: string, viewBox = "0 0 16 16"): SVGSVGElement {
   const svgNs = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(svgNs, "svg");
-  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("viewBox", viewBox);
   svg.setAttribute("class", "icon");
   svg.setAttribute("aria-hidden", "true");
   const shape = document.createElementNS(svgNs, "path");

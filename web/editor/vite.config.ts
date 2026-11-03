@@ -7,8 +7,9 @@ export default defineConfig({
   worker: { format: "es" },
   // Nothing inlined as data: URLs, which the site's CSP (public/_headers) refuses.
   build: { target: "es2024", assetsInlineLimit: 0 },
-  // The welcome page and favicon use the landing page's icon from ../public.
-  server: { fs: { allow: [".."] } },
+  // The welcome page and favicon use the landing page's icon from ../public;
+  // the canvas's rotate cursor is the desktop's, from the repo's resources/.
+  server: { fs: { allow: ["../.."] } },
   fmt: {},
   lint: {
     jsPlugins: [{ name: "vite-plus", specifier: "vite-plus/oxlint-plugin" }],

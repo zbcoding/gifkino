@@ -30,6 +30,7 @@ vp run build     # wasm + bundle → dist/; ../build.sh assembles the site
 | `gifsicle/`          | gifsicle built for WASI (`build.sh`; the `.wasm` is committed) and run on stdin/stdout by `wasi.ts`. |
 | `ui/`                | Layout, header + menus, canvas view, transport, doc info, DOM helpers.                               |
 | `i18n.ts`            | `t(msgid)` / `tn(one, many, count)` / `fill(template, values)`; msgids are the desktop's.            |
+| `modals.ts`          | Canvas drag modifiers (desktop `keymap::Modal`/`Mods`): ids, defaults, `modsHeld`, `modsLabel`.      |
 | `slices.ts`          | The list of slice installers.                                                                        |
 
 ## Adding a slice
@@ -55,7 +56,7 @@ field or a hook that more than one slice needs, and keep such changes small.
   result (`Change | undefined`, `OverlayEdit`, …); act on it (select the new
   overlay, move the playhead) with `app.update`. Errors reject.
 - Read-only calls (`overlayAt`, `dragOverlay`) use `app.query(method, ...args)`:
-  no snapshot, no refresh. The module's free functions (`handleAt`,
+  no snapshot, no refresh. The module's free functions (`handleAt`, `contains`,
   `orientedCorners`, `fitCanvas`, `delaysForFps`) run in the worker too, via
   `app.compute(name, ...args)`; the page never loads the wasm itself.
 - Live drag previews (`setOverlayTransformLive`) go through `dispatch` so the
@@ -90,6 +91,7 @@ field or a hook that more than one slice needs, and keep such changes small.
 | `app.registerCanvasLayer({ id, order, draw?, pointer? })`                           | Canvas overlay. `draw(ctx, view, state)` in CSS px; `pointer(event, phase, view)` returns `true` to take the event (highest `order` first; a taken `down` captures the pointer). `view.scale` is screen px per image px; `view.toImage(event.offsetX, event.offsetY)` / `view.toScreen(x, y)` convert. Call `app.redrawCanvas()` after changing what a layer draws without a state change; any state change redraws. |
 | `app.registerImporter({ accept, matches, load })`                                   | Open path for other file kinds (video): `load(file, report)` returns a `FrameSource` (`rgba` frames, transferred). Registered importers win over the built-in GIF/image one.                                                                                                                                                                                                                                         |
 | `app.shortcutFor = (commandId) => chord \| null`                                    | Keybindings: tooltips and menu accels read it.                                                                                                                                                                                                                                                                                                                                                                       |
+| `app.modifiersFor = (modal) => Mods`                                                | Keybindings: the modifiers held during a canvas drag, by desktop `Modal::id` (`canvas-rotate`, `canvas-keep-aspect`, `canvas-from-center`; `MODALS` in `modals.ts`). Defaults Alt, Shift, Ctrl. The canvas reads it on every press and motion, the grip tooltips on every hover.                                                                                                                                     |
 | `app.toast(message, { undo? })`                                                     | Transient message. `undo: true` adds the Undo button an edit's toast carries (desktop `Msg::Toast`); leave it off for feedback with nothing to undo (`Msg::Notice`, e.g. "3 frames copied").                                                                                                                                                                                                                         |
 | `app.toastChange(change, total?)`                                                   | Desktop `toast_if_document_wide`: toasts "{change} on {count} frames" with Undo when `change.framesTouched >= total` (the frame count before the edit); without `total` always (a splice). `undefined` change: nothing.                                                                                                                                                                                              |
 | `alertDialog({ title, body, content, responses, close, default })` (`ui/dialog.ts`) | `adw::AlertDialog` as a modal `<dialog>`; `.answer` resolves with the response id, `.setEnabled(id, on)`.                                                                                                                                                                                                                                                                                                            |
@@ -139,6 +141,24 @@ replaces the selection. The right-click menus run the frame-op commands above
 and the overlay slice's `overlay-copy-all`, `overlay-copy-selected`,
 `overlay-delete`. Keyboard-only commands: `select-all`, `strip-zoom-in`,
 `strip-zoom-out`, `strip-zoom-reset` (Ctrl+wheel over the strip zooms too).
+
+## Overlays and crop (`overlays/`)
+
+The rail (text, the rect/ellipse/arrow split button, crop, snap), the canvas
+layer (order 10: pick, move, corner resize, rotate, snap guides, crop box), and
+the sidebar groups "Overlays on this frame" (order 10), "Properties" (20),
+"Overlay" (30) and "Crop / zoom" (40). `state.activeTool === "crop"` is the
+crop tool armed; picking an overlay anywhere (`selectedOverlay` set) disarms it.
+Escape backs out of the crop tool, else drops the pick.
+
+| Id                                                             | Desktop                                                                     |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `tool-text`, `tool-rectangle`, `tool-ellipse`, `tool-arrow`    | Tool keys: add that overlay under the scope. Tools may share a key: cycle.  |
+| `tool-crop`, `toggle-snap`                                     | Crop tool on/off; snapping to the canvas edges and centre lines on/off      |
+| `insert-text`, `insert-rect`, `insert-ellipse`, `insert-arrow` | Insert menu                                                                 |
+| `zoom-to-selection`                                            | "Zoom this frame": the crop box blown up on the scope                       |
+| `optimize-crop`, `optimize-zoom-all`                           | Image ▸ Crop frames… / Zoom and resize all frames (needs a crop box)        |
+| `overlay-copy-all`, `overlay-copy-selected`, `overlay-delete`  | Band menu on the picked overlay: copy to every frame / to the scope, delete |
 
 ## Conventions
 

@@ -3,6 +3,7 @@
 
 import type { App } from "./app";
 import { install as frameops } from "./frameops";
+import { install as overlays } from "./overlays";
 import { install as strip } from "./strip";
 
-export const slices: ((app: App) => void)[] = [frameops, strip];
+export const slices: ((app: App) => void)[] = [frameops, strip, overlays];

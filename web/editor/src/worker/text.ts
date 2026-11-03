@@ -4,7 +4,7 @@
 import type { TextOverlay } from "../wasm/gifkino_wasm.js";
 
 /** Pango style words, lowercased, and the CSS `font` keyword each becomes. */
-const STYLE_WORDS: Record<string, string> = {
+export const STYLE_WORDS: Record<string, string> = {
   italic: "italic",
   oblique: "oblique",
   "small-caps": "small-caps",

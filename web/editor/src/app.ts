@@ -3,6 +3,8 @@
 
 import { runGifsicle } from "./gifsicle";
 import { fill, t } from "./i18n";
+import { DEFAULT_MODIFIERS } from "./modals";
+import type { Modal, Mods } from "./modals";
 import type { Client, RequestOptions } from "./rpc";
 import { edited, initialState, opened, Store } from "./state";
 import type { AppState } from "./state";
@@ -104,6 +106,8 @@ export class App {
   readonly importers: Importer[] = [];
   /** Keybinding seam: the chord shown beside a command, e.g. "Ctrl+Z". */
   shortcutFor: (commandId: string) => string | null = () => null;
+  /** Keybinding seam: the modifiers that turn a canvas drag into a rotate, keep-aspect or from-centre drag. */
+  modifiersFor: (modal: Modal) => Mods = (modal) => DEFAULT_MODIFIERS[modal];
   /** Set by the canvas view: repaint the overlay layers. */
   redrawCanvas: () => void = () => {};
   /** Set by the layout: show a transient message; `undo` adds the edit toast's Undo button. */
@@ -188,7 +192,7 @@ export class App {
     return value as MethodResult<M>;
   }
 
-  /** One of the module's free functions: `orientedCorners`, `handleAt`, `fitCanvas`, `delaysForFps`. */
+  /** One of the module's free functions: `orientedCorners`, `handleAt`, `contains`, `fitCanvas`, `delaysForFps`. */
   async compute<F extends FreeFunction>(
     name: F,
     ...args: Parameters<FreeFunctions[F]>
