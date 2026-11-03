@@ -18,7 +18,7 @@ jobs:
   test:
     runs-on: ubuntu-24.04
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
     - name: Install GTK development packages
       run: |
         sudo apt-get update
@@ -42,7 +42,7 @@ jobs:
     env:
       APPIMAGE_EXTRACT_AND_RUN: 1   # the runners have no FUSE
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
     - name: Install GTK runtime, helper programs and packaging dependencies
       run: |
         sudo apt-get update
@@ -81,7 +81,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
     - name: Install flatpak-builder
       run: |
         sudo apt-get update
