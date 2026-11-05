@@ -12,6 +12,8 @@
 - Keybindings and settings are kept in browser storage, in the desktop's
   file formats; import and export of `keybindings.conf` are upload and
   download.
+- The website has an about, terms and privacy page at `/terms/`, linked
+  from the landing page's footer and the editor's About dialog.
 
 ### Fixes
 

@@ -13,6 +13,7 @@ import { actionRow, group } from "../ui/prefs";
 const REPOSITORY_URL = "https://github.com/zbcoding/gifkino";
 const ISSUES_URL = "https://github.com/zbcoding/gifkino/issues";
 const FEEDBACK_FORM_URL = "https://tally.so/r/A7kKVz";
+const TERMS_URL = "/terms/";
 /** The desktop app's version, so a release bumps `Cargo.toml` and nothing here. */
 const VERSION = /^version = "([^"]+)"/m.exec(cargoToml)?.[1] ?? "";
 
@@ -59,6 +60,13 @@ function showAbout(): void {
       t("Details"),
       factRow(t("Version"), VERSION),
       linkRow(t("Repository"), "github.com/zbcoding/gifkino", REPOSITORY_URL),
+      linkRow(
+        // Translators: About dialog row that opens the website's combined about, terms of use and privacy page.
+        t("Terms and privacy"),
+        // Translators: Subtitle of the row that opens the website's terms and privacy page.
+        t("Nothing you open leaves your device. For ages 13 and up."),
+        TERMS_URL,
+      ),
     ),
     group(
       t("Feedback"),

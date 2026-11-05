@@ -424,7 +424,7 @@ msgid "Keyboard shortcuts…"
 msgstr "キーボードショートカット…"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:250 src/ui/window/dialogs.rs:62 web/editor/src/about/index.ts:81
+#: src/ui/window/build.rs:250 src/ui/window/dialogs.rs:62 web/editor/src/about/index.ts:89
 #, fuzzy
 msgid "About"
 msgstr "このアプリについて"
@@ -815,57 +815,57 @@ msgid "{count} frames selected"
 msgstr "{count} フレームを選択中"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:83 web/editor/src/about/index.ts:59
+#: src/ui/window/dialogs.rs:83 web/editor/src/about/index.ts:60
 #, fuzzy
 msgid "Details"
 msgstr "詳細"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:84 web/editor/src/about/index.ts:60
+#: src/ui/window/dialogs.rs:84 web/editor/src/about/index.ts:61
 #, fuzzy
 msgid "Version"
 msgstr "バージョン"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:86 web/editor/src/about/index.ts:61
+#: src/ui/window/dialogs.rs:86 web/editor/src/about/index.ts:62
 #, fuzzy
 msgid "Repository"
 msgstr "リポジトリ"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:93 web/editor/src/about/index.ts:64
+#: src/ui/window/dialogs.rs:93 web/editor/src/about/index.ts:72
 #, fuzzy
 msgid "Feedback"
 msgstr "フィードバック"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:96 web/editor/src/about/index.ts:66
+#: src/ui/window/dialogs.rs:96 web/editor/src/about/index.ts:74
 #, fuzzy
 msgid "Report an issue on GitHub"
 msgstr "GitHub で問題を報告"
 
 #. Translators: Why this is the first of the two feedback rows.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:98 web/editor/src/about/index.ts:68
+#: src/ui/window/dialogs.rs:98 web/editor/src/about/index.ts:76
 #, fuzzy
 msgid "Tracked and answered. Needs a GitHub account."
 msgstr "記録され、回答されます。GitHub アカウントが必要です。"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:102 web/editor/src/about/index.ts:72
+#: src/ui/window/dialogs.rs:102 web/editor/src/about/index.ts:80
 #, fuzzy
 msgid "Quick feedback form"
 msgstr "簡単なフィードバックフォーム"
 
 #. Translators: The second feedback row, for a user with no account.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:104 web/editor/src/about/index.ts:74
+#: src/ui/window/dialogs.rs:104 web/editor/src/about/index.ts:82
 #, fuzzy
 msgid "About a minute, no account needed."
 msgstr "1分程度、アカウントは不要です。"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:110 web/editor/src/about/index.ts:42
+#: src/ui/window/dialogs.rs:110 web/editor/src/about/index.ts:43
 #, fuzzy
 msgid "Licenses"
 msgstr "ライセンス"
@@ -1081,7 +1081,7 @@ msgstr "まずストリップでフェードするフレームを選択してく
 
 #. Translators: Dismisses a dialog that only explains something.
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:700 src/ui/window/dialogs.rs:770 web/editor/src/about/index.ts:84 web/editor/src/frameops/dialogs.ts:20 web/editor/src/keys/dialog.ts:152 web/editor/src/settings/index.ts:109
+#: src/ui/window/dialogs.rs:700 src/ui/window/dialogs.rs:770 web/editor/src/about/index.ts:92 web/editor/src/frameops/dialogs.ts:20 web/editor/src/keys/dialog.ts:152 web/editor/src/settings/index.ts:109
 #, fuzzy
 msgid "Close"
 msgstr "閉じる"
@@ -1976,6 +1976,20 @@ msgstr "選択中の {count} フレームに適用"
 #, fuzzy
 msgid "Applies to {count} selected frames"
 msgstr "選択中の {count} フレームに適用"
+
+#. Translators: About dialog row that opens the website's combined about, terms of use and privacy page.
+#. AI-generated translation; human review requested.
+#: web/editor/src/about/index.ts:65
+#, fuzzy
+msgid "Terms and privacy"
+msgstr "利用規約とプライバシー"
+
+#. Translators: Subtitle of the row that opens the website's terms and privacy page.
+#. AI-generated translation; human review requested.
+#: web/editor/src/about/index.ts:67
+#, fuzzy
+msgid "Nothing you open leaves your device. For ages 13 and up."
+msgstr "開いたファイルが端末の外に出ることはありません。13 歳以上が対象です。"
 
 #. Translators: Undo button tooltip. {change} is the name of the edit, e.g. "Frames deleted".
 #. AI-generated translation; human review requested.

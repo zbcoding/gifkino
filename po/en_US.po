@@ -305,7 +305,7 @@ msgstr "Add frames from file…"
 msgid "Keyboard shortcuts…"
 msgstr "Keyboard shortcuts…"
 
-#: src/ui/window/build.rs:250 src/ui/window/dialogs.rs:62 web/editor/src/about/index.ts:81
+#: src/ui/window/build.rs:250 src/ui/window/dialogs.rs:62 web/editor/src/about/index.ts:89
 msgid "About"
 msgstr "About"
 
@@ -592,41 +592,41 @@ msgstr "{count} frame selected"
 msgid "{count} frames selected"
 msgstr "{count} frames selected"
 
-#: src/ui/window/dialogs.rs:83 web/editor/src/about/index.ts:59
+#: src/ui/window/dialogs.rs:83 web/editor/src/about/index.ts:60
 msgid "Details"
 msgstr "Details"
 
-#: src/ui/window/dialogs.rs:84 web/editor/src/about/index.ts:60
+#: src/ui/window/dialogs.rs:84 web/editor/src/about/index.ts:61
 msgid "Version"
 msgstr "Version"
 
-#: src/ui/window/dialogs.rs:86 web/editor/src/about/index.ts:61
+#: src/ui/window/dialogs.rs:86 web/editor/src/about/index.ts:62
 msgid "Repository"
 msgstr "Repository"
 
-#: src/ui/window/dialogs.rs:93 web/editor/src/about/index.ts:64
+#: src/ui/window/dialogs.rs:93 web/editor/src/about/index.ts:72
 msgid "Feedback"
 msgstr "Feedback"
 
-#: src/ui/window/dialogs.rs:96 web/editor/src/about/index.ts:66
+#: src/ui/window/dialogs.rs:96 web/editor/src/about/index.ts:74
 msgid "Report an issue on GitHub"
 msgstr "Report an issue on GitHub"
 
 #. Translators: Why this is the first of the two feedback rows.
-#: src/ui/window/dialogs.rs:98 web/editor/src/about/index.ts:68
+#: src/ui/window/dialogs.rs:98 web/editor/src/about/index.ts:76
 msgid "Tracked and answered. Needs a GitHub account."
 msgstr "Tracked and answered. Needs a GitHub account."
 
-#: src/ui/window/dialogs.rs:102 web/editor/src/about/index.ts:72
+#: src/ui/window/dialogs.rs:102 web/editor/src/about/index.ts:80
 msgid "Quick feedback form"
 msgstr "Quick feedback form"
 
 #. Translators: The second feedback row, for a user with no account.
-#: src/ui/window/dialogs.rs:104 web/editor/src/about/index.ts:74
+#: src/ui/window/dialogs.rs:104 web/editor/src/about/index.ts:82
 msgid "About a minute, no account needed."
 msgstr "About a minute, no account needed."
 
-#: src/ui/window/dialogs.rs:110 web/editor/src/about/index.ts:42
+#: src/ui/window/dialogs.rs:110 web/editor/src/about/index.ts:43
 msgid "Licenses"
 msgstr "Licenses"
 
@@ -776,7 +776,7 @@ msgid "Select the frames to fade across in the strip first: Shift+click for a ru
 msgstr "Select the frames to fade across in the strip first: Shift+click for a run, or pick All frames."
 
 #. Translators: Dismisses a dialog that only explains something.
-#: src/ui/window/dialogs.rs:700 src/ui/window/dialogs.rs:770 web/editor/src/about/index.ts:84 web/editor/src/frameops/dialogs.ts:20 web/editor/src/keys/dialog.ts:152 web/editor/src/settings/index.ts:109
+#: src/ui/window/dialogs.rs:700 src/ui/window/dialogs.rs:770 web/editor/src/about/index.ts:92 web/editor/src/frameops/dialogs.ts:20 web/editor/src/keys/dialog.ts:152 web/editor/src/settings/index.ts:109
 msgid "Close"
 msgstr "Close"
 
@@ -1396,6 +1396,16 @@ msgstr "Applies to {count} selected frame"
 #: src/ui/window/view.rs:641 web/editor/src/overlays/sidebar.ts:248
 msgid "Applies to {count} selected frames"
 msgstr "Applies to {count} selected frames"
+
+#. Translators: About dialog row that opens the website's combined about, terms of use and privacy page.
+#: web/editor/src/about/index.ts:65
+msgid "Terms and privacy"
+msgstr "Terms and privacy"
+
+#. Translators: Subtitle of the row that opens the website's terms and privacy page.
+#: web/editor/src/about/index.ts:67
+msgid "Nothing you open leaves your device. For ages 13 and up."
+msgstr "Nothing you open leaves your device. For ages 13 and up."
 
 #. Translators: Undo button tooltip. {change} is the name of the edit, e.g. "Frames deleted".
 #: web/editor/src/core.ts:51
