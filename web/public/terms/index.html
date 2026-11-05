@@ -4,9 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>About, terms and privacy — Gifkino</title>
-  <meta name="description" content="What the Gifkino website is, what it does with your data (nothing is stored), and the terms for using it.">
+  <meta name="description" content="What the Gifkino website is, what it does with your data (your files are never stored or collected), and the terms for using it.">
   <link rel="icon" href="/images/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
+  <script type="module" src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "e4caa151c27d4c4a94482746d433fd28"}'></script>
 </head>
 <body>
   <header>
@@ -17,20 +18,20 @@
 
   <main>
     <h2>About</h2>
-    <p>Gifkino is a free, open-source GIF editor made by one developer, zbcoding (“I”, “me”). This website has a landing page and a browser version of the editor at <a href="/edit/">/edit/</a>. It is hosted on the <a href="https://internetcomputer.org">Internet Computer</a>, a public network run by independent node providers. The source code is on <a href="https://github.com/zbcoding/gifkino">GitHub</a> under the MIT licence.</p>
+    <p>Gifkino is a free, open-source GIF editor made by its developer(s). This website offers it to download and to use in the browser. It is hosted on the <a href="https://internetcomputer.org">Internet Computer</a>, a public network run by independent node providers. The source code is <a href="https://github.com/zbcoding/gifkino">public</a>.</p>
 
     <h2>Privacy</h2>
-    <p><strong>No data about you is stored or collected.</strong></p>
+    <p><strong>Your files and edits are never stored or collected.</strong></p>
     <ul>
       <li><strong>Your files stay on your device.</strong> GIFs, videos and images you open are processed inside your browser. They are never uploaded to this website or anywhere else.</li>
-      <li><strong>No accounts, cookies, analytics, ads or trackers.</strong></li>
-      <li><strong>Settings stay in your browser.</strong> The editor keeps your settings and keybindings in your browser's local storage so they survive a reload. They never leave your device; clearing the site's data deletes them.</li>
+      <li><strong>Settings stay in your browser.</strong> The editor keeps your preferences in your browser's storage so they survive a reload. They never leave your device; clearing the site's data deletes them.</li>
+      <li><strong>Visits are counted with privacy-focused analytics</strong>, currently <a href="https://www.cloudflare.com/web-analytics/">Cloudflare Web Analytics</a>. When a page loads, it reports basic information about the visit, such as the page, the referring site, and your browser and device type, to the analytics provider, which also sees your IP address. The developer(s) see only totals, such as visits per page and per country. Cloudflare states that Web Analytics uses no cookies, does not fingerprint visitors and does not track them across sites; see <a href="https://www.cloudflare.com/privacypolicy/">Cloudflare's privacy policy</a>.</li>
     </ul>
-    <p>Some services outside my control see your requests when you use the site:</p>
+    <p>Some services outside the developers' control see your requests when you use the site:</p>
     <ul>
-      <li><strong>The Internet Computer's HTTP gateways</strong> deliver these pages and, like any web server, receive your IP address and the addresses you request. They are operated by the network, not by me.</li>
-      <li><strong>jsDelivr or unpkg</strong> serve the video decoder (ffmpeg) the first time you import a video, after asking you.</li>
-      <li><strong>GitHub and Tally</strong> receive what you send them if you follow the “Report an issue” or “Quick feedback form” links.</li>
+      <li><strong>The network that hosts the site</strong> delivers these pages and, like any web server, receives your IP address and the addresses you request.</li>
+      <li><strong>Content delivery networks</strong> serve some parts of the editor that are downloaded only when needed, such as the video decoder.</li>
+      <li><strong>Sites the website links to</strong>, such as the issue tracker or the feedback form, receive what you send them if you follow those links.</li>
     </ul>
     <p>Each of these has its own privacy policy.</p>
 
@@ -40,13 +41,13 @@
       <li><strong>You must be 13 or older</strong> to use this website.</li>
       <li><strong>Your content is your responsibility.</strong> Only edit and share material you have the right to use, and use the site lawfully.</li>
       <li><strong>No warranty.</strong> The website and the editor are provided “as is”, free of charge, without warranties of any kind. They may contain bugs, change or go offline at any time. Keep your own copies of anything that matters to you.</li>
-      <li><strong>No liability.</strong> To the fullest extent the law allows, neither I nor the operators of the Internet Computer network are liable for any loss or damage arising from your use of the website or the editor, including lost files, lost work, or anything you make or share with it.</li>
-      <li><strong>Licences.</strong> The software itself is covered by its open-source licences: Gifkino under MIT, FFmpeg (ffmpeg.wasm) under GPL-2.0-or-later and Gifsicle under GPL-2.0. These terms do not limit your rights under them.</li>
-      <li><strong>Changes.</strong> I may update this page. The date at the top shows the latest version.</li>
+      <li><strong>No liability.</strong> To the fullest extent the law allows, neither the developer(s) nor the operators of the Internet Computer network are liable for any loss or damage arising from your use of the website or the editor, including lost files, lost work, or anything you make or share with it.</li>
+      <li><strong>Licences.</strong> Gifkino and the open-source components it uses are covered by their own licences, listed in the editor's About dialog. These terms do not limit your rights under them.</li>
+      <li><strong>Changes.</strong> The developer(s) may update this page. The date at the top shows the latest version.</li>
     </ul>
 
     <h2>Contact</h2>
-    <p>Questions go to the <a href="https://github.com/zbcoding/gifkino/issues">issue tracker on GitHub</a>.</p>
+    <p>Questions go to the project's <a href="https://github.com/zbcoding/gifkino/issues">issue tracker</a>.</p>
   </main>
 
   <footer>

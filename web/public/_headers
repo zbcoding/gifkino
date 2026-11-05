@@ -1,10 +1,12 @@
 # connect-src: ffmpeg.wasm's ~30 MB core comes from an npm CDN on the first video
 # import (unpkg if jsDelivr fails), checked against its expected SHA-256 before use.
+# static.cloudflareinsights.com / cloudflareinsights.com: Cloudflare Web Analytics'
+# beacon script and the endpoint it reports page views to.
 /*
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
-  Content-Security-Policy: default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; connect-src 'self' https://cdn.jsdelivr.net https://unpkg.com; img-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'none'; script-src 'self' 'wasm-unsafe-eval' https://static.cloudflareinsights.com; worker-src 'self'; connect-src 'self' https://cdn.jsdelivr.net https://unpkg.com https://cloudflareinsights.com; img-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
 
 /*.html
   Cache-Control: public, max-age=0, must-revalidate

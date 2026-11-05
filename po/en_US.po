@@ -35,7 +35,7 @@ msgstr "Open"
 msgid "Export GIF"
 msgstr "Export GIF"
 
-#: src/keymap.rs:127 src/ui/window/build.rs:228 src/ui/window/update.rs:233 web/editor/src/ui/layout.ts:112
+#: src/keymap.rs:127 src/ui/window/build.rs:228 src/ui/window/update.rs:233 web/editor/src/ui/layout.ts:121
 msgid "Undo"
 msgstr "Undo"
 
@@ -288,7 +288,7 @@ msgstr "The frame operation failed."
 msgid "Export"
 msgstr "Export"
 
-#: src/ui/window/build.rs:243 src/ui/window/build.rs:298 web/editor/src/ui/layout.ts:34
+#: src/ui/window/build.rs:243 src/ui/window/build.rs:298 web/editor/src/ui/layout.ts:35
 msgid "Open…"
 msgstr "Open…"
 
@@ -309,11 +309,11 @@ msgstr "Keyboard shortcuts…"
 msgid "About"
 msgstr "About"
 
-#: src/ui/window/build.rs:293 web/editor/src/ui/layout.ts:32
+#: src/ui/window/build.rs:293 web/editor/src/ui/layout.ts:33
 msgid "Open Image"
 msgstr "Open Image"
 
-#: src/ui/window/build.rs:294 web/editor/src/ui/layout.ts:33
+#: src/ui/window/build.rs:294 web/editor/src/ui/layout.ts:34
 msgid "Open a video or GIF to start editing"
 msgstr "Open a video or GIF to start editing"
 
@@ -660,7 +660,7 @@ msgstr "Remove this share of frames"
 msgid "frames"
 msgstr "frames"
 
-#: src/ui/window/dialogs.rs:188 src/ui/window/dialogs.rs:431 src/ui/window/dialogs.rs:543 src/ui/window/dialogs.rs:605 src/ui/window/dialogs.rs:650 src/ui/window/dialogs.rs:736 src/ui/window/dialogs.rs:794 src/ui/window/dialogs.rs:833 src/ui/window/imports.rs:83 src/ui/window/imports.rs:905 web/editor/src/frameops/dialogs.ts:14 web/editor/src/overlays/crop.ts:170 web/editor/src/overlays/font.ts:76 web/editor/src/ui/layout.ts:80 web/editor/src/video/dialog.ts:101 web/editor/src/video/ffmpeg.ts:47
+#: src/ui/window/dialogs.rs:188 src/ui/window/dialogs.rs:431 src/ui/window/dialogs.rs:543 src/ui/window/dialogs.rs:605 src/ui/window/dialogs.rs:650 src/ui/window/dialogs.rs:736 src/ui/window/dialogs.rs:794 src/ui/window/dialogs.rs:833 src/ui/window/imports.rs:83 src/ui/window/imports.rs:905 web/editor/src/frameops/dialogs.ts:14 web/editor/src/overlays/crop.ts:170 web/editor/src/overlays/font.ts:76 web/editor/src/ui/layout.ts:89 web/editor/src/video/dialog.ts:101 web/editor/src/video/ffmpeg.ts:47
 msgid "Cancel"
 msgstr "Cancel"
 
@@ -1398,12 +1398,12 @@ msgid "Applies to {count} selected frames"
 msgstr "Applies to {count} selected frames"
 
 #. Translators: About dialog row that opens the website's combined about, terms of use and privacy page.
-#: web/editor/src/about/index.ts:65
+#: web/editor/src/about/index.ts:65 web/editor/src/ui/layout.ts:42
 msgid "Terms and privacy"
 msgstr "Terms and privacy"
 
 #. Translators: Subtitle of the row that opens the website's terms and privacy page.
-#: web/editor/src/about/index.ts:67
+#: web/editor/src/about/index.ts:67 web/editor/src/ui/layout.ts:40
 msgid "Nothing you open leaves your device. For ages 13 and up."
 msgstr "Nothing you open leaves your device. For ages 13 and up."
 

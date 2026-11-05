@@ -13,7 +13,7 @@ import { actionRow, group } from "../ui/prefs";
 const REPOSITORY_URL = "https://github.com/zbcoding/gifkino";
 const ISSUES_URL = "https://github.com/zbcoding/gifkino/issues";
 const FEEDBACK_FORM_URL = "https://tally.so/r/A7kKVz";
-const TERMS_URL = "/terms/";
+export const TERMS_URL = "/terms/";
 /** The desktop app's version, so a release bumps `Cargo.toml` and nothing here. */
 const VERSION = /^version = "([^"]+)"/m.exec(cargoToml)?.[1] ?? "";
 

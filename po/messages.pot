@@ -18,7 +18,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: gifkino\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-05 21:36+0000\n"
+"POT-Creation-Date: 2026-11-05 21:45+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -36,7 +36,7 @@ msgstr ""
 msgid "Export GIF"
 msgstr ""
 
-#: src/keymap.rs:127 src/ui/window/build.rs:228 src/ui/window/update.rs:233 web/editor/src/ui/layout.ts:112
+#: src/keymap.rs:127 src/ui/window/build.rs:228 src/ui/window/update.rs:233 web/editor/src/ui/layout.ts:121
 msgid "Undo"
 msgstr ""
 
@@ -289,7 +289,7 @@ msgstr ""
 msgid "Export"
 msgstr ""
 
-#: src/ui/window/build.rs:243 src/ui/window/build.rs:298 web/editor/src/ui/layout.ts:34
+#: src/ui/window/build.rs:243 src/ui/window/build.rs:298 web/editor/src/ui/layout.ts:35
 msgid "Open…"
 msgstr ""
 
@@ -310,11 +310,11 @@ msgstr ""
 msgid "About"
 msgstr ""
 
-#: src/ui/window/build.rs:293 web/editor/src/ui/layout.ts:32
+#: src/ui/window/build.rs:293 web/editor/src/ui/layout.ts:33
 msgid "Open Image"
 msgstr ""
 
-#: src/ui/window/build.rs:294 web/editor/src/ui/layout.ts:33
+#: src/ui/window/build.rs:294 web/editor/src/ui/layout.ts:34
 msgid "Open a video or GIF to start editing"
 msgstr ""
 
@@ -655,7 +655,7 @@ msgstr ""
 msgid "frames"
 msgstr ""
 
-#: src/ui/window/dialogs.rs:188 src/ui/window/dialogs.rs:431 src/ui/window/dialogs.rs:543 src/ui/window/dialogs.rs:605 src/ui/window/dialogs.rs:650 src/ui/window/dialogs.rs:736 src/ui/window/dialogs.rs:794 src/ui/window/dialogs.rs:833 src/ui/window/imports.rs:83 src/ui/window/imports.rs:905 web/editor/src/frameops/dialogs.ts:14 web/editor/src/overlays/crop.ts:170 web/editor/src/overlays/font.ts:76 web/editor/src/ui/layout.ts:80 web/editor/src/video/dialog.ts:101 web/editor/src/video/ffmpeg.ts:47
+#: src/ui/window/dialogs.rs:188 src/ui/window/dialogs.rs:431 src/ui/window/dialogs.rs:543 src/ui/window/dialogs.rs:605 src/ui/window/dialogs.rs:650 src/ui/window/dialogs.rs:736 src/ui/window/dialogs.rs:794 src/ui/window/dialogs.rs:833 src/ui/window/imports.rs:83 src/ui/window/imports.rs:905 web/editor/src/frameops/dialogs.ts:14 web/editor/src/overlays/crop.ts:170 web/editor/src/overlays/font.ts:76 web/editor/src/ui/layout.ts:89 web/editor/src/video/dialog.ts:101 web/editor/src/video/ffmpeg.ts:47
 msgid "Cancel"
 msgstr ""
 
@@ -1393,12 +1393,12 @@ msgid "Applies to {count} selected frames"
 msgstr ""
 
 #. Translators: About dialog row that opens the website's combined about, terms of use and privacy page.
-#: web/editor/src/about/index.ts:65
+#: web/editor/src/about/index.ts:65 web/editor/src/ui/layout.ts:42
 msgid "Terms and privacy"
 msgstr ""
 
 #. Translators: Subtitle of the row that opens the website's terms and privacy page.
-#: web/editor/src/about/index.ts:67
+#: web/editor/src/about/index.ts:67 web/editor/src/ui/layout.ts:40
 msgid "Nothing you open leaves your device. For ages 13 and up."
 msgstr ""
 

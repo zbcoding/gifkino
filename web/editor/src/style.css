@@ -262,6 +262,11 @@ button.active {
   margin: 0 0 18px;
 }
 
+.welcome p.welcome-terms {
+  margin: 6px 0 0;
+  font-size: 0.875em;
+}
+
 .editor {
   flex: 1;
   display: flex;

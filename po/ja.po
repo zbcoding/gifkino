@@ -40,7 +40,7 @@ msgid "Export GIF"
 msgstr "GIF を書き出す"
 
 #. AI-generated translation; human review requested.
-#: src/keymap.rs:127 src/ui/window/build.rs:228 src/ui/window/update.rs:233 web/editor/src/ui/layout.ts:112
+#: src/keymap.rs:127 src/ui/window/build.rs:228 src/ui/window/update.rs:233 web/editor/src/ui/layout.ts:121
 #, fuzzy
 msgid "Undo"
 msgstr "元に戻す"
@@ -399,7 +399,7 @@ msgid "Export"
 msgstr "書き出す"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:243 src/ui/window/build.rs:298 web/editor/src/ui/layout.ts:34
+#: src/ui/window/build.rs:243 src/ui/window/build.rs:298 web/editor/src/ui/layout.ts:35
 #, fuzzy
 msgid "Open…"
 msgstr "開く…"
@@ -430,13 +430,13 @@ msgid "About"
 msgstr "このアプリについて"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:293 web/editor/src/ui/layout.ts:32
+#: src/ui/window/build.rs:293 web/editor/src/ui/layout.ts:33
 #, fuzzy
 msgid "Open Image"
 msgstr "画像を開く"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/build.rs:294 web/editor/src/ui/layout.ts:33
+#: src/ui/window/build.rs:294 web/editor/src/ui/layout.ts:34
 #, fuzzy
 msgid "Open a video or GIF to start editing"
 msgstr "動画または GIF を開いて編集を始めます"
@@ -915,7 +915,7 @@ msgid "frames"
 msgstr "フレーム"
 
 #. AI-generated translation; human review requested.
-#: src/ui/window/dialogs.rs:188 src/ui/window/dialogs.rs:431 src/ui/window/dialogs.rs:543 src/ui/window/dialogs.rs:605 src/ui/window/dialogs.rs:650 src/ui/window/dialogs.rs:736 src/ui/window/dialogs.rs:794 src/ui/window/dialogs.rs:833 src/ui/window/imports.rs:83 src/ui/window/imports.rs:905 web/editor/src/frameops/dialogs.ts:14 web/editor/src/overlays/crop.ts:170 web/editor/src/overlays/font.ts:76 web/editor/src/ui/layout.ts:80 web/editor/src/video/dialog.ts:101 web/editor/src/video/ffmpeg.ts:47
+#: src/ui/window/dialogs.rs:188 src/ui/window/dialogs.rs:431 src/ui/window/dialogs.rs:543 src/ui/window/dialogs.rs:605 src/ui/window/dialogs.rs:650 src/ui/window/dialogs.rs:736 src/ui/window/dialogs.rs:794 src/ui/window/dialogs.rs:833 src/ui/window/imports.rs:83 src/ui/window/imports.rs:905 web/editor/src/frameops/dialogs.ts:14 web/editor/src/overlays/crop.ts:170 web/editor/src/overlays/font.ts:76 web/editor/src/ui/layout.ts:89 web/editor/src/video/dialog.ts:101 web/editor/src/video/ffmpeg.ts:47
 #, fuzzy
 msgid "Cancel"
 msgstr "キャンセル"
@@ -1979,14 +1979,14 @@ msgstr "選択中の {count} フレームに適用"
 
 #. Translators: About dialog row that opens the website's combined about, terms of use and privacy page.
 #. AI-generated translation; human review requested.
-#: web/editor/src/about/index.ts:65
+#: web/editor/src/about/index.ts:65 web/editor/src/ui/layout.ts:42
 #, fuzzy
 msgid "Terms and privacy"
 msgstr "利用規約とプライバシー"
 
 #. Translators: Subtitle of the row that opens the website's terms and privacy page.
 #. AI-generated translation; human review requested.
-#: web/editor/src/about/index.ts:67
+#: web/editor/src/about/index.ts:67 web/editor/src/ui/layout.ts:40
 #, fuzzy
 msgid "Nothing you open leaves your device. For ages 13 and up."
 msgstr "開いたファイルが端末の外に出ることはありません。13 歳以上が対象です。"

@@ -2,6 +2,7 @@
 // (rail + canvas over the footer's transport, strip and bands; sidebar on the
 // right). Slots are filled from `app.panels`, sorted by `order`.
 
+import { TERMS_URL } from "../about";
 import type { App, Slot } from "../app";
 import { fill, t } from "../i18n";
 import { createCanvasView } from "./canvas";
@@ -32,6 +33,14 @@ export function createLayout(app: App): HTMLElement {
     h("h1", {}, t("Open Image")),
     h("p", {}, t("Open a video or GIF to start editing")),
     commandButton(app, "open", t("Open…"), "pill suggested"),
+    // People often land on /edit/ directly, past the landing page's footer link.
+    h(
+      "p",
+      { class: "welcome-terms dim" },
+      t("Nothing you open leaves your device. For ages 13 and up."),
+      h("br"),
+      h("a", { href: TERMS_URL, target: "_blank", rel: "noopener" }, t("Terms and privacy")),
+    ),
   );
 
   const editor = h(
