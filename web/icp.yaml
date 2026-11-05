@@ -1,7 +1,7 @@
 canisters:
   - name: frontend
     recipe:
-      type: "@dfinity/static-site@v0.4.2"
+      type: "@dfinity/static-site@v0.4.3"
       configuration:
         build:
           - ./build.sh
